@@ -224,6 +224,22 @@ ESQUEMA: dict[str, Campo] = {
     "crs.geografico": texto("CRS de consulta a servicios externos", no_vacio=True),
     "crs.reproyeccion_explicita": booleano("prohibir reproyecciones implícitas"),
 
+    # --- M00b ----------------------------------------------------------------
+    "proyecto_qgis.declaracion": ruta("declaración del árbol de grupos y capas"),
+    "proyecto_qgis.archivo": texto(
+        "archivo .qgz que produce el módulo", no_vacio=True,
+    ),
+    "proyecto_qgis.estilos": texto(
+        "directorio de estilos .qml del proyecto", no_vacio=True,
+    ),
+    "proyecto_qgis.titulo": texto("título del proyecto QGIS", no_vacio=True),
+    "proyecto_qgis.escribir_estilo_inicial": booleano(
+        "escribir el .qml por defecto cuando la capa aún no tiene estilo",
+    ),
+    "proyecto_qgis.detener_si_falta_capa": booleano(
+        "detener el módulo si una capa declarada no existe",
+    ),
+
     # --- M01 -----------------------------------------------------------------
     "punto_descarga.latitud": numero(
         "latitud del punto de descarga en grados decimales",

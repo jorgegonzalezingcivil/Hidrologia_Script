@@ -56,6 +56,11 @@ data/02_procesado/**
 data/03_SIG/**
 !data/03_SIG/**/
 !data/03_SIG/**/.gitkeep
+# Excepción: los estilos .qml no son un producto regenerable sino una decisión
+# del consultor. El M00b los crea una vez y nunca los sobrescribe, de modo que
+# perderlos significaría perder la simbología ajustada a mano. El .qgz sí se
+# excluye: se reconstruye por completo en cada ejecución del M00b.
+!data/03_SIG/proyecto/estilos/*.qml
 data/04_modelos/**
 !data/04_modelos/**/
 !data/04_modelos/**/.gitkeep

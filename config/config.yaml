@@ -44,6 +44,21 @@ crs:
   reproyeccion_explicita: true   # nunca reproyectar de forma implícita
 
 # -----------------------------------------------------------------------------
+# M00b - PROYECTO QGIS
+# El árbol de grupos y capas se declara aparte, en el archivo indicado en
+# 'declaracion'. El .qgz se regenera por completo en cada ejecución; la
+# simbología no vive dentro del proyecto sino en los .qml del directorio
+# 'estilos', de modo que los ajustes del consultor sobreviven a la regeneración.
+# -----------------------------------------------------------------------------
+proyecto_qgis:
+  declaracion: "config/proyecto_qgis.yaml"
+  archivo: "data/03_SIG/proyecto/estudio_hidrologico.qgz"
+  estilos: "data/03_SIG/proyecto/estilos"
+  titulo: "Estudio hidrológico"
+  escribir_estilo_inicial: true  # crea el .qml por defecto si aún no existe
+  detener_si_falta_capa: false   # true: una capa declarada ausente detiene el módulo
+
+# -----------------------------------------------------------------------------
 # M01 - PUNTO DE DESCARGA
 # -----------------------------------------------------------------------------
 punto_descarga:

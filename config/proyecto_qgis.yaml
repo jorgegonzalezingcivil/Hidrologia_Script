@@ -1,0 +1,244 @@
+# =============================================================================
+# DECLARACIÓN DEL PROYECTO QGIS  (insumo del M00b)
+# -----------------------------------------------------------------------------
+# Este archivo declara el árbol de grupos y capas del proyecto
+# estudio_hidrologico.qgz. El M00b lo reconstruye de forma determinista en cada
+# ejecución: el orden de los grupos y de las capas es exactamente el de este
+# archivo, y los patrones se resuelven en orden alfabético.
+#
+# CONTRATO DE NOMBRES. Las rutas declaradas aquí son el contrato que deben
+# respetar los módulos que producen cada capa. Si un módulo escribe su producto
+# con otro nombre, la capa no aparecerá en el proyecto y el M00b lo reportará.
+# Cambiar un nombre exige cambiarlo en los dos lugares.
+#
+# ESTILOS. Cada capa apunta a un .qml dentro del directorio declarado en
+# config.yaml (proyecto_qgis.estilos). Si el archivo no existe, el M00b escribe
+# el estilo por defecto de QGIS como punto de partida. Si existe, lo aplica sin
+# modificarlo: la simbología que el consultor ajuste en QGIS y guarde como .qml
+# sobrevive a cualquier regeneración del proyecto.
+#
+# ESTADO DE LAS CAPAS. Una capa declarada cuyo archivo aún no existe no es un
+# error: significa que el módulo que la produce todavía no se ha ejecutado. El
+# M00b la reporta como informativa y continúa.
+#
+# Tipos admitidos: vector | raster
+# =============================================================================
+
+version: 1
+
+grupos:
+
+  # ---------------------------------------------------------------------------
+  - nombre: "00 Referencia nacional"
+    expandido: false
+    visible: true
+    capas:
+      - id: subzonas_hidrograficas
+        nombre: "Subzonas hidrográficas"
+        tipo: vector
+        ruta: "data/referencia/sig/subzonas_hidrograficas.shp"
+        modulo: "referencia"
+        visible: false
+        estilo: "subzonas_hidrograficas.qml"
+
+      - id: catalogo_estaciones
+        nombre: "Catálogo Nacional de Estaciones"
+        tipo: vector
+        ruta: "data/referencia/sig/catalogo_estaciones.shp"
+        modulo: "referencia"
+        visible: false
+        estilo: "catalogo_estaciones.qml"
+
+  # ---------------------------------------------------------------------------
+  - nombre: "01 Insumos del usuario"
+    expandido: false
+    visible: true
+    # Se resuelven por patrón porque el nombre del archivo lo fija el consultor
+    # y queda declarado en MANIFIESTO.yaml, no aquí.
+    patrones:
+      - id: suelos
+        nombre: "Suelos"
+        tipo: vector
+        patron: "data/00_insumos_usuario/suelos/*.shp"
+        modulo: "usuario"
+        visible: false
+        estilo: "suelos.qml"
+
+      - id: cobertura
+        nombre: "Cobertura"
+        tipo: vector
+        patron: "data/00_insumos_usuario/cobertura/*.shp"
+        modulo: "usuario"
+        visible: false
+        estilo: "cobertura.qml"
+
+  # ---------------------------------------------------------------------------
+  - nombre: "02 Terreno"
+    expandido: true
+    visible: true
+    capas:
+      - id: dem_recortado
+        nombre: "DEM recortado"
+        tipo: raster
+        ruta: "data/03_SIG/raster/dem_recortado.tif"
+        modulo: "M02"
+        visible: true
+        estilo: "dem.qml"
+
+      - id: pendiente
+        nombre: "Pendiente"
+        tipo: raster
+        ruta: "data/03_SIG/raster/pendiente.tif"
+        modulo: "M10"
+        visible: false
+        estilo: "pendiente.qml"
+
+  # ---------------------------------------------------------------------------
+  - nombre: "03 Delimitación"
+    expandido: true
+    visible: true
+    capas:
+      - id: punto_descarga
+        nombre: "Punto de descarga"
+        tipo: vector
+        ruta: "data/03_SIG/vector/punto_descarga.shp"
+        modulo: "M01"
+        visible: true
+        estilo: "punto_descarga.qml"
+
+      - id: subzona_intersectada
+        nombre: "Subzona hidrográfica de la descarga"
+        tipo: vector
+        ruta: "data/03_SIG/vector/subzona_intersectada.shp"
+        modulo: "M01"
+        visible: false
+        estilo: "subzona_intersectada.qml"
+
+      - id: cuenca_preliminar
+        nombre: "Cuenca preliminar"
+        tipo: vector
+        ruta: "data/03_SIG/vector/cuenca_preliminar.shp"
+        modulo: "M02"
+        visible: true
+        estilo: "cuenca_preliminar.qml"
+
+      - id: envolvente
+        nombre: "Envolvente de la cuenca"
+        tipo: vector
+        ruta: "data/03_SIG/vector/envolvente.shp"
+        modulo: "M02"
+        visible: false
+        estilo: "envolvente.qml"
+
+      - id: area_influencia
+        nombre: "Área de influencia"
+        tipo: vector
+        ruta: "data/03_SIG/vector/area_influencia.shp"
+        modulo: "M02"
+        visible: true
+        estilo: "area_influencia.qml"
+
+  # ---------------------------------------------------------------------------
+  - nombre: "04 Estaciones"
+    expandido: true
+    visible: true
+    capas:
+      - id: estaciones_seleccionadas
+        nombre: "Estaciones seleccionadas"
+        tipo: vector
+        ruta: "data/03_SIG/vector/estaciones_seleccionadas.shp"
+        modulo: "M03"
+        visible: true
+        estilo: "estaciones_seleccionadas.qml"
+
+      - id: estaciones_descartadas
+        nombre: "Estaciones descartadas"
+        tipo: vector
+        ruta: "data/03_SIG/vector/estaciones_descartadas.shp"
+        modulo: "M03"
+        visible: false
+        estilo: "estaciones_descartadas.qml"
+
+  # ---------------------------------------------------------------------------
+  - nombre: "05 Precipitación"
+    expandido: false
+    visible: true
+    capas:
+      - id: zonificacion_pluviometrica
+        nombre: "Zonificación pluviométrica"
+        tipo: vector
+        ruta: "data/03_SIG/vector/zonificacion_pluviometrica.shp"
+        modulo: "M11"
+        visible: false
+        estilo: "zonificacion_pluviometrica.qml"
+    grupos:
+      - nombre: "Isoyetas por fase ENSO"
+        expandido: false
+        visible: false
+        # Una capa por fase ENSO y mes. La cantidad depende del estudio, de modo
+        # que se incorporan por patrón y no una por una.
+        patrones:
+          - id: isoyetas_enso
+            nombre: "Isoyetas ENSO"
+            tipo: raster
+            patron: "data/03_SIG/raster/isoyetas_enso_*.tif"
+            modulo: "M06"
+            visible: false
+            estilo: "isoyetas_precipitacion.qml"
+
+      - nombre: "Isoyetas de Pmáx 24 h por periodo de retorno"
+        expandido: false
+        visible: false
+        patrones:
+          - id: isoyetas_pmax
+            nombre: "Isoyetas Pmáx"
+            tipo: raster
+            patron: "data/03_SIG/raster/isoyetas_pmax_tr*.tif"
+            modulo: "M08"
+            visible: false
+            estilo: "isoyetas_pmax.qml"
+
+  # ---------------------------------------------------------------------------
+  - nombre: "06 Modelo hidrológico"
+    expandido: true
+    visible: true
+    capas:
+      - id: subcuencas
+        nombre: "Subcuencas"
+        tipo: vector
+        ruta: "data/03_SIG/vector/subcuencas.shp"
+        modulo: "M09"
+        visible: true
+        estilo: "subcuencas.qml"
+
+      - id: corrientes
+        nombre: "Corrientes"
+        tipo: vector
+        ruta: "data/03_SIG/vector/corrientes.shp"
+        modulo: "M09"
+        visible: true
+        estilo: "corrientes.qml"
+
+      - id: nodos_union
+        nombre: "Nodos de unión"
+        tipo: vector
+        ruta: "data/03_SIG/vector/nodos_union.shp"
+        modulo: "M09"
+        visible: false
+        estilo: "nodos_union.qml"
+
+      - id: numero_curva
+        nombre: "Número de curva"
+        tipo: raster
+        ruta: "data/03_SIG/raster/numero_curva.tif"
+        modulo: "M10"
+        visible: false
+        estilo: "numero_curva.qml"
+
+      - id: grupo_hidrologico
+        nombre: "Grupo hidrológico de suelo"
+        tipo: raster
+        ruta: "data/03_SIG/raster/grupo_hidrologico.tif"
+        modulo: "M10"
+        visible: false
+        estilo: "grupo_hidrologico.qml"
