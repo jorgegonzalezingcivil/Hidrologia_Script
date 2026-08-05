@@ -1,0 +1,352 @@
+# =============================================================================
+# CONFIGURACIÓN DEL ESTUDIO HIDROLÓGICO
+# -----------------------------------------------------------------------------
+# Único punto de edición de parámetros. Ningún módulo debe contener valores
+# embebidos. Toda decisión con margen técnico queda registrada aquí.
+# =============================================================================
+
+proyecto:
+  nombre: "Estudio Hidrológico - PLANTILLA"
+  contratante: ""
+  consultor: ""
+  anio_estudio: 2026            # controla el filtro de estaciones suspendidas
+  responsable: ""
+
+# -----------------------------------------------------------------------------
+# ENTORNOS DE EJECUCIÓN
+# Se adopta el esquema de doble entorno (ver CLAUDE.md, sección 3).
+# -----------------------------------------------------------------------------
+entornos:
+  qgis:
+    # DESVIACIÓN documentada respecto de CLAUDE.md, sección 3, que adopta el
+    # esquema LTR. Se declara la versión 4.2.0 instalada en la máquina, que no
+    # es LTR. Consecuencia asumida: los módulos SIG quedan expuestos a cambios
+    # de API en actualizaciones menores de la serie 4.x. La decisión y su
+    # justificación están registradas en MANIFIESTO.yaml.
+    version: "4.2.0"
+    es_ltr: false
+    python: "C:/Program Files/QGIS 4.2.0/bin/python-qgis.bat"
+    prefix_path: "C:/Program Files/QGIS 4.2.0/apps/qgis"
+  venv:
+    python: ".venv/Scripts/python.exe"
+
+software:
+  hec_hms:
+    ruta: "C:/Program Files/HEC/HEC-HMS/4.13"
+    version: "4.13"
+
+# -----------------------------------------------------------------------------
+# SISTEMA DE REFERENCIA
+# -----------------------------------------------------------------------------
+crs:
+  calculo: "EPSG:9377"           # MAGNA-SIRGAS / Origen Nacional CTM12
+  geografico: "EPSG:4326"        # solo consulta a servicios externos
+  reproyeccion_explicita: true   # nunca reproyectar de forma implícita
+
+# -----------------------------------------------------------------------------
+# M01 - PUNTO DE DESCARGA
+# -----------------------------------------------------------------------------
+punto_descarga:
+  latitud: null                  # grados decimales, EPSG:4326
+  longitud: null
+  nombre: "Descarga"
+
+# -----------------------------------------------------------------------------
+# M02 - MODELO DIGITAL DE TERRENO
+# -----------------------------------------------------------------------------
+dem:
+  fuente: "ALOS_PALSAR_RTC"
+  resolucion_m: 12.5
+  earthdata:
+    netrc: true                  # credenciales en ~/.netrc, nunca en este archivo
+  area_influencia:
+    metodo: "envolvente"         # envolvente del polígono delimitado
+    buffer_km: 1.0
+
+# -----------------------------------------------------------------------------
+# M03 - SELECCIÓN DE ESTACIONES
+# -----------------------------------------------------------------------------
+estaciones:
+  buffer_adicional_km: 1.0
+  categorias_por_variable:
+    precipitacion: [AM, CO, CP, PG, PM, SP, SS]
+    temperatura:   [AM, CO, CP, SP, SS]
+    evaporacion:   [AM, CO, CP]
+    caudal:        [LG, LM, RM]
+
+# -----------------------------------------------------------------------------
+# M04 - INGESTA IDEAM
+# -----------------------------------------------------------------------------
+ideam:
+  fuente_primaria: "socrata"     # socrata | dhime_zip
+  socrata:
+    dominio: "www.datos.gov.co"
+    token: ""                    # token de aplicación (gratuito). Vacío = sin token
+    limite_pagina: 50000
+    dataset_catalogo: "hp9r-jxuu"
+  dhime_zip:
+    patron_archivo: "*.csv"      # se descubre por patrón, nunca por nombre fijo
+    perfiles: "config/perfiles_ideam.yaml"
+  deduplicacion:
+    clave: [CodigoEstacion, Parametro, Fecha]
+    precedencia_aprobacion: [Definitivo, Preliminar]
+    reportar_conflictos: true
+  nivel_aprobacion:
+    usar_como_filtro: false      # marca informativa, no criterio de descarte
+  escala_temporal:
+    deteccion: "cruzada"         # mapeo de Parametro + espaciamiento modal
+    detener_si_discrepa: true
+  agregacion_diaria_a_mensual:
+    max_dias_faltantes: 3        # por encima de este valor el mes se marca nulo
+  precipitacion_mensual:
+    fuente_primaria: "mensual_ideam"
+    completar_con_agregacion_diaria: true
+    reporte_discrepancias: true
+
+# -----------------------------------------------------------------------------
+# M04b - SENSIBILIDAD DE LONGITUD DE SERIES
+# -----------------------------------------------------------------------------
+sensibilidad_series:
+  umbrales_anios: [10, 15, 20, 25, 30]
+  ventanas: [[1980, null], [1990, null], [2000, null]]   # null = año del estudio
+  anios_max_suspension: 5
+  umbral_adoptado_anios: null    # lo define el consultor tras revisar la matriz
+  ventana_adoptada: null
+
+# -----------------------------------------------------------------------------
+# M05 - PROCESAMIENTO DE PRECIPITACIÓN MENSUAL
+# Orden fijo: anómalos -> consistencia -> complemento
+# -----------------------------------------------------------------------------
+anomalos:
+  metodo: "IQR"                  # IQR | ER | ZSCORE
+  q1: 0.25                       # valores normativos, no calibrados manualmente
+  q3: 0.75
+  k_sigma: 3.0
+  zscore_umbral: 3.0
+  tratamiento: "marcar"          # marcar | drop | cap | imputar
+  aplicar_a_serie_maximos: false # NUNCA true: truncaría el dato de diseño
+
+consistencia:
+  metodos: [doble_masa, correlacion, pettitt, snht, mann_kendall, rachas]
+  correlacion_minima: 0.80
+  n_estaciones_vecinas: 5
+  descartar_bajo_umbral: true
+
+complemento:
+  metodos_evaluados: [regresion_vecinas, razon_normal, idw, knn, mice]
+  metodo_adoptado: null          # lo define el consultor
+  validacion_cruzada: true       # enmascarar datos conocidos y medir RMSE
+  k_vecinos: 5
+  valor_minimo: 0                # 0 para lluvia; null para temperatura
+  max_porcentaje_sintetico: 25   # advertir si se supera
+
+# -----------------------------------------------------------------------------
+# M05b - ENSO
+# -----------------------------------------------------------------------------
+enso:
+  url_oni: "https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt"
+  umbral_anomalia_c: 0.5
+  temporadas_consecutivas: 5
+  criterio: "consecutivo"        # consecutivo | no_consecutivo
+  base_anual: "calendario"       # calendario | hidrologico
+  elimina_registros: false       # invariante: ENSO nunca descarta datos
+
+# -----------------------------------------------------------------------------
+# M06 / M08 / M11 - INTERPOLACIÓN
+# -----------------------------------------------------------------------------
+interpolacion:
+  metodo: "IDW"                  # IDW | KRIGING | TIN | SPLINE
+  idw:
+    potencia: 2
+    radio_busqueda: null         # null = todos los puntos
+  resolucion_raster_m: 12.5
+  validacion_cruzada: true
+
+# -----------------------------------------------------------------------------
+# M07 - ANÁLISIS DE FRECUENCIA
+# -----------------------------------------------------------------------------
+frecuencia:
+  periodos_retorno: [2.33, 5, 10, 15, 25, 50, 100, 500]
+  distribuciones:
+    - normal
+    - lognormal2
+    - lognormal3
+    - gumbel_max
+    - gev
+    - pearson3
+    - logpearson3
+    - exponencial
+    - weibull
+    - gamma
+  ajuste: [momentos, momentos_l, maxima_verosimilitud]
+  pruebas: [ks, anderson_darling, chi2]
+  criterios_seleccion: [aic, bic]
+  distribucion_adoptada: null    # null = automática por criterio; o forzar una
+  outliers_altos_bajos: "bulletin17c"
+
+# -----------------------------------------------------------------------------
+# M11 - ZONIFICACIÓN PLUVIOMÉTRICA
+# -----------------------------------------------------------------------------
+zonificacion_pluviometrica:
+  diferencia_maxima_pct: 5.0
+  considerar_gradiente_altitudinal: true
+  ponderar_por_area: true
+
+# -----------------------------------------------------------------------------
+# M11c - FACTOR DE REDUCCIÓN POR ÁREA
+# -----------------------------------------------------------------------------
+arf:
+  aplicar: "evaluar"             # evaluar | forzar_si | forzar_no
+  tabla: "data/referencia/arf_invias.csv"
+  verificacion_analitica: true
+
+# -----------------------------------------------------------------------------
+# M12a - CURVAS IDF
+# -----------------------------------------------------------------------------
+idf:
+  metodologias: [invias, silva]
+  coeficientes_invias: "data/referencia/idf_coef_invias.csv"
+  consultar_idf_ideam: true
+  antiguedad_maxima_anios: 15    # advertir si la IDF publicada es más antigua
+  duraciones_min: [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 360, 720, 1440]
+
+cambio_climatico:
+  aplicar: true
+  fuente: "data/referencia/cc_comunicaciones.csv"
+  comunicacion: "cuarta"         # tercera | cuarta
+  escenarios: [rcp45, rcp85]
+  horizontes: ["2011-2040", "2041-2070", "2071-2100"]
+  # Regla condicional: si el factor proyecta disminución, NO se afecta el
+  # hietograma y se documenta la decisión como margen de seguridad.
+  solo_si_incremento: true
+
+# -----------------------------------------------------------------------------
+# M12b - HIETOGRAMA DE DISEÑO
+# -----------------------------------------------------------------------------
+tormenta:
+  duracion_h: 3.0
+  intervalo_calculo_min: 5       # Δt; se usa también en HEC-HMS y en tlag 'hechms'
+  metodo: "huff"
+  huff:
+    cuartil: 2
+    probabilidad_excedencia: 50
+    tabla: "data/referencia/huff_cuartiles.csv"
+  hipotesis_p24_a_pd:
+    - h1_directa                 # P3h = P24h
+    - h2_idf                     # integrando la IDF sobre la duración
+    - h3_factor                  # P3h = P24h * coeficiente documentado
+  hipotesis_adoptada: null       # lo define el consultor tras comparar
+  coeficiente_desagregacion:
+    valor: null
+    fuente: ""                   # obligatorio si se usa h3_factor
+  advertir_si_duracion_menor_tc: true
+
+# -----------------------------------------------------------------------------
+# M10 - CARACTERIZACIÓN
+# -----------------------------------------------------------------------------
+morfometria:
+  parametros:
+    geometria: [area, perimetro, longitud_axial, ancho_medio,
+                coef_forma, coef_compacidad]
+    relieve: [cota_max, cota_min, cota_media, desnivel_altitudinal,
+              curva_hipsometrica, pendiente_media_cuenca]
+    drenaje: [long_cauce_principal, pendiente_media_cauce, indice_sinuosidad,
+              orden_corrientes, densidad_drenaje, frecuencia_corrientes,
+              longitud_total_cauces, razon_bifurcacion]
+    respuesta: [tiempo_concentracion, tiempo_rezago, numero_curva,
+                grupo_hidrologico, tiempo_viaje]
+
+tiempo_concentracion:
+  tabla_aplicabilidad: "data/referencia/tc_aplicabilidad.csv"
+  filtrar_por_tipo_cuenca: true
+  valor_adoptado: "mediana"      # mediana del subconjunto aplicable
+  min_formulas_aplicables: 5     # por debajo: advertir, no adoptar automáticamente
+  cv_maximo_admisible: 0.60      # por encima: advertir
+  reportar_sensibilidad_caudal: true
+
+tiempo_rezago:
+  criterio: "scs"                # scs = 0.6*Tc | hechms = Δt/2 + 0.6*Tc
+  # Δt es el intervalo de cálculo (tormenta.intervalo_calculo_min),
+  # NO la duración total de la tormenta.
+  validar_coherencia_con_transform: true
+
+numero_curva:
+  condicion_humedad: "II"        # I | II | III
+  tabla_cn: "data/referencia/cn_scs.csv"
+  tabla_grupo_hidrologico: "data/referencia/hsg_textura.csv"
+  homologacion_suelos: "data/00_insumos_usuario/homologacion/suelos.csv"
+  homologacion_cobertura: "data/00_insumos_usuario/homologacion/cobertura.csv"
+  advertir_escala_incompatible: true
+
+# -----------------------------------------------------------------------------
+# M13 / M14 - MODELO HEC-HMS
+# -----------------------------------------------------------------------------
+hec_hms:
+  transform: "scs_uh"            # scs_uh | clark | snyder | modclark
+  loss: "scs_cn"
+  baseflow: "recession"
+  transito:
+    metodos: [muskingum, muskingum_cunge]
+    metodo_adoptado: "muskingum_cunge"
+    muskingum:
+      celeridad_ms: null
+    muskingum_cunge:
+      forma_seccion: "trapezoidal"
+      n_manning: null
+  control:
+    intervalo_min: 5             # debe coincidir con tormenta.intervalo_calculo_min
+
+calibracion:
+  activar_si_hay_series: true
+  fuente_caudales: [socrata, usuario]
+  metricas: [nash_sutcliffe, rmse, pbias, r2]
+
+# -----------------------------------------------------------------------------
+# M18 / M19 - BALANCE HÍDRICO
+# -----------------------------------------------------------------------------
+balance_hidrico:
+  activar: true
+  metodo: "budyko"
+  evapotranspiracion:
+    metodo: "turc"               # turc | thornthwaite | penman_monteith | cenicafe
+  infiltracion:
+    metodo: "scs"
+  contrastar_con_ena: true
+  ena_anio: 2022
+
+caudal_ambiental:
+  metodos: [q95, qirh]
+  umbral_irh: 0.7
+  cdc_si_irh_menor: 75           # porcentaje de la CDC
+  cdc_si_irh_mayor: 85
+  metodo_adoptado: "qirh"
+
+# -----------------------------------------------------------------------------
+# M15 / M16 / M17 - SALIDAS
+# -----------------------------------------------------------------------------
+informe:
+  plantilla: "templates/informe.dotx"
+  formato_figuras: "Ilustración"
+  formato_graficos: "Gráfico"
+  formato_tablas: "Tabla"
+  numeracion_por_capitulo: true
+
+cartografia:
+  plantillas_qpt: "templates/mapas"
+  escalas: [1000, 2000, 5000, 10000, 25000]
+  formato_salida: [pdf, png]
+  dpi: 300
+
+anexos:
+  estructura: "config/anexos.yaml"
+  verificar_completitud: true
+  calcular_hash: true
+
+# -----------------------------------------------------------------------------
+# EJECUCIÓN
+# -----------------------------------------------------------------------------
+ejecucion:
+  nivel_log: "INFO"
+  detener_en_advertencia: false
+  guardar_intermedios: true
+  semilla_aleatoria: 42

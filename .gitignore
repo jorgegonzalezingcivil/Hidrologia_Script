@@ -1,0 +1,102 @@
+# =============================================================================
+# .gitignore del repositorio de automatización de estudios hidrológicos
+# -----------------------------------------------------------------------------
+# Criterio: se versiona el código, la configuración, la doctrina técnica y las
+# plantillas. No se versiona lo que se puede volver a descargar, lo que se
+# regenera al ejecutar un módulo, ni lo que pesa tanto que haría inmanejable el
+# repositorio.
+# =============================================================================
+
+# --- Entornos e intérpretes --------------------------------------------------
+.venv/
+venv/
+env/
+*.egg-info/
+
+# --- Artefactos de Python ----------------------------------------------------
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Instaladores y binarios que no pertenecen al proyecto -------------------
+*.msi
+*.exe
+!setup_estructura.py
+
+# --- Logs de ejecución -------------------------------------------------------
+# Cada corrida escribe su propio archivo. Son evidencia del estudio, pero se
+# conservan con la entrega, no en el historial de versiones.
+logs/*
+!logs/.gitkeep
+
+# -----------------------------------------------------------------------------
+# Directorios de datos: se excluye el contenido pero se conserva la estructura.
+#
+# La regla `!<dir>/**/` es imprescindible. Git no desciende a un directorio
+# excluido, de modo que sin ella los .gitkeep de los subdirectorios nunca se
+# evaluarían y la estructura no sobreviviría a un clon.
+# -----------------------------------------------------------------------------
+
+# --- Datos descargados -------------------------------------------------------
+# Se pueden volver a obtener del IDEAM, de ASF y de la NOAA. El módulo que los
+# descarga registra la consulta y la fecha, que es lo que sí queda versionado.
+data/01_crudos/**
+!data/01_crudos/**/
+!data/01_crudos/**/.gitkeep
+
+# --- Productos intermedios y resultados generados ---------------------------
+data/02_procesado/**
+!data/02_procesado/**/
+!data/02_procesado/**/.gitkeep
+data/03_SIG/**
+!data/03_SIG/**/
+!data/03_SIG/**/.gitkeep
+data/04_modelos/**
+!data/04_modelos/**/
+!data/04_modelos/**/.gitkeep
+data/05_resultados/**
+!data/05_resultados/**/
+!data/05_resultados/**/.gitkeep
+outputs/**
+!outputs/**/
+!outputs/**/.gitkeep
+
+# --- Insumos aportados por el usuario ---------------------------------------
+# Pueden ser pesados y suelen estar sujetos a las condiciones de uso de quien
+# los entrega. Se versiona el MANIFIESTO.yaml, que los declara, y las tablas de
+# homologación diligenciadas, que son decisiones del consultor.
+data/00_insumos_usuario/**
+!data/00_insumos_usuario/**/
+!data/00_insumos_usuario/**/.gitkeep
+!data/00_insumos_usuario/MANIFIESTO.yaml
+!data/00_insumos_usuario/homologacion/*.csv
+
+# --- Excepciones: sí se versionan -------------------------------------------
+# La doctrina técnica de data/referencia/ y las plantillas de templates/ son
+# parte del repositorio y no están excluidas por ninguna regla anterior.
+
+# --- Configuración local de herramientas -------------------------------------
+# Ajustes propios de la máquina del consultor, no del estudio.
+.claude/settings.local.json
+.vscode/
+.idea/
+
+# --- Archivos temporales de ofimática y del sistema --------------------------
+~$*.doc*
+~$*.xls*
+~$*.ppt*
+*.tmp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# --- Credenciales ------------------------------------------------------------
+# El token de Socrata y las credenciales de Earthdata nunca van al repositorio.
+.netrc
+.env
+*.secret

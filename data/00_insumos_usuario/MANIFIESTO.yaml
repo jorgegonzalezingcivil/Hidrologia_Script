@@ -1,0 +1,99 @@
+# =============================================================================
+# MANIFIESTO DE INSUMOS DEL USUARIO
+# -----------------------------------------------------------------------------
+# Declaración de los insumos aportados para el estudio. El módulo M00c valida
+# este archivo antes de cualquier procesamiento y su contenido se transcribe al
+# capítulo de Información Base del informe y al anexo correspondiente.
+#
+# Estados posibles del reporte de M00c:
+#   BLOQUEANTE   falta un insumo obligatorio según los módulos habilitados
+#   ADVERTENCIA  el insumo existe pero su cobertura, escala o CRS es cuestionable
+#   INFORMATIVO  registro para trazabilidad
+# =============================================================================
+
+suelos:
+  aportado: false
+  archivo: ""                    # ruta relativa a data/00_insumos_usuario/suelos/
+  tipo: ""                       # shapefile | raster
+  perfil: ""                     # A | B | C | D  (ver CLAUDE.md)
+                                 # A: trae grupo hidrológico asignado (A,B,C,D)
+                                 # B: IGAC con textura, profundidad y drenaje
+                                 # C: codificación propia (UCS, símbolo, leyenda)
+                                 # D: ráster con valores a reclasificar
+  campo_clave: ""                # campo con el atributo a homologar
+  fuente: ""                     # IGAC, estudio de suelos del proyecto, otro
+  fecha: ""
+  escala: ""                     # 1:25000, 1:100000, etc.
+  crs_declarado: ""
+  observaciones: ""
+
+cobertura:
+  aportado: false
+  archivo: ""
+  tipo: ""                       # shapefile | raster
+  campo_clave: ""
+  fuente: ""                     # cobertura del proyecto | Corine Land Cover | otro
+  fecha: ""
+  escala: ""
+  crs_declarado: ""
+  observaciones: ""
+  # Si no se aporta, el sistema recorta Corine Land Cover al área de influencia.
+  # Si tampoco está disponible, el CN se asigna por criterio del consultor con
+  # registro explícito.
+
+caudales:
+  aportado: false
+  origen: ""                     # ideam | cliente
+  archivos: []
+  estaciones:
+    # Una entrada por estación. La ubicación y el tipo de dato son obligatorios:
+    # un caudal sin sección asociada no sirve para calibrar.
+    - codigo: ""
+      nombre: ""
+      latitud: null
+      longitud: null
+      tipo_dato: ""              # nivel | caudal | aforo_puntual
+      periodo_inicio: ""
+      periodo_fin: ""
+      seccion_aforo: ""          # descripción o coordenada de la sección
+      fuente: ""
+  observaciones: ""
+
+homologacion:
+  # Tablas generadas por el sistema y diligenciadas por el consultor.
+  # El M00c se detiene si aparecen valores sin homologar.
+  suelos:
+    archivo: "homologacion/suelos.csv"
+    diligenciada: false
+    fecha: ""
+    responsable: ""
+  cobertura:
+    archivo: "homologacion/cobertura.csv"
+    diligenciada: false
+    fecha: ""
+    responsable: ""
+
+# -----------------------------------------------------------------------------
+# REGISTRO DE DECISIONES DEL CONSULTOR
+# Cada decisión con margen técnico debe quedar aquí con su justificación.
+# -----------------------------------------------------------------------------
+decisiones:
+  - tema: "versión de QGIS del entorno SIG"
+    valor: "QGIS 4.2.0 (no LTR)"
+    justificacion: >-
+      CLAUDE.md, sección 3, adopta el esquema LTR. Se declara la versión 4.2.0
+      instalada en la máquina de trabajo, que no es LTR. Consecuencia asumida:
+      los módulos SIG (M01, M02, M06, M08, M11, M16) quedan expuestos a cambios
+      de API en actualizaciones menores de la serie 4.x, que se ejecuta sobre
+      Qt6 y rompe compatibilidad con la serie 3.x. Mitigación: no actualizar
+      QGIS durante la ejecución del estudio y dejar registrada aquí la versión
+      con la que se produjo cada entrega.
+    fecha: "2026-08-05"
+    responsable: ""              # pendiente de diligenciar
+
+  # Plantilla para las siguientes decisiones:
+  # - tema: ""                   # p.ej. "umbral de longitud de serie"
+  #   valor: ""
+  #   justificacion: ""
+  #   fecha: ""
+  #   responsable: ""

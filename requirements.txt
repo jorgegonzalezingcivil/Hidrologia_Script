@@ -1,0 +1,11 @@
+# Dependencias del venv del proyecto (CLAUDE.md, sección 3).
+#
+# El paquete src/comun (M00) se limita de forma deliberada a la librería
+# estándar más PyYAML, que el Python de QGIS ya incluye. Esa restricción es la
+# que permite que los módulos SIG y los de análisis compartan una sola
+# implementación de configuración, rutas y logging.
+#
+# Las dependencias de los módulos de análisis se agregan a medida que cada uno
+# se programa, no antes.
+
+pyyaml==6.0.2
