@@ -1,0 +1,26 @@
+# =============================================================================
+# COMPATIBILIDAD ENTRE LA ESCALA DEL ESTUDIO DE SUELOS Y EL AREA DE LA CUENCA
+# -----------------------------------------------------------------------------
+# Doctrina tecnica usada por el M00c. CLAUDE.md, seccion 7, advierte que la
+# escala del shape de suelos debe ser compatible con el area de la cuenca: un
+# levantamiento 1:100.000 sobre una cuenca de 5 km2 asigna un solo poligono a
+# toda la cuenca y el numero de curva resultante no tiene sustento.
+#
+# denominador_maximo es el denominador de escala mas grueso admisible para el
+# rango de area. Si el consultor declara en MANIFIESTO.yaml una escala con
+# denominador mayor, el M00c advierte.
+#
+# ADVERTENCIA: los valores de esta tabla son orientativos y la columna fuente
+# esta sin diligenciar. Mientras diga "por validar", el M00c emite una
+# advertencia adicional cada vez que la usa. El consultor debe reemplazarlos por
+# los del referente normativo que vaya a citar en el informe (IGAC, INVIAS u
+# otro) y consignar la fuente.
+#
+# Separador: punto y coma. Codificacion: UTF-8. Las lineas que comienzan con
+# almohadilla son comentarios.
+# =============================================================================
+area_min_km2;area_max_km2;denominador_maximo;fuente;observaciones
+0;10;10000;por validar;levantamiento detallado
+10;100;25000;por validar;levantamiento semidetallado
+100;1000;100000;por validar;levantamiento general
+1000;;100000;por validar;levantamiento general o mas grueso segun disponibilidad

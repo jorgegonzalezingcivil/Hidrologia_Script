@@ -224,6 +224,25 @@ ESQUEMA: dict[str, Campo] = {
     "crs.geografico": texto("CRS de consulta a servicios externos", no_vacio=True),
     "crs.reproyeccion_explicita": booleano("prohibir reproyecciones implícitas"),
 
+    # --- M00c ----------------------------------------------------------------
+    "insumos_usuario.manifiesto": ruta("manifiesto de insumos del usuario"),
+    "insumos_usuario.generar_homologacion": booleano(
+        "generar las tablas de homologación a partir del insumo",
+    ),
+    "insumos_usuario.delimitador_csv": texto(
+        "separador de las tablas de homologación", opciones=(";", ",", "\t"),
+    ),
+    "insumos_usuario.tabla_escala_area": ruta(
+        "tabla de compatibilidad entre escala de suelos y área de cuenca",
+    ),
+    "insumos_usuario.cuenca_referencia": texto(
+        "cuenca contra la cual se verifica la escala", no_vacio=True,
+    ),
+    "insumos_usuario.max_valores_homologacion": entero(
+        "número máximo de valores únicos admitidos en una tabla de homologación",
+        minimo=1, maximo=100000,
+    ),
+
     # --- M00b ----------------------------------------------------------------
     "proyecto_qgis.declaracion": ruta("declaración del árbol de grupos y capas"),
     "proyecto_qgis.archivo": texto(

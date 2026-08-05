@@ -44,6 +44,19 @@ crs:
   reproyeccion_explicita: true   # nunca reproyectar de forma implícita
 
 # -----------------------------------------------------------------------------
+# M00c - VERIFICACIÓN DE INSUMOS DEL USUARIO
+# Las rutas internas del manifiesto se resuelven contra el directorio del propio
+# manifiesto, no contra la raíz del repositorio.
+# -----------------------------------------------------------------------------
+insumos_usuario:
+  manifiesto: "data/00_insumos_usuario/MANIFIESTO.yaml"
+  generar_homologacion: true     # crea la tabla con los valores únicos del insumo
+  delimitador_csv: ";"           # separador de las tablas de homologación
+  tabla_escala_area: "data/referencia/escala_area_suelos.csv"
+  cuenca_referencia: "data/03_SIG/vector/cuenca_preliminar.shp"
+  max_valores_homologacion: 500  # por encima, la tabla deja de ser diligenciable
+
+# -----------------------------------------------------------------------------
 # M00b - PROYECTO QGIS
 # El árbol de grupos y capas se declara aparte, en el archivo indicado en
 # 'declaracion'. El .qgz se regenera por completo en cada ejecución; la

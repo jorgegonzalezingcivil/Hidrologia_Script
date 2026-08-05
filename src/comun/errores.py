@@ -23,6 +23,7 @@ __all__ = [
     "ErrorConfiguracion",
     "ErrorClaveInexistente",
     "ErrorValidacion",
+    "ErrorFormato",
 ]
 
 
@@ -36,6 +37,16 @@ class ErrorEntorno(ErrorHidrologia):
 
 class ErrorRutas(ErrorHidrologia):
     """No se pudo resolver la raíz del proyecto o una ruta declarada."""
+
+
+class ErrorFormato(ErrorHidrologia):
+    """
+    Un archivo de datos no cumple el formato que declara su extensión.
+
+    Se usa para los insumos externos, cuyo formato el repositorio no controla:
+    shapefiles truncados, .dbf con cabecera inconsistente, tablas con columnas
+    que no corresponden. Detener es preferible a interpretar bytes al azar.
+    """
 
 
 class ErrorConfiguracion(ErrorHidrologia):
