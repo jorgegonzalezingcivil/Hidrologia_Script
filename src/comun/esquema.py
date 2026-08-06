@@ -260,15 +260,45 @@ ESQUEMA: dict[str, Campo] = {
     ),
 
     # --- M01 -----------------------------------------------------------------
-    "punto_descarga.latitud": numero(
-        "latitud del punto de descarga en grados decimales",
-        permite_nulo=True, minimo=-90, maximo=90,
-    ),
-    "punto_descarga.longitud": numero(
-        "longitud del punto de descarga en grados decimales",
-        permite_nulo=True, minimo=-180, maximo=180,
-    ),
     "punto_descarga.nombre": texto("rótulo del punto de descarga"),
+    "punto_descarga.crs": texto(
+        "CRS en que están expresadas las coordenadas del punto", no_vacio=True,
+    ),
+    "punto_descarga.x": numero(
+        "Este en CRS proyectado, longitud en CRS geográfico", permite_nulo=True,
+    ),
+    "punto_descarga.y": numero(
+        "Norte en CRS proyectado, latitud en CRS geográfico", permite_nulo=True,
+    ),
+    "subzonas_hidrograficas.archivo": ruta("capa de subzonas hidrográficas"),
+    "subzonas_hidrograficas.tolerancia_m": numero(
+        "distancia máxima admitida si el punto cae fuera de toda subzona",
+        minimo=0, maximo=50000,
+    ),
+    "subzonas_hidrograficas.campos.codigo_szh": texto(
+        "campo del código de subzona", no_vacio=True,
+    ),
+    "subzonas_hidrograficas.campos.nombre_szh": texto(
+        "campo del nombre de subzona", no_vacio=True,
+    ),
+    "subzonas_hidrograficas.campos.codigo_zh": texto(
+        "campo del código de zona", no_vacio=True,
+    ),
+    "subzonas_hidrograficas.campos.nombre_zh": texto(
+        "campo del nombre de zona", no_vacio=True,
+    ),
+    "subzonas_hidrograficas.campos.codigo_ah": texto(
+        "campo del código de área hidrográfica", no_vacio=True,
+    ),
+    "subzonas_hidrograficas.campos.nombre_ah": texto(
+        "campo del nombre de área hidrográfica", no_vacio=True,
+    ),
+    "subzonas_hidrograficas.salida_punto": texto(
+        "shapefile del punto de descarga", no_vacio=True,
+    ),
+    "subzonas_hidrograficas.salida_subzona": texto(
+        "shapefile de la subzona intersectada", no_vacio=True,
+    ),
 
     # --- M02 -----------------------------------------------------------------
     "dem.fuente": texto(
@@ -1179,22 +1209,70 @@ def _inv_resolucion_interpolacion(datos: dict) -> list[Hallazgo]:
     return []
 
 
+# CRS geográficos cuyas coordenadas el M00 puede verificar sin reproyectar. Para
+# cualquier otro, la comprobación de envolvente se difiere al M01, que corre
+# bajo QGIS y sí puede reproyectar.
+CRS_GEOGRAFICOS = ("EPSG:4326", "EPSG:4686", "EPSG:4269", "CRS:84")
+
+# Envolvente aproximada del territorio continental e insular colombiano.
+_ENVOLVENTE_COLOMBIA = (-82.0, -4.5, -66.5, 13.5)  # lon_min, lat_min, lon_max, lat_max
+
+
 def _inv_punto_descarga(datos: dict) -> list[Hallazgo]:
-    latitud = obtener(datos, "punto_descarga.latitud")
-    longitud = obtener(datos, "punto_descarga.longitud")
-    if latitud is None or longitud is None:
+    x = obtener(datos, "punto_descarga.x")
+    y = obtener(datos, "punto_descarga.y")
+    crs = str(obtener(datos, "punto_descarga.crs", "") or "").upper().replace(" ", "")
+
+    if x is None or y is None:
         return [Hallazgo(
             ADVERTENCIA, "punto_descarga",
             "el punto de descarga está sin definir. El M01 y toda la cadena "
             "aguas abajo no pueden ejecutarse hasta que se declare.",
         )]
+
     hallazgos: list[Hallazgo] = []
-    # Envolvente aproximada del territorio continental e insular colombiano.
-    if not (-4.5 <= latitud <= 13.5) or not (-82.0 <= longitud <= -66.5):
+
+    if crs in CRS_GEOGRAFICOS:
+        lon_min, lat_min, lon_max, lat_max = _ENVOLVENTE_COLOMBIA
+
+        if abs(x) > 180 or abs(y) > 90:
+            return [Hallazgo(
+                BLOQUEANTE, "punto_descarga",
+                f"el CRS declarado ({crs}) es geográfico y las coordenadas "
+                f"({x}, {y}) exceden el rango de grados decimales. Revisar si "
+                "en realidad son coordenadas proyectadas.",
+            )]
+
+        # El error de transcripción más frecuente: intercambiar x e y. En
+        # Colombia la longitud es siempre negativa y la latitud está entre -4 y
+        # 14, de modo que el intercambio es detectable.
+        if lon_min <= y <= lon_max and lat_min <= x <= lat_max:
+            hallazgos.append(Hallazgo(
+                BLOQUEANTE, "punto_descarga",
+                f"las coordenadas ({x}, {y}) parecen intercambiadas: en un CRS "
+                "geográfico x es la longitud e y la latitud.",
+            ))
+        elif not (lon_min <= x <= lon_max) or not (lat_min <= y <= lat_max):
+            hallazgos.append(Hallazgo(
+                ADVERTENCIA, "punto_descarga",
+                f"las coordenadas ({x}, {y}) quedan fuera de la envolvente de "
+                "Colombia. Verificar el orden x, y y el CRS declarado.",
+            ))
+        return hallazgos
+
+    # CRS proyectado o no reconocido como geográfico.
+    if abs(x) <= 180 and abs(y) <= 90:
         hallazgos.append(Hallazgo(
             ADVERTENCIA, "punto_descarga",
-            f"las coordenadas ({latitud}, {longitud}) quedan fuera de la "
-            "envolvente de Colombia. Verificar el orden latitud/longitud y el CRS.",
+            f"el CRS declarado ({crs or 'sin declarar'}) no es geográfico y las "
+            f"coordenadas ({x}, {y}) tienen magnitud de grados decimales. "
+            "Verificar si el CRS declarado es el correcto.",
+        ))
+    else:
+        hallazgos.append(Hallazgo(
+            INFORMATIVO, "punto_descarga",
+            f"punto declarado en {crs}. La verificación de que caiga dentro de "
+            "Colombia se difiere al M01, que reproyecta con QGIS.",
         ))
     return hallazgos
 

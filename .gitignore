@@ -91,6 +91,13 @@ data/00_insumos_usuario/**
 .vscode/
 .idea/
 
+# --- Bloqueos y temporales de software SIG -----------------------------------
+# ArcGIS deja archivos .lock junto a los shapefiles que tiene abiertos. No son
+# parte del insumo y quedan huérfanos al cerrar la sesión.
+*.lock
+*.sr.lock
+*.qix
+
 # --- Archivos temporales de ofimática y del sistema --------------------------
 ~$*.doc*
 ~$*.xls*

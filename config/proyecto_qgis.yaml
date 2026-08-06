@@ -36,7 +36,9 @@ grupos:
       - id: subzonas_hidrograficas
         nombre: "Subzonas hidrográficas"
         tipo: vector
-        ruta: "data/referencia/sig/subzonas_hidrograficas.shp"
+        # Nombre del archivo tal como lo publica el IDEAM. Debe coincidir con
+        # subzonas_hidrograficas.archivo de config.yaml.
+        ruta: "data/referencia/sig/Zonificacion_hidrografica_2013.shp"
         modulo: "referencia"
         visible: false
         estilo: "subzonas_hidrograficas.qml"

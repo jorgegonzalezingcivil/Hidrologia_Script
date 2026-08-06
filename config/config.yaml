@@ -72,12 +72,38 @@ proyecto_qgis:
   detener_si_falta_capa: false   # true: una capa declarada ausente detiene el módulo
 
 # -----------------------------------------------------------------------------
-# M01 - PUNTO DE DESCARGA
+# M01 - PUNTO DE DESCARGA Y SUBZONA HIDROGRÁFICA
 # -----------------------------------------------------------------------------
+# El punto se declara en el sistema de referencia en que el consultor lo tenga,
+# no en uno fijo. 'crs' indica en qué sistema están expresados 'x' e 'y', y el
+# M01 reproyecta de forma explícita al CRS de cálculo (CLAUDE.md, sección 5).
+#
+#   CRS proyectado (EPSG:3116, 9377, 21818...):  x = Este,     y = Norte
+#   CRS geográfico (EPSG:4326, 4686):            x = longitud, y = latitud
+#
+# El orden x, y es siempre el mismo. En un CRS geográfico eso significa que la
+# longitud va primero, que es el error de transcripción más común: el M01
+# verifica que el punto caiga dentro de Colombia y se detiene si no.
 punto_descarga:
-  latitud: null                  # grados decimales, EPSG:4326
-  longitud: null
   nombre: "Descarga"
+  crs: "EPSG:3116"               # MAGNA-SIRGAS / Colombia Bogota zone
+  x: 1003512.4                   # Este
+  y: 1025917.54                  # Norte
+
+subzonas_hidrograficas:
+  archivo: "data/referencia/sig/Zonificacion_hidrografica_2013.shp"
+  tolerancia_m: 500.0            # distancia máxima admitida si el punto cae fuera
+  # Adaptador de nombres de campo. La capa la publica el IDEAM y sus nombres
+  # pueden cambiar entre versiones; se declaran aquí y no en el código.
+  campos:
+    codigo_szh: "COD_SZH"
+    nombre_szh: "NOM_SZH"
+    codigo_zh: "COD_ZH"
+    nombre_zh: "NOM_ZH"
+    codigo_ah: "COD_AH"
+    nombre_ah: "NOM_AH"
+  salida_punto: "data/03_SIG/vector/punto_descarga.shp"
+  salida_subzona: "data/03_SIG/vector/subzona_intersectada.shp"
 
 # -----------------------------------------------------------------------------
 # M02 - MODELO DIGITAL DE TERRENO

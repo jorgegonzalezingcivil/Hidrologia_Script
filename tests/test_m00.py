@@ -302,12 +302,45 @@ class PruebaEsquemaInvariantes(unittest.TestCase):
         self.datos["crs"]["calculo"] = "EPSG:3116"
         self.assertIn("crs.calculo", self._claves(esquema.ADVERTENCIA))
 
-    def test_advierte_si_el_punto_de_descarga_esta_fuera_de_colombia(self) -> None:
-        self.datos["punto_descarga"]["latitud"] = 40.0
-        self.datos["punto_descarga"]["longitud"] = -3.0
+    def test_advierte_si_el_punto_de_descarga_esta_sin_definir(self) -> None:
+        self.datos["punto_descarga"]["x"] = None
+        self.datos["punto_descarga"]["y"] = None
         self.assertIn("punto_descarga", self._claves(esquema.ADVERTENCIA))
 
-    def test_advierte_si_el_punto_de_descarga_esta_sin_definir(self) -> None:
+    def test_advierte_punto_geografico_fuera_de_colombia(self) -> None:
+        self.datos["punto_descarga"].update(
+            {"crs": "EPSG:4326", "x": -3.0, "y": 40.0}
+        )
+        self.assertIn("punto_descarga", self._claves(esquema.ADVERTENCIA))
+
+    def test_detecta_coordenadas_geograficas_intercambiadas(self) -> None:
+        # Bogotá: lon -74.08, lat 4.60. Declaradas al revés.
+        self.datos["punto_descarga"].update(
+            {"crs": "EPSG:4326", "x": 4.60, "y": -74.08}
+        )
+        self.assertIn("punto_descarga", self._claves(esquema.BLOQUEANTE))
+
+    def test_acepta_punto_geografico_dentro_de_colombia(self) -> None:
+        self.datos["punto_descarga"].update(
+            {"crs": "EPSG:4326", "x": -74.08, "y": 4.60}
+        )
+        hallazgos = esquema.validar_invariantes(self.datos)
+        self.assertEqual(
+            [h for h in hallazgos if h.clave == "punto_descarga"], []
+        )
+
+    def test_punto_geografico_con_magnitud_imposible_es_bloqueante(self) -> None:
+        self.datos["punto_descarga"].update(
+            {"crs": "EPSG:4326", "x": 1003512.4, "y": 1025917.54}
+        )
+        self.assertIn("punto_descarga", self._claves(esquema.BLOQUEANTE))
+
+    def test_punto_proyectado_difiere_la_verificacion_al_m01(self) -> None:
+        self.assertEqual(self.datos["punto_descarga"]["crs"], "EPSG:3116")
+        self.assertIn("punto_descarga", self._claves(esquema.INFORMATIVO))
+
+    def test_advierte_crs_proyectado_con_magnitud_de_grados(self) -> None:
+        self.datos["punto_descarga"].update({"x": -74.08, "y": 4.60})
         self.assertIn("punto_descarga", self._claves(esquema.ADVERTENCIA))
 
     def test_detecta_ventana_temporal_mal_formada(self) -> None:
