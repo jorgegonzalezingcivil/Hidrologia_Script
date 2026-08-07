@@ -108,6 +108,22 @@ def _entero(valor) -> int | None:
         return None
 
 
+def _a_fecha_iso(valor: str, fin: bool = False) -> str:
+    """
+    Normaliza una fecha a la marca temporal que espera el servicio.
+
+    Acepta 'AAAA-MM-DD' y la completa al instante inicial o final del día. Una
+    fecha de fin sin hora dejaría fuera las escenas adquiridas ese mismo día,
+    que es justo lo que el consultor da por incluido al declarar un rango.
+    """
+    texto = str(valor).strip()
+    if not texto:
+        return ""
+    if len(texto) == 10:  # AAAA-MM-DD
+        return f"{texto}T23:59:59Z" if fin else f"{texto}T00:00:00Z"
+    return texto
+
+
 def _a_escena(registro: dict) -> EscenaASF:
     return EscenaASF(
         identificador=str(registro.get("sceneId") or registro.get("granuleName") or ""),
@@ -136,6 +152,8 @@ def buscar(
     tiempo_espera: int = _TIEMPO_ESPERA,
     reintentos: int = 3,
     espera_entre_intentos: float = 5.0,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
 ) -> list[EscenaASF]:
     """
     Consulta el catálogo de ASF por las escenas que intersecan un polígono.
@@ -160,6 +178,15 @@ def buscar(
         "maxResults": maximo,
         "output": "json",
     }
+
+    # Ventana de adquisición. Restringirla reduce el catálogo, pero también
+    # puede dejar el área sin cubrir: quien la use debe verificar la cobertura
+    # resultante, que es lo que reporta seleccionar_cobertura en el M02.
+    if fecha_inicio:
+        consulta["start"] = _a_fecha_iso(fecha_inicio, fin=False)
+    if fecha_fin:
+        consulta["end"] = _a_fecha_iso(fecha_fin, fin=True)
+
     url = f"{URL_BUSQUEDA}?{urllib.parse.urlencode(consulta)}"
 
     # El servicio responde 504 con cierta frecuencia cuando el área es amplia.

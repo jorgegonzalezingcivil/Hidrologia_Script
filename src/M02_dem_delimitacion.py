@@ -107,15 +107,23 @@ class PlanDescarga:
     seleccionadas: list = field(default_factory=list)
     volumen_gb: float = 0.0
     cobertura_pct: float = 0.0
+    ventana: tuple[str, str] = ("", "")
 
     def como_dict(self) -> dict[str, Any]:
         return {
+            "ventana_adquisicion": {
+                "inicio": self.ventana[0] or None,
+                "fin": self.ventana[1] or None,
+            },
             "escenas_encontradas": self.encontradas,
             "huellas_distintas": self.huellas,
             "escenas_seleccionadas": len(self.seleccionadas),
             "volumen_gb": round(self.volumen_gb, 3),
             "cobertura_pct": round(self.cobertura_pct, 2),
             "archivos": [e.nombre_archivo for e in self.seleccionadas],
+            "fechas_escenas": sorted({
+                str(e.fecha_escena)[:10] for e in self.seleccionadas
+            }),
         }
 
 
@@ -401,16 +409,30 @@ def planificar(
     hallazgos: list[Hallazgo] = []
     plan = PlanDescarga()
 
+    fecha_inicio = configuracion.obtener("dem.asf.fecha_inicio", None)
+    fecha_fin = configuracion.obtener("dem.asf.fecha_fin", None)
+    if fecha_inicio or fecha_fin:
+        logger.info(
+            "Ventana de adquisición: %s a %s",
+            fecha_inicio or "sin límite", fecha_fin or "sin límite",
+        )
+
     escenas = asf.buscar(
         poligono_wkt=wkt_geografico,
         nivel=configuracion.obtener("dem.asf.nivel"),
         plataforma=configuracion.obtener("dem.asf.plataforma"),
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
     )
     plan.encontradas = len(escenas)
+    plan.ventana = (fecha_inicio or "", fecha_fin or "")
     if not escenas:
+        ventana = (f" en la ventana {fecha_inicio} a {fecha_fin}"
+                   if fecha_inicio or fecha_fin else "")
         return plan, [Hallazgo(
             BLOQUEANTE, "dem.asf",
-            "el catálogo de ASF no devolvió ninguna escena para el área.",
+            f"el catálogo de ASF no devolvió ninguna escena para el área{ventana}. "
+            "Ampliar la ventana de adquisición o revisar el área de búsqueda.",
         )]
 
     unicas = asf.deduplicar_por_huella(escenas)
@@ -661,6 +683,7 @@ def ejecutar(
         parametros=configuracion.parametros((
             "crs.calculo", "dem.fuente", "dem.resolucion_m",
             "dem.asf.nivel", "dem.asf.buffer_busqueda_km",
+            "dem.asf.fecha_inicio", "dem.asf.fecha_fin",
             "dem.asf.max_escenas", "dem.asf.max_volumen_gb",
             "dem.delimitacion.umbral_celdas_cauce",
             "dem.delimitacion.radio_ajuste_m",

@@ -318,6 +318,12 @@ ESQUEMA: dict[str, Campo] = {
         "nivel de producto de ASF", opciones=("RTC_HI_RES", "RTC_LOW_RES"),
     ),
     "dem.asf.plataforma": texto("plataforma satelital", no_vacio=True),
+    "dem.asf.fecha_inicio": texto(
+        "inicio de la ventana de adquisición (AAAA-MM-DD)", permite_nulo=True,
+    ),
+    "dem.asf.fecha_fin": texto(
+        "fin de la ventana de adquisición (AAAA-MM-DD)", permite_nulo=True,
+    ),
     "dem.asf.buffer_busqueda_km": numero(
         "holgura sobre la subzona para buscar escenas", minimo=0, maximo=50,
     ),
@@ -1199,6 +1205,48 @@ def _inv_cambio_climatico(datos: dict) -> list[Hallazgo]:
     return []
 
 
+def _inv_ventana_asf(datos: dict) -> list[Hallazgo]:
+    """Verifica la ventana de adquisición declarada para las escenas."""
+    import re
+
+    inicio = obtener(datos, "dem.asf.fecha_inicio")
+    fin = obtener(datos, "dem.asf.fecha_fin")
+    hallazgos: list[Hallazgo] = []
+
+    patron = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    for clave, valor in (("dem.asf.fecha_inicio", inicio),
+                         ("dem.asf.fecha_fin", fin)):
+        if valor is None:
+            continue
+        if not isinstance(valor, str) or not patron.match(valor.strip()):
+            hallazgos.append(Hallazgo(
+                BLOQUEANTE, clave,
+                f"{valor!r} no tiene el formato AAAA-MM-DD.",
+            ))
+
+    if isinstance(inicio, str) and isinstance(fin, str) and not hallazgos:
+        if inicio.strip() >= fin.strip():
+            hallazgos.append(Hallazgo(
+                BLOQUEANTE, "dem.asf.fecha_inicio",
+                f"la fecha de inicio ({inicio}) no es anterior a la de fin ({fin}).",
+            ))
+        else:
+            hallazgos.append(Hallazgo(
+                INFORMATIVO, "dem.asf",
+                f"búsqueda restringida a las trayectorias adquiridas entre "
+                f"{inicio} y {fin}. Verificar en el reporte del M02 que la "
+                "cobertura del área siga siendo completa.",
+            ))
+
+    if inicio is None and fin is None:
+        hallazgos.append(Hallazgo(
+            INFORMATIVO, "dem.asf",
+            "sin ventana de adquisición: se usa todo el catálogo disponible.",
+        ))
+
+    return hallazgos
+
+
 def _inv_qgis_ltr(datos: dict) -> list[Hallazgo]:
     if obtener(datos, "entornos.qgis.es_ltr") is False:
         version = obtener(datos, "entornos.qgis.version", "sin declarar")
@@ -1438,6 +1486,7 @@ INVARIANTES: tuple[Callable[[dict], list[Hallazgo]], ...] = (
     _inv_rezago_transform,
     _inv_min_formulas_tc,
     _inv_cambio_climatico,
+    _inv_ventana_asf,
     _inv_qgis_ltr,
     _inv_crs,
     _inv_resolucion_interpolacion,

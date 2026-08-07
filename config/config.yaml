@@ -124,8 +124,14 @@ dem:
   # subconjunto mínimo que cubre el área. Sin esa reducción, la subzona del Río
   # Bogotá exigiría descargar 217 escenas y 62 GB en lugar de una fracción.
   asf:
-    nivel: "RTC_HI_RES"          # RTC_HI_RES trae el DEM a 12,5 m
+    nivel: "RTC_HI_RES"          # ALOS_PALSAR_RTC_HIGH_RES; trae el DEM a 12,5 m
     plataforma: "ALOS"
+    # Ventana de adquisición de las trayectorias. null en ambas usa todo el
+    # catálogo. Restringirla reduce la descarga, pero puede dejar el área sin
+    # cubrir: el módulo reporta la cobertura alcanzada y advierte si baja de
+    # cobertura_minima_pct.
+    fecha_inicio: "2011-02-10"
+    fecha_fin: "2011-03-22"
     buffer_busqueda_km: 2.0      # holgura sobre la subzona del M01
     max_escenas: 40              # tope de seguridad; por encima se detiene
     max_volumen_gb: 15.0         # tope de descarga; por encima se detiene
