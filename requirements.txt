@@ -9,3 +9,18 @@
 # se programa, no antes.
 
 pyyaml==6.0.2
+
+# --- Cálculo numérico y estadístico -----------------------------------------
+# Solo para los módulos de análisis. El paquete src/comun NO puede importarlos:
+# lo comparte el Python de QGIS, y hacerlo rompería el esquema de doble entorno.
+#
+# Los pide el análisis de frecuencia del M07, que CLAUDE.md, sección 6, cierra
+# con nueve distribuciones (Normal, LogNormal 2/3P, Gumbel, GEV, Pearson III,
+# Log-Pearson III, Exponencial, Weibull, Gamma), tres métodos de ajuste
+# (momentos, momentos-L y máxima verosimilitud) y las pruebas KS,
+# Anderson-Darling y chi-cuadrado con AIC/BIC. Programar el ajuste por máxima
+# verosimilitud de la GEV con librería estándar es posible y desaconsejable.
+#
+# También los usan el complemento de series del M05 y el balance del M18.
+numpy==2.5.1
+scipy==1.18.0
