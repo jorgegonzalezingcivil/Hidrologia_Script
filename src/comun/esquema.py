@@ -394,6 +394,18 @@ ESQUEMA: dict[str, Campo] = {
         "tolerancia de unión del eje con el drenaje sencillo",
         minimo=0, maximo=2000,
     ),
+    "dem.delimitacion.origen_area.escenario_1": texto(
+        "origen del área de influencia en el escenario 1",
+        opciones=("subzona", "red", "cuenca"),
+    ),
+    "dem.delimitacion.origen_area.escenario_2": texto(
+        "origen del área de influencia en el escenario 2",
+        opciones=("subzona", "red", "cuenca"),
+    ),
+    "dem.delimitacion.origen_area.escenario_3": texto(
+        "origen del área de influencia en el escenario 3",
+        opciones=("subzona", "red", "cuenca"),
+    ),
     "dem.delimitacion.buffer_red_km.escenario_1": numero(
         "buffer sobre la red trazada en el escenario 1", minimo=0, maximo=50,
     ),

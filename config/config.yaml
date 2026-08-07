@@ -205,6 +205,24 @@ dem:
     umbral_drenaje_doble_m: 50.0   # distancia máxima para declarar escenario 1
     umbral_drenaje_sencillo_m: 150.0  # ídem para escenario 2
     tolerancia_empalme_eje_m: 200.0   # unión del eje con el drenaje sencillo
+    # Origen del área de influencia por escenario.
+    #   subzona    la subzona hidrográfica del M01, tal cual
+    #   red        envolvente de la red trazada más buffer
+    #   cuenca     la cuenca delimitada sobre el terreno
+    #
+    # Para el escenario 1 se adopta la subzona. Es una unidad hidrológica
+    # cerrada, de modo que CONTIENE la cuenca por definición de la zonificación:
+    # elimina de raíz el riesgo de truncamiento, que es el que ha resultado
+    # crítico. Su coste es sobredimensionar el área unas cuatro veces, y ese
+    # coste hoy es solo disco: la descarga del DEM ya está acotada por la propia
+    # subzona y el escenario 1 no ejecuta análisis de terreno, que era lo caro.
+    #
+    # Un área de influencia amplia no perjudica al M03: más estaciones dan mejor
+    # soporte a la interpolación, y el filtro por categoría sigue aplicando.
+    origen_area:
+      escenario_1: "subzona"
+      escenario_2: "red"
+      escenario_3: "cuenca"
     # Buffer sobre la red trazada, por escenario. Es la holgura que absorbe la
     # conectividad imperfecta de la cartografía: medido sobre la subzona, el
     # 85,1% de los tramos toca a su receptor y el 15% restante está a cientos

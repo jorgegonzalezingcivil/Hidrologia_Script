@@ -56,6 +56,7 @@ _DIRECTORIO_SRC = Path(__file__).resolve().parent
 if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
+import red_drenaje as red  # noqa: E402
 import sig  # noqa: E402
 from comun import asf, campos as mod_campos, entorno, esquema, registro, rutas  # noqa: E402
 from comun.campos import CampoSalida  # noqa: E402
@@ -140,6 +141,7 @@ class ResultadoM02:
     # reproyectar, y necesita el área de influencia en las mismas coordenadas
     # geográficas en que el catálogo de estaciones publica su ubicación.
     wkt_geografico: dict[str, str] = field(default_factory=dict)
+    escenario: Any = None
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
 
@@ -658,6 +660,83 @@ def poligonizar(base: Path, ruta_cuenca: Path, crs_calculo):
     return unida.makeValid() if not unida.isGeosValid() else unida
 
 
+
+# =============================================================================
+# Área de influencia según el escenario
+# =============================================================================
+def determinar_area(configuracion, base, logger):
+    """
+    Diagnostica el escenario y devuelve (geometria_area, escenario, hallazgos).
+
+    No hay un método universal de delimitación preliminar. Se elige según dónde
+    caiga el punto, y el criterio queda registrado en el reporte y en la capa.
+
+    Para el escenario 1 el área es la subzona del M01 tal cual. Es una unidad
+    hidrológica cerrada, de modo que CONTIENE la cuenca por definición de la
+    zonificación: elimina de raíz el riesgo de truncamiento, que es el fallo
+    crítico de este módulo. Sobredimensiona el área unas cuatro veces, y ese
+    coste hoy es solo disco.
+    """
+    from qgis.core import QgsGeometry, QgsPointXY, QgsVectorLayer
+
+    hallazgos = []
+    directorio = Path(configuracion.obtener("referencia_nacional.directorio"))
+    doble = QgsVectorLayer(
+        str(directorio / configuracion.obtener("referencia_nacional.drenaje_doble")),
+        "doble", "ogr")
+    sencillo = QgsVectorLayer(
+        str(directorio / configuracion.obtener("referencia_nacional.drenaje_sencillo")),
+        "sencillo", "ogr")
+
+    x, y = _punto_de_descarga(configuracion, base)
+    punto = QgsGeometry.fromPointXY(QgsPointXY(x, y))
+
+    escenario = red.diagnosticar_escenario(
+        punto, doble, sencillo,
+        float(configuracion.obtener("dem.delimitacion.umbral_drenaje_doble_m")),
+        float(configuracion.obtener("dem.delimitacion.umbral_drenaje_sencillo_m")),
+        configuracion.obtener("referencia_nacional.campos.nombre"),
+    )
+    logger.info("Escenario %d: %s. Método: %s",
+                escenario.numero, escenario.descripcion, escenario.metodo)
+    logger.info("  drenaje doble a %.1f m (%s) | sencillo a %.1f m (%s)",
+                escenario.distancia_doble_m, escenario.nombre_doble or "sin nombre",
+                escenario.distancia_sencillo_m,
+                escenario.nombre_sencillo or "sin nombre")
+
+    origen = configuracion.obtener(
+        f"dem.delimitacion.origen_area.escenario_{escenario.numero}")
+
+    if origen != "subzona":
+        hallazgos.append(Hallazgo(
+            BLOQUEANTE, "dem.delimitacion.origen_area",
+            f"el escenario {escenario.numero} declara origen {origen!r}, que "
+            "todavía no está implementado en este módulo. Solo 'subzona' lo "
+            "está. Ver red_drenaje para el motor cartográfico.",
+        ))
+        return None, escenario, hallazgos
+
+    ruta_subzona = rutas.resolver(
+        configuracion.obtener("subzonas_hidrograficas.salida_subzona"), base)
+    capa = QgsVectorLayer(str(ruta_subzona), "subzona", "ogr")
+    if not capa.isValid():
+        raise ErrorFormato(f"QGIS no pudo abrir {ruta_subzona}")
+    entidades = list(capa.getFeatures())
+    if not entidades:
+        raise ErrorFormato(f"{ruta_subzona.name} no contiene ninguna entidad.")
+
+    area = QgsGeometry(entidades[0].geometry())
+    logger.info("Área de influencia = subzona del M01: %.1f km2",
+                area.area() / 1e6)
+    hallazgos.append(Hallazgo(
+        INFORMATIVO, "dem.delimitacion",
+        f"área de influencia tomada de la subzona hidrográfica "
+        f"({area.area()/1e6:.1f} km2). Contiene la cuenca por definición de la "
+        "zonificación. La delimitación definitiva es la asistida del M09.",
+    ))
+    return area, escenario, hallazgos
+
+
 # =============================================================================
 # Orquestación
 # =============================================================================
@@ -711,6 +790,14 @@ def ejecutar(
     with registro.bloque(logger, "Área de búsqueda a partir de la subzona"):
         objetivo, wkt_geografico, crs_calculo = area_de_busqueda(configuracion, base)
 
+    with registro.bloque(logger, "Diagnóstico del escenario y área de influencia"):
+        area, escenario, hallazgos_area = determinar_area(configuracion, base, logger)
+        resultado.hallazgos.extend(hallazgos_area)
+        resultado.escenario = escenario
+        if area is None:
+            return _cerrar(logger, resultado, base, ruta_json, inicio,
+                           SALIDA_BLOQUEANTE)
+
     with registro.bloque(logger, "Consulta del catálogo y selección de escenas"):
         resultado.plan, hallazgos_plan = planificar(
             configuracion, wkt_geografico, logger
@@ -750,23 +837,9 @@ def ejecutar(
         ruta_dem = preparar_dem(configuracion, base, objetivo, crs_calculo, logger)
         resultado.dem = rutas.relativa(ruta_dem, base)
 
-    with registro.bloque(logger, "Delimitación preliminar"):
-        punto = _punto_de_descarga(configuracion, base)
-        cuenca_raster, este, norte, desplazamiento, hallazgos_delim = delimitar(
-            configuracion, base, ruta_dem, punto[0], punto[1], logger
-        )
-        resultado.hallazgos.extend(hallazgos_delim)
-        resultado.desplazamiento_m = desplazamiento
-
-    if esquema.hay_bloqueantes(resultado.hallazgos):
-        logger.error("La delimitación no es utilizable. No se escriben capas.")
-        return _cerrar(logger, resultado, base, ruta_json, inicio, SALIDA_BLOQUEANTE)
-
-    with registro.bloque(logger, "Escritura de cuenca, envolvente y área de influencia"):
-        _escribir_geometrias(
-            configuracion, base, cuenca_raster, ruta_dem, crs_calculo,
-            este, norte, desplazamiento, resultado, logger,
-        )
+    with registro.bloque(logger, "Escritura del área de influencia"):
+        _escribir_area(configuracion, base, area, escenario, ruta_dem,
+                       crs_calculo, resultado, logger)
 
     codigo = (SALIDA_BLOQUEANTE if esquema.hay_bloqueantes(resultado.hallazgos)
               else SALIDA_CORRECTA)
@@ -944,6 +1017,51 @@ def _a_geografico(geometrias: dict, crs_calculo, configuracion) -> dict[str, str
     return salida
 
 
+
+def _escribir_area(configuracion, base, area, escenario, ruta_dem, crs_calculo,
+                   resultado, logger) -> None:
+    """Escribe el área de influencia, su envolvente y el área de estaciones."""
+    from qgis.core import QgsGeometry
+
+    resultado.area_cuenca_km2 = area.area() / 1e6
+    delimitador = configuracion.obtener("insumos_usuario.delimitador_csv")
+    cotas = estadisticas_raster(ruta_dem)
+
+    destino = rutas.resolver(
+        configuracion.obtener("dem.delimitacion.salida_area_influencia"), base)
+    sig.escribir_capa(
+        destino=destino, campos_salida=CAMPOS_MARCO, geometrias=[area],
+        valores=[{
+            "nombre": f"Área de influencia (escenario {escenario.numero})",
+            "tipo": escenario.descripcion,
+            "area_km2": resultado.area_cuenca_km2, "buffer_km": 0.0,
+        }],
+        crs_id=crs_calculo.authid(), tipo_geometria="MultiPolygon")
+    _registrar_producto(resultado, base, destino, CAMPOS_MARCO, delimitador)
+
+    envolvente = QgsGeometry.fromRect(area.boundingBox())
+    destino_env = rutas.resolver(
+        configuracion.obtener("dem.delimitacion.salida_envolvente"), base)
+    sig.escribir_capa(
+        destino=destino_env, campos_salida=CAMPOS_MARCO, geometrias=[envolvente],
+        valores=[{"nombre": "Envolvente del área de influencia",
+                  "tipo": "envolvente",
+                  "area_km2": envolvente.area() / 1e6, "buffer_km": 0.0}],
+        crs_id=crs_calculo.authid(), tipo_geometria="Polygon")
+    _registrar_producto(resultado, base, destino_env, CAMPOS_MARCO, delimitador)
+
+    buffer_est = float(configuracion.obtener("estaciones.buffer_adicional_km"))
+    seleccion = area.buffer(buffer_est * 1000.0, 12) if buffer_est > 0         else QgsGeometry(area)
+
+    logger.info("Área de influencia %.1f km2 | cotas %.0f a %.0f m",
+                resultado.area_cuenca_km2, cotas["minimo"], cotas["maximo"])
+
+    resultado.wkt_geografico = _a_geografico(
+        {"area_influencia": area, "envolvente": envolvente,
+         "area_estaciones": seleccion},
+        crs_calculo, configuracion)
+
+
 def _registrar_producto(resultado, base, destino, campos_salida, delimitador):
     resultado.capas.append(rutas.relativa(destino, base))
     resultado.diccionarios.append(rutas.relativa(mod_campos.escribir_diccionario(
@@ -994,9 +1112,10 @@ def _cerrar(logger, resultado: ResultadoM02, base: Path, ruta_json: Path | None,
         "plan_descarga": resultado.plan.como_dict(),
         "escenas_descargadas": resultado.descargadas,
         "dem": resultado.dem,
-        "cuenca": {
+        "escenario": (resultado.escenario.como_dict()
+                      if resultado.escenario else None),
+        "area_influencia": {
             "area_km2": resultado.area_cuenca_km2,
-            "desplazamiento_punto_m": resultado.desplazamiento_m,
             "caracter": "preliminar",
         },
         "capas": resultado.capas,
