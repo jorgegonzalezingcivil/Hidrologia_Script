@@ -378,6 +378,28 @@ ESQUEMA: dict[str, Campo] = {
     "dem.asf.cobertura_minima_pct": numero(
         "cobertura mínima del área antes de advertir", minimo=0, maximo=100,
     ),
+    "dem.delimitacion.metodo": texto(
+        "método de delimitación preliminar",
+        opciones=("automatico", "cartografico", "terreno"),
+    ),
+    "dem.delimitacion.umbral_drenaje_doble_m": numero(
+        "distancia máxima al drenaje doble para el escenario 1",
+        minimo=0, maximo=1000,
+    ),
+    "dem.delimitacion.umbral_drenaje_sencillo_m": numero(
+        "distancia máxima al drenaje sencillo para el escenario 2",
+        minimo=0, maximo=5000,
+    ),
+    "dem.delimitacion.tolerancia_empalme_eje_m": numero(
+        "tolerancia de unión del eje con el drenaje sencillo",
+        minimo=0, maximo=2000,
+    ),
+    "dem.delimitacion.buffer_red_km.escenario_1": numero(
+        "buffer sobre la red trazada en el escenario 1", minimo=0, maximo=50,
+    ),
+    "dem.delimitacion.buffer_red_km.escenario_2": numero(
+        "buffer sobre la red trazada en el escenario 2", minimo=0, maximo=50,
+    ),
     "dem.delimitacion.umbral_celdas_cauce": entero(
         "celdas acumuladas para definir un cauce", minimo=1, maximo=10_000_000,
     ),

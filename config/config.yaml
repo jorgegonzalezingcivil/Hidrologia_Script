@@ -184,7 +184,37 @@ dem:
     cobertura_minima_pct: 99.0   # por debajo se advierte de huecos sin cubrir
 
   # --- Delimitación preliminar ----------------------------------------------
+  # El método NO es fijo: se elige según dónde caiga el punto de descarga.
+  # Los dos enfoques tienen dominios complementarios y medidos en este proyecto.
+  #
+  #   Escenario 1, punto sobre drenaje doble. Ríos anchos, en valles amplios y
+  #     planos. El DEM de radar falla ahí: sobre el Río Bogotá, con 3 m de
+  #     desnivel real en 20 km, encaminó el flujo por el ruido y produjo una
+  #     cuenca de 6,59 km2 en lugar de la real. Método: cartográfico.
+  #
+  #   Escenario 2, punto sobre drenaje sencillo o su aferencia. Recorrido
+  #     directo sobre la red de polilíneas, sin eje ni empalme. Método:
+  #     cartográfico.
+  #
+  #   Escenario 3, punto sin intersección con ninguna capa. Si el cauce no está
+  #     cartografiado a 1:100.000 es pequeño, y una cuenca pequeña suele estar
+  #     en ladera con pendiente marcada. Ahí el DEM sí es fiable, porque el
+  #     modo de fallo anterior exige terreno plano. Método: terreno.
   delimitacion:
+    metodo: "automatico"         # automatico | cartografico | terreno
+    umbral_drenaje_doble_m: 50.0   # distancia máxima para declarar escenario 1
+    umbral_drenaje_sencillo_m: 150.0  # ídem para escenario 2
+    tolerancia_empalme_eje_m: 200.0   # unión del eje con el drenaje sencillo
+    # Buffer sobre la red trazada, por escenario. Es la holgura que absorbe la
+    # conectividad imperfecta de la cartografía: medido sobre la subzona, el
+    # 85,1% de los tramos toca a su receptor y el 15% restante está a cientos
+    # de metros, no a unos pocos. No hay tolerancia que lo arregle, de modo que
+    # se compensa con buffer. Un exceso solo cuesta disco; un defecto trunca la
+    # cuenca y contamina todo lo que viene después.
+    buffer_red_km:
+      escenario_1: 8.0           # el que más holgura necesita
+      escenario_2: 5.0
+    # Solo aplican al escenario 3, que sí analiza terreno.
     umbral_celdas_cauce: 1000    # celdas acumuladas para definir cauce
     radio_ajuste_m: 250.0        # búsqueda del cauce alrededor del punto
     detener_si_toca_borde: true  # una cuenca truncada no es utilizable
