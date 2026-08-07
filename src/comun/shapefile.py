@@ -27,11 +27,12 @@ Referencia del formato: ESRI Shapefile Technical Description, julio de 1998.
 
 from __future__ import annotations
 
+import datetime as _dt
 import re
 import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Sequence
 
 from .errores import ErrorFormato
 
@@ -41,6 +42,8 @@ __all__ = [
     "TIPOS_GEOMETRIA",
     "EXTENSIONES_OBLIGATORIAS",
     "leer_shapefile",
+    "leer_registros",
+    "escribir_puntos",
     "valores_unicos",
     "area_poligonos",
     "epsg_de_wkt",
@@ -406,6 +409,81 @@ def valores_unicos(
     return sorted(distintos)
 
 
+def leer_registros(
+    ruta: str | Path,
+    campos: Sequence[str] | None = None,
+) -> Iterator[dict[str, str]]:
+    """
+    Recorre la tabla de atributos devolviendo un diccionario por registro.
+
+    Los valores se entregan como texto sin espacios sobrantes, tal como están en
+    el .dbf. La conversión a número o a fecha corresponde al módulo que los
+    consume, que es quien sabe qué significa cada campo y qué hacer con un valor
+    vacío.
+
+    Con `campos` se limita la lectura a los indicados, sin distinguir mayúsculas.
+
+    Excepciones
+    -----------
+    ErrorFormato
+        Si el .dbf no existe, está truncado o algún campo pedido no existe.
+    """
+    base = Path(ruta)
+    if base.suffix.lower() != ".shp":
+        base = base.with_suffix(".shp")
+    ruta_dbf = base.with_suffix(".dbf")
+
+    if not ruta_dbf.is_file():
+        raise ErrorFormato(f"No existe la tabla de atributos {ruta_dbf}")
+
+    n_registros, longitud_cabecera, longitud_registro, todos = _leer_cabecera_dbf(
+        ruta_dbf
+    )
+
+    if campos is None:
+        elegidos = list(todos)
+    else:
+        indice = {campo.nombre.upper(): campo for campo in todos}
+        elegidos = []
+        faltantes = []
+        for nombre in campos:
+            campo = indice.get(nombre.strip().upper())
+            if campo is None:
+                faltantes.append(nombre)
+            else:
+                elegidos.append(campo)
+        if faltantes:
+            raise ErrorFormato(
+                f"{ruta_dbf.name} no tiene el/los campo(s) "
+                f"{', '.join(repr(f) for f in faltantes)}. Disponibles: "
+                f"{', '.join(c.nombre for c in todos)}."
+            )
+
+    # Desplazamiento de cada campo dentro del registro, calculado una sola vez.
+    desplazamientos: dict[str, tuple[int, int]] = {}
+    posicion = 1  # el primer byte es la marca de borrado
+    for campo in todos:
+        desplazamientos[campo.nombre] = (posicion, campo.longitud)
+        posicion += campo.longitud
+
+    codificacion = _leer_cpg(ruta_dbf)
+
+    with ruta_dbf.open("rb") as manejador:
+        manejador.seek(longitud_cabecera)
+        for _ in range(n_registros):
+            registro = manejador.read(longitud_registro)
+            if len(registro) < longitud_registro:
+                break
+            if registro[0:1] == b"*":  # marcado como borrado
+                continue
+            fila = {}
+            for campo in elegidos:
+                inicio, ancho = desplazamientos[campo.nombre]
+                bruto = registro[inicio:inicio + ancho]
+                fila[campo.nombre] = _decodificar(bruto, codificacion).strip()
+            yield fila
+
+
 def area_poligonos(ruta: str | Path) -> float:
     """
     Suma el área de todos los polígonos, en las unidades del CRS de la capa.
@@ -451,6 +529,192 @@ def area_poligonos(ruta: str | Path) -> float:
             total += _area_registro(contenido)
 
     return abs(total)
+
+
+# =============================================================================
+# Escritura de capas de puntos
+# =============================================================================
+_TIPO_PUNTO = 1
+
+
+def escribir_puntos(
+    destino: str | Path,
+    puntos: Sequence[tuple[float, float]],
+    campos: Sequence,
+    valores: Sequence[dict],
+    wkt_crs: str,
+    codificacion: str = "UTF-8",
+) -> Path:
+    """
+    Escribe una capa de puntos completa: .shp, .shx, .dbf, .prj y .cpg.
+
+    Existe porque los módulos de análisis corren en el venv, donde no hay GDAL
+    ni la API de QGIS, y aun así deben entregar sus productos en el formato que
+    fija CLAUDE.md, sección 5. La alternativa sería duplicar la pila SIG en el
+    segundo entorno o mover módulos de análisis al de QGIS.
+
+    `campos` son objetos comun.campos.CampoSalida, cuyos nombres cortos se
+    validan antes de escribir: el formato dBase trunca a 10 caracteres en
+    silencio.
+
+    Excepciones
+    -----------
+    ErrorFormato
+        Si las listas no tienen la misma longitud, si los campos no son
+        escribibles o si un tipo declarado no está soportado.
+    """
+    from .campos import validar_campos
+
+    base = Path(destino)
+    if base.suffix.lower() == ".shp":
+        base = base.with_suffix("")
+
+    if len(puntos) != len(valores):
+        raise ErrorFormato(
+            f"Se recibieron {len(puntos)} punto(s) y {len(valores)} juego(s) de "
+            "atributos."
+        )
+    if not campos:
+        raise ErrorFormato("Una capa debe declarar al menos un campo.")
+
+    validar_campos(campos)
+    base.parent.mkdir(parents=True, exist_ok=True)
+
+    _escribir_shp_shx(base, puntos)
+    _escribir_dbf(base.with_suffix(".dbf"), campos, valores, codificacion)
+    base.with_suffix(".prj").write_text(wkt_crs, encoding="utf-8")
+    base.with_suffix(".cpg").write_text(codificacion, encoding="ascii")
+
+    return base.with_suffix(".shp")
+
+
+def _cabecera_shapefile(longitud_palabras: int,
+                        extension: tuple[float, float, float, float]) -> bytes:
+    """Construye los 100 bytes de cabecera comunes al .shp y al .shx."""
+    x_min, y_min, x_max, y_max = extension
+    cabecera = struct.pack(">i", _CODIGO_ARCHIVO_SHP) + b"\x00" * 20
+    cabecera += struct.pack(">i", longitud_palabras)
+    cabecera += struct.pack("<i", 1000)
+    cabecera += struct.pack("<i", _TIPO_PUNTO)
+    cabecera += struct.pack("<4d", x_min, y_min, x_max, y_max)
+    cabecera += struct.pack("<4d", 0.0, 0.0, 0.0, 0.0)
+    return cabecera
+
+
+def _escribir_shp_shx(base: Path, puntos: Sequence[tuple[float, float]]) -> None:
+    """Escribe la geometría y su índice."""
+    if puntos:
+        xs = [p[0] for p in puntos]
+        ys = [p[1] for p in puntos]
+        extension = (min(xs), min(ys), max(xs), max(ys))
+    else:
+        extension = (0.0, 0.0, 0.0, 0.0)
+
+    # Un registro de punto ocupa 20 bytes de contenido, es decir 10 palabras de
+    # 16 bits, más 8 bytes de cabecera de registro.
+    contenido_palabras = 10
+    registros = b""
+    indice = b""
+    desplazamiento = 50  # la cabecera del archivo ocupa 50 palabras
+
+    for numero, (x, y) in enumerate(puntos, start=1):
+        registros += struct.pack(">i", numero)
+        registros += struct.pack(">i", contenido_palabras)
+        registros += struct.pack("<i", _TIPO_PUNTO)
+        registros += struct.pack("<2d", float(x), float(y))
+
+        indice += struct.pack(">i", desplazamiento)
+        indice += struct.pack(">i", contenido_palabras)
+        desplazamiento += contenido_palabras + 4
+
+    base.with_suffix(".shp").write_bytes(
+        _cabecera_shapefile((100 + len(registros)) // 2, extension) + registros
+    )
+    base.with_suffix(".shx").write_bytes(
+        _cabecera_shapefile((100 + len(indice)) // 2, extension) + indice
+    )
+
+
+def _valor_dbf(campo, valor, codificacion: str) -> bytes:
+    """
+    Convierte un valor al formato de ancho fijo del .dbf.
+
+    El texto se alinea a la izquierda y los números a la derecha, como manda el
+    formato dBase. Un valor que no cabe se trunca, y en el caso numérico eso
+    cambiaría la cifra, de modo que se rellena con asteriscos, que es la
+    convención del formato para el desbordamiento.
+    """
+    ancho = campo.longitud
+
+    if campo.tipo == "texto":
+        bruto = ("" if valor is None else str(valor)).encode(
+            codificacion, errors="replace"
+        )
+        return bruto[:ancho].ljust(ancho, b" ")
+
+    if campo.tipo == "fecha":
+        texto = "" if valor is None else str(valor).replace("-", "")[:8]
+        return texto.encode("ascii", errors="replace").ljust(ancho, b" ")
+
+    if valor is None or valor == "":
+        return b" " * ancho
+
+    if campo.tipo == "entero":
+        texto = f"{int(valor):d}"
+    else:
+        texto = f"{float(valor):.{campo.precision}f}"
+
+    bruto = texto.encode("ascii", errors="replace")
+    if len(bruto) > ancho:
+        return b"*" * ancho
+    return bruto.rjust(ancho, b" ")
+
+
+def _escribir_dbf(destino: Path, campos: Sequence, valores: Sequence[dict],
+                  codificacion: str) -> None:
+    """Escribe la tabla de atributos en formato dBase III."""
+    equivalencias = {"texto": b"C", "entero": b"N", "decimal": b"N", "fecha": b"D"}
+
+    descriptores = b""
+    for campo in campos:
+        marca = equivalencias.get(campo.tipo)
+        if marca is None:
+            raise ErrorFormato(
+                f"El campo {campo.corto!r} declara el tipo {campo.tipo!r}, que no "
+                "se puede escribir en un .dbf."
+            )
+        ancho = campo.longitud if campo.longitud > 0 else 18
+        descriptores += campo.corto.encode("ascii")[:10].ljust(11, b"\x00")
+        descriptores += marca
+        descriptores += b"\x00" * 4
+        descriptores += bytes([min(ancho, 254), campo.precision])
+        descriptores += b"\x00" * 14
+
+    longitud_cabecera = 32 + 32 * len(campos) + 1
+    longitud_registro = 1 + sum(
+        min(c.longitud if c.longitud > 0 else 18, 254) for c in campos
+    )
+
+    hoy = _dt.date.today()
+    cabecera = bytes([0x03, hoy.year - 1900, hoy.month, hoy.day])
+    cabecera += struct.pack("<I", len(valores))
+    cabecera += struct.pack("<H", longitud_cabecera)
+    cabecera += struct.pack("<H", longitud_registro)
+    cabecera += b"\x00" * 20
+
+    cuerpo = b""
+    for fila in valores:
+        cuerpo += b" "  # marca de registro vigente
+        for campo in campos:
+            ancho = min(campo.longitud if campo.longitud > 0 else 18, 254)
+            copia = type(campo)(
+                corto=campo.corto, descriptivo=campo.descriptivo,
+                tipo=campo.tipo, longitud=ancho, precision=campo.precision,
+                unidad=campo.unidad,
+            )
+            cuerpo += _valor_dbf(copia, fila.get(campo.corto), codificacion)
+
+    destino.write_bytes(cabecera + descriptores + b"\x0d" + cuerpo + b"\x1a")
 
 
 def _area_registro(contenido: bytes) -> float:

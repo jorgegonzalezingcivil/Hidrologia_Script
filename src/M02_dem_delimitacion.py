@@ -136,6 +136,10 @@ class ResultadoM02:
     desplazamiento_m: float = 0.0
     capas: list[str] = field(default_factory=list)
     diccionarios: list[str] = field(default_factory=list)
+    # Geometrías en EPSG:4326. El M03 corre en el venv, donde no hay con qué
+    # reproyectar, y necesita el área de influencia en las mismas coordenadas
+    # geográficas en que el catálogo de estaciones publica su ubicación.
+    wkt_geografico: dict[str, str] = field(default_factory=dict)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
 
@@ -582,12 +586,19 @@ def delimitar(
         "Punto ajustado al cauce: E=%.2f N=%.2f (desplazamiento %.2f m)",
         este_ajustado, norte_ajustado, desplazamiento,
     )
-    if desplazamiento > radio * 0.9:
+    # La ventana de búsqueda es cuadrada, de modo que su alcance real llega a
+    # radio por raíz de dos en las diagonales. Un desplazamiento cercano a ese
+    # límite significa que el cauce elegido estaba en el extremo de la ventana y
+    # que ampliar el radio podría llevar a otro cauce distinto.
+    alcance = radio * (2 ** 0.5)
+    if desplazamiento > radio:
         hallazgos.append(Hallazgo(
             ADVERTENCIA, "dem.delimitacion.radio_ajuste_m",
-            f"el ajuste al cauce desplazó el punto {desplazamiento:.1f} m, casi "
-            f"el radio de búsqueda ({radio:g} m). Verificar que el punto "
-            "declarado corresponda al cauce previsto.",
+            f"el ajuste al cauce desplazó el punto {desplazamiento:.1f} m, por "
+            f"encima del radio declarado ({radio:g} m) y hasta el alcance "
+            f"diagonal de la ventana ({alcance:.0f} m). La celda elegida estaba "
+            "en el borde de la búsqueda: verificar que sea el cauce previsto y "
+            "no un afluente vecino.",
         ))
     elif desplazamiento == 0.0:
         hallazgos.append(Hallazgo(
@@ -889,6 +900,49 @@ def _escribir_geometrias(configuracion, base, cuenca_raster, ruta_dem, crs_calcu
     _registrar_producto(resultado, base, destino_influencia, CAMPOS_MARCO,
                         delimitador)
 
+    # El M03 selecciona estaciones sobre el área de influencia más un buffer
+    # adicional propio. Ese buffer se calcula aquí, en metros y con QGIS, porque
+    # el venv no puede hacerlo sobre coordenadas geográficas sin deformarlo.
+    buffer_estaciones = float(
+        configuracion.obtener("estaciones.buffer_adicional_km")
+    )
+    seleccion = influencia.buffer(buffer_estaciones * 1000.0, 12) \
+        if buffer_estaciones > 0 else QgsGeometry(influencia)
+
+    resultado.wkt_geografico = _a_geografico(
+        {"cuenca_preliminar": cuenca, "envolvente": envolvente,
+         "area_influencia": influencia, "area_estaciones": seleccion},
+        crs_calculo, configuracion,
+    )
+
+
+def _a_geografico(geometrias: dict, crs_calculo, configuracion) -> dict[str, str]:
+    """
+    Reproyecta las geometrías a coordenadas geográficas y las devuelve en WKT.
+
+    Es el puente entre los dos entornos: el M03 corre en el venv y no puede
+    reproyectar, de modo que recibe el área de influencia ya en el sistema en
+    que el catálogo de estaciones declara latitud y longitud.
+    """
+    from qgis.core import (
+        QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsGeometry,
+        QgsProject,
+    )
+
+    crs_geografico = QgsCoordinateReferenceSystem(
+        configuracion.obtener("crs.geografico")
+    )
+    transformacion = QgsCoordinateTransform(
+        crs_calculo, crs_geografico, QgsProject.instance().transformContext()
+    )
+
+    salida: dict[str, str] = {}
+    for nombre, geometria in geometrias.items():
+        copia = QgsGeometry(geometria)
+        if copia.transform(transformacion) == 0:
+            salida[nombre] = copia.asWkt(8)
+    return salida
+
 
 def _registrar_producto(resultado, base, destino, campos_salida, delimitador):
     resultado.capas.append(rutas.relativa(destino, base))
@@ -947,6 +1001,7 @@ def _cerrar(logger, resultado: ResultadoM02, base: Path, ruta_json: Path | None,
         },
         "capas": resultado.capas,
         "diccionarios": resultado.diccionarios,
+        "geometrias_epsg4326": resultado.wkt_geografico,
         "resumen": conteo,
         "codigo_salida": codigo,
         "conforme": codigo == SALIDA_CORRECTA,

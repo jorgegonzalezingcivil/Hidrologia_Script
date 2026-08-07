@@ -90,6 +90,40 @@ punto_descarga:
   x: 1003512.4                   # Este
   y: 1025917.54                  # Norte
 
+# -----------------------------------------------------------------------------
+# CAPAS NACIONALES DE REFERENCIA
+# -----------------------------------------------------------------------------
+# El drenaje 1:100.000 del IGAC ocupa 645 MB entre sus dos capas. Versionarlo
+# haría inmanejable el repositorio y convertiría el entregable en algo que no se
+# puede enviar. Vive fuera del árbol del proyecto, en una sola copia por máquina
+# compartida por todos los estudios, y el repositorio versiona únicamente el
+# recorte al área de influencia que produce el M02.
+#
+# 'directorio' debe ser una ruta absoluta fuera del repositorio. El esquema lo
+# verifica y detiene la carga si apunta dentro.
+referencia_nacional:
+  directorio: "C:/SIG_Referencia_Nacional"
+  drenaje_sencillo: "Drenaje_Sencillo.shp"
+  drenaje_doble: "Drenaje_Doble.shp"
+  escala: "1:100000"
+  fuente: "IGAC"
+  fecha: "2021-07-29"
+  # Adaptador de nombres de campo. Ambas capas comparten el del nombre.
+  campos:
+    nombre: "NOMBRE_GEO"
+  # Tolerancia de conexión entre un afluente y el cauce receptor. Medido sobre
+  # la zona del estudio, el 93% de las desembocaduras que alcanzan el drenaje
+  # doble lo tocan exactamente; unos pocos metros cubren el resto.
+  tolerancia_conexion_m: 5.0
+  # Proporción máxima de nodos que pueden incumplir la convención de sentido de
+  # digitalización antes de que el módulo se detenga. Medido: 3,17% en la
+  # ventana de 25 km alrededor del punto.
+  max_incumplimiento_sentido_pct: 10.0
+  # Productos versionables que deja el recorte, dentro del repositorio.
+  salida_recorte_sencillo: "data/referencia/sig/drenaje_sencillo_area.shp"
+  salida_recorte_doble: "data/referencia/sig/drenaje_doble_area.shp"
+  salida_grafo: "data/02_procesado/red_drenaje_grafo.json"
+
 subzonas_hidrograficas:
   archivo: "data/referencia/sig/Zonificacion_hidrografica_2013.shp"
   tolerancia_m: 500.0            # distancia máxima admitida si el punto cae fuera
@@ -163,7 +197,30 @@ dem:
 # M03 - SELECCIÓN DE ESTACIONES
 # -----------------------------------------------------------------------------
 estaciones:
-  buffer_adicional_km: 1.0
+  buffer_adicional_km: 1.0       # holgura sobre el área de influencia del M02
+  catalogo: "data/referencia/sig/CNE_IDEAM_Final.shp"
+  fecha_catalogo: "2024-01-01"   # descarga del CNE, para trazabilidad
+  # Adaptador de nombres de campo del Catálogo Nacional de Estaciones. Los
+  # campos d_* traen la descripción legible de los códigos.
+  campos:
+    codigo: "CODIGO"
+    nombre: "nombre"
+    categoria: "CATEGORIA"
+    categoria_desc: "d_CATEGORI"
+    estado: "d_ESTADO"
+    entidad: "ENTIDAD"
+    altitud: "altitud"
+    latitud: "latitud"
+    longitud: "longitud"
+    corriente: "d_CORRIENT"
+    departamento: "d_DEPARTAM"
+    municipio: "d_MUNICIPI"
+    subzona: "d_SUBZONA_"
+    fecha_instalacion: "FECHA_INST"
+    fecha_suspension: "FECHA_SUSP"
+  salida_seleccionadas: "data/03_SIG/vector/estaciones_seleccionadas.shp"
+  salida_descartadas: "data/03_SIG/vector/estaciones_descartadas.shp"
+  inventario_csv: "data/02_procesado/estaciones/inventario_estaciones.csv"
   categorias_por_variable:
     precipitacion: [AM, CO, CP, PG, PM, SP, SS]
     temperatura:   [AM, CO, CP, SP, SS]

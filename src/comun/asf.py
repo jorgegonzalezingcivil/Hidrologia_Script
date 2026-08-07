@@ -68,6 +68,7 @@ NIVELES_PROCESO = ("RTC_HI_RES", "RTC_LOW_RES")
 
 _TIEMPO_ESPERA = 180
 _BLOQUE = 1024 * 512
+_ESPERA_REINTENTO = 5.0
 
 
 class ErrorASF(ErrorHidrologia):
@@ -341,14 +342,16 @@ def _abridor_autenticado(
 # Descarga
 # =============================================================================
 def verificar_md5(destino: Path, esperado: str) -> bool:
-    """Comprueba la huella md5 del archivo descargado."""
+    """
+    Comprueba la huella md5 del archivo descargado.
+
+    Sin huella declarada por el catálogo devuelve True: no hay nada contra qué
+    contrastar, y rechazar por ese motivo impediría descargar productos que el
+    servicio publica sin md5.
+    """
     if not esperado:
         return True
-    digestor = hashlib.md5()
-    with destino.open("rb") as manejador:
-        for bloque in iter(lambda: manejador.read(_BLOQUE), b""):
-            digestor.update(bloque)
-    return digestor.hexdigest() == esperado
+    return _md5_de(destino) == esperado
 
 
 def descargar(
@@ -380,9 +383,9 @@ def descargar(
 
     abridor = _abridor_autenticado(ruta_declarada=ruta_netrc)
     parcial = destino.with_suffix(destino.suffix + ".parcial")
-    ultimo_error: Exception | None = None
 
     for intento in range(1, reintentos + 1):
+        ultimo = intento == reintentos
         try:
             with abridor.open(escena.url, timeout=_TIEMPO_ESPERA) as respuesta:
                 total = int(respuesta.headers.get("Content-Length") or 0)
@@ -404,29 +407,53 @@ def descargar(
                         if progreso is not None:
                             progreso(escena.nombre_archivo, descargado, total)
 
-            parcial.replace(destino)
-            break
-
         except (urllib.error.URLError, OSError, ErrorASF) as exc:
-            ultimo_error = exc
             parcial.unlink(missing_ok=True)
-            if intento == reintentos:
+            if ultimo:
                 raise ErrorASF(
                     f"No se pudo descargar {escena.nombre_archivo} tras "
                     f"{reintentos} intento(s): {exc}"
                 ) from exc
+            time.sleep(_ESPERA_REINTENTO * intento)
+            continue
 
-    if verificar and not verificar_md5(destino, escena.md5):
-        destino.unlink(missing_ok=True)
-        raise ErrorFormato(
-            f"{escena.nombre_archivo} se descargó con una huella md5 distinta de "
-            "la declarada por el catálogo. El archivo se eliminó."
-        )
+        # La verificación va DENTRO del bucle: una transferencia corrupta o
+        # truncada es justamente lo que un reintento puede resolver. Dejarla
+        # fuera convertía un fallo transitorio en la interrupción de una
+        # descarga de varios gigabytes.
+        if not verificar or verificar_md5(parcial, escena.md5):
+            parcial.replace(destino)
+            return destino
 
-    if ultimo_error is not None:
-        pass  # el reintento tuvo éxito; el error previo queda solo como historia
+        obtenido = _md5_de(parcial)
+        tamano = parcial.stat().st_size
+        parcial.unlink(missing_ok=True)
 
-    return destino
+        if ultimo:
+            raise ErrorFormato(
+                f"{escena.nombre_archivo} no superó la verificación tras "
+                f"{reintentos} intento(s).\n"
+                f"  md5 esperado : {escena.md5}\n"
+                f"  md5 obtenido : {obtenido}\n"
+                f"  bytes recibidos: {tamano} "
+                f"(el catálogo declara {escena.tamano_bytes} aproximados)\n"
+                "Si el tamaño coincide y el md5 no, el archivo llegó corrupto; "
+                "si difiere, la transferencia se truncó. Con md5 del catálogo "
+                "notoriamente erróneo puede desactivarse dem.asf.verificar_md5, "
+                "asumiendo el riesgo de procesar un archivo dañado."
+            )
+        time.sleep(_ESPERA_REINTENTO * intento)
+
+    return destino  # pragma: no cover - inalcanzable, el bucle sale por return o raise
+
+
+def _md5_de(ruta: Path) -> str:
+    """Huella md5 de un archivo, para el diagnóstico de una descarga fallida."""
+    digestor = hashlib.md5()
+    with ruta.open("rb") as manejador:
+        for bloque in iter(lambda: manejador.read(_BLOQUE), b""):
+            digestor.update(bloque)
+    return digestor.hexdigest()
 
 
 def resumen_descarga(escenas: Iterable[EscenaASF]) -> dict[str, float]:

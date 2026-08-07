@@ -270,6 +270,39 @@ ESQUEMA: dict[str, Campo] = {
     "punto_descarga.y": numero(
         "Norte en CRS proyectado, latitud en CRS geográfico", permite_nulo=True,
     ),
+    "referencia_nacional.directorio": texto(
+        "directorio de las capas nacionales, fuera del repositorio",
+        no_vacio=True,
+    ),
+    "referencia_nacional.drenaje_sencillo": texto(
+        "archivo del drenaje sencillo", no_vacio=True,
+    ),
+    "referencia_nacional.drenaje_doble": texto(
+        "archivo del drenaje doble", no_vacio=True,
+    ),
+    "referencia_nacional.escala": texto("escala de la cartografía", no_vacio=True),
+    "referencia_nacional.fuente": texto("entidad productora", no_vacio=True),
+    "referencia_nacional.fecha": texto("fecha de la cartografía", no_vacio=True),
+    "referencia_nacional.campos.nombre": texto(
+        "campo del nombre del cauce", no_vacio=True,
+    ),
+    "referencia_nacional.tolerancia_conexion_m": numero(
+        "tolerancia de conexión entre afluente y cauce receptor",
+        minimo=0, maximo=500,
+    ),
+    "referencia_nacional.max_incumplimiento_sentido_pct": numero(
+        "incumplimiento máximo admitido de la convención de sentido",
+        minimo=0, maximo=100,
+    ),
+    "referencia_nacional.salida_recorte_sencillo": texto(
+        "recorte versionable del drenaje sencillo", no_vacio=True,
+    ),
+    "referencia_nacional.salida_recorte_doble": texto(
+        "recorte versionable del drenaje doble", no_vacio=True,
+    ),
+    "referencia_nacional.salida_grafo": texto(
+        "grafo de adyacencia de la red", no_vacio=True,
+    ),
     "subzonas_hidrograficas.archivo": ruta("capa de subzonas hidrográficas"),
     "subzonas_hidrograficas.tolerancia_m": numero(
         "distancia máxima admitida si el punto cae fuera de toda subzona",
@@ -366,6 +399,41 @@ ESQUEMA: dict[str, Campo] = {
     # --- M03 -----------------------------------------------------------------
     "estaciones.buffer_adicional_km": numero(
         "buffer adicional para la selección de estaciones", minimo=0, maximo=50,
+    ),
+    "estaciones.catalogo": ruta("Catálogo Nacional de Estaciones del IDEAM"),
+    "estaciones.fecha_catalogo": texto(
+        "fecha de descarga del catálogo, para trazabilidad", no_vacio=True,
+    ),
+    "estaciones.campos.codigo": texto("campo del código", no_vacio=True),
+    "estaciones.campos.nombre": texto("campo del nombre", no_vacio=True),
+    "estaciones.campos.categoria": texto("campo de la categoría", no_vacio=True),
+    "estaciones.campos.categoria_desc": texto(
+        "campo de la descripción de categoría", no_vacio=True,
+    ),
+    "estaciones.campos.estado": texto("campo del estado", no_vacio=True),
+    "estaciones.campos.entidad": texto("campo de la entidad", no_vacio=True),
+    "estaciones.campos.altitud": texto("campo de la altitud", no_vacio=True),
+    "estaciones.campos.latitud": texto("campo de la latitud", no_vacio=True),
+    "estaciones.campos.longitud": texto("campo de la longitud", no_vacio=True),
+    "estaciones.campos.corriente": texto("campo de la corriente", no_vacio=True),
+    "estaciones.campos.departamento": texto("campo del departamento",
+                                            no_vacio=True),
+    "estaciones.campos.municipio": texto("campo del municipio", no_vacio=True),
+    "estaciones.campos.subzona": texto("campo de la subzona", no_vacio=True),
+    "estaciones.campos.fecha_instalacion": texto(
+        "campo de la fecha de instalación", no_vacio=True,
+    ),
+    "estaciones.campos.fecha_suspension": texto(
+        "campo de la fecha de suspensión", no_vacio=True,
+    ),
+    "estaciones.salida_seleccionadas": texto(
+        "capa de estaciones seleccionadas", no_vacio=True,
+    ),
+    "estaciones.salida_descartadas": texto(
+        "capa de estaciones descartadas", no_vacio=True,
+    ),
+    "estaciones.inventario_csv": texto(
+        "inventario de estaciones en CSV", no_vacio=True,
     ),
     "estaciones.categorias_por_variable": mapa(
         "categorías de estación admitidas por variable",
@@ -1560,6 +1628,62 @@ def _validar_ubicacion_credenciales(datos: dict, base: Path) -> list[Hallazgo]:
     )]
 
 
+def _validar_referencia_nacional(datos: dict, base: Path) -> list[Hallazgo]:
+    """
+    Verifica que las capas nacionales vivan fuera del repositorio.
+
+    El drenaje 1:100.000 del IGAC ocupa 645 MB. Dentro del árbol del proyecto
+    haría inmanejable el control de versiones y multiplicaría el tamaño del
+    entregable, sin aportar nada: el mismo archivo sirve a todos los estudios de
+    la máquina. Lo que sí se versiona es el recorte al área de influencia.
+    """
+    declarado = obtener(datos, "referencia_nacional.directorio")
+    if not isinstance(declarado, str) or not declarado.strip():
+        return []
+
+    candidato = Path(declarado).expanduser()
+    if not candidato.is_absolute():
+        return [Hallazgo(
+            BLOQUEANTE, "referencia_nacional.directorio",
+            f"{declarado!r} es una ruta relativa, de modo que se resolvería "
+            "dentro del repositorio. Declarar una ruta absoluta fuera de él.",
+        )]
+
+    hallazgos: list[Hallazgo] = []
+    try:
+        candidato.resolve().relative_to(base.resolve())
+    except ValueError:
+        pass
+    else:
+        return [Hallazgo(
+            BLOQUEANTE, "referencia_nacional.directorio",
+            f"{candidato} está dentro del repositorio. Las capas nacionales "
+            "ocupan cientos de megabytes y no deben versionarse ni viajar en el "
+            "entregable. Declarar un directorio externo, compartido por todos "
+            "los estudios de la máquina.",
+        )]
+
+    if not candidato.is_dir():
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "referencia_nacional.directorio",
+            f"el directorio declarado no existe: {candidato}. Los módulos que "
+            "usen el drenaje del IGAC se detendrán hasta que se cree y se "
+            "copien las capas.",
+        ))
+        return hallazgos
+
+    for clave in ("drenaje_sencillo", "drenaje_doble"):
+        nombre = obtener(datos, f"referencia_nacional.{clave}")
+        if isinstance(nombre, str) and nombre.strip():
+            if not (candidato / nombre).is_file():
+                hallazgos.append(Hallazgo(
+                    ADVERTENCIA, f"referencia_nacional.{clave}",
+                    f"no se encuentra {nombre} en {candidato}.",
+                ))
+
+    return hallazgos
+
+
 def validar_rutas(
     datos: dict,
     raiz: str | os.PathLike,
@@ -1574,6 +1698,7 @@ def validar_rutas(
     hallazgos: list[Hallazgo] = []
 
     hallazgos.extend(_validar_ubicacion_credenciales(datos, base))
+    hallazgos.extend(_validar_referencia_nacional(datos, base))
 
     for clave in CLAVES_RUTA:
         valor = obtener(datos, clave)

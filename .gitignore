@@ -91,6 +91,14 @@ data/00_insumos_usuario/**
 .vscode/
 .idea/
 
+# --- Capas nacionales de referencia ------------------------------------------
+# El drenaje 1:100.000 del IGAC ocupa 645 MB entre sus dos capas. Vive fuera del
+# repositorio, en la ruta declarada en referencia_nacional.directorio. Estas
+# reglas son una red de seguridad por si alguien vuelve a copiarlo aquí: lo que
+# se versiona es el recorte al área de influencia, no la capa nacional.
+data/referencia/sig/Drenaje_Sencillo.*
+data/referencia/sig/Drenaje_Doble.*
+
 # --- Bloqueos y temporales de software SIG -----------------------------------
 # ArcGIS deja archivos .lock junto a los shapefiles que tiene abiertos. No son
 # parte del insumo y quedan huérfanos al cerrar la sesión.
