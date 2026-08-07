@@ -49,6 +49,7 @@ _DIRECTORIO_SRC = Path(__file__).resolve().parent
 if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
+import sig  # noqa: E402
 from comun import entorno, esquema, registro, rutas  # noqa: E402
 from comun.config import Config, cargar, leer_yaml  # noqa: E402
 from comun.errores import (  # noqa: E402
@@ -448,55 +449,12 @@ def revisar_disponibilidad(
     ]
 
 
-# =============================================================================
-# Ciclo de vida de la aplicación QGIS
-# =============================================================================
-# QGIS no admite reinicializar la aplicación dentro del mismo proceso: una
-# segunda pareja initQgis/exitQgis produce una violación de acceso y el
-# intérprete muere sin traza de Python. Por eso la aplicación se inicializa una
-# sola vez por proceso y solo el punto de entrada la cierra.
-_APLICACION: Any = None
-
-
-def iniciar_qgis(prefix_path: str) -> Any:
-    """
-    Inicializa la aplicación QGIS, o devuelve la ya inicializada.
-
-    Excepciones
-    -----------
-    ErrorEntorno
-        Si qgis.core no se puede importar.
-    """
-    global _APLICACION
-    if _APLICACION is not None:
-        return _APLICACION
-
-    try:
-        from qgis.core import QgsApplication
-    except ImportError as exc:
-        raise ErrorEntorno(
-            "No se pudo importar qgis.core. El M00b debe ejecutarse con el "
-            "intérprete de QGIS declarado en entornos.qgis.python."
-        ) from exc
-
-    QgsApplication.setPrefixPath(prefix_path, True)
-    aplicacion = QgsApplication([], False)
-    aplicacion.initQgis()
-    _APLICACION = aplicacion
-    return aplicacion
-
-
-def finalizar_qgis() -> None:
-    """
-    Cierra la aplicación QGIS. Solo debe llamarse al terminar el proceso.
-
-    Tras esta llamada no se puede volver a construir un proyecto en el mismo
-    proceso.
-    """
-    global _APLICACION
-    if _APLICACION is not None:
-        _APLICACION.exitQgis()
-        _APLICACION = None
+# El ciclo de vida de QGIS vive en src/sig.py, compartido por los módulos del
+# entorno SIG. QGIS no admite reinicializarse dentro del mismo proceso: una
+# segunda pareja initQgis/exitQgis produce una violación de acceso que mata el
+# intérprete sin traza de Python.
+iniciar_qgis = sig.iniciar_qgis
+finalizar_qgis = sig.finalizar_qgis
 
 
 # =============================================================================

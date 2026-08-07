@@ -117,6 +117,33 @@ dem:
     metodo: "envolvente"         # envolvente del polígono delimitado
     buffer_km: 1.0
 
+  # --- Búsqueda y descarga de escenas ---------------------------------------
+  # ALOS PALSAR acumula muchas adquisiciones sobre la misma huella espacial. El
+  # modelo de elevación que acompaña a cada producto RTC no cambia entre
+  # pasadas, de modo que se deduplica por huella y luego se elige el
+  # subconjunto mínimo que cubre el área. Sin esa reducción, la subzona del Río
+  # Bogotá exigiría descargar 217 escenas y 62 GB en lugar de una fracción.
+  asf:
+    nivel: "RTC_HI_RES"          # RTC_HI_RES trae el DEM a 12,5 m
+    plataforma: "ALOS"
+    buffer_busqueda_km: 2.0      # holgura sobre la subzona del M01
+    max_escenas: 40              # tope de seguridad; por encima se detiene
+    max_volumen_gb: 15.0         # tope de descarga; por encima se detiene
+    verificar_md5: true
+    reintentos: 3
+    patron_dem_en_zip: ".dem.tif"
+    cobertura_minima_pct: 99.0   # por debajo se advierte de huecos sin cubrir
+
+  # --- Delimitación preliminar ----------------------------------------------
+  delimitacion:
+    umbral_celdas_cauce: 1000    # celdas acumuladas para definir cauce
+    radio_ajuste_m: 250.0        # búsqueda del cauce alrededor del punto
+    detener_si_toca_borde: true  # una cuenca truncada no es utilizable
+    salida_dem: "data/03_SIG/raster/dem_recortado.tif"
+    salida_cuenca: "data/03_SIG/vector/cuenca_preliminar.shp"
+    salida_envolvente: "data/03_SIG/vector/envolvente.shp"
+    salida_area_influencia: "data/03_SIG/vector/area_influencia.shp"
+
 # -----------------------------------------------------------------------------
 # M03 - SELECCIÓN DE ESTACIONES
 # -----------------------------------------------------------------------------

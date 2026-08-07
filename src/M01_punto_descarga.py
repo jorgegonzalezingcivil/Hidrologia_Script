@@ -57,6 +57,7 @@ _DIRECTORIO_SRC = Path(__file__).resolve().parent
 if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
+import sig  # noqa: E402
 from comun import campos as mod_campos  # noqa: E402
 from comun import entorno, esquema, registro, rutas  # noqa: E402
 from comun.campos import CampoSalida  # noqa: E402
@@ -164,37 +165,11 @@ class ResultadoM01:
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
 
-# =============================================================================
-# Ciclo de vida de QGIS
-# =============================================================================
-_APLICACION: Any = None
-
-
-def iniciar_qgis(prefix_path: str) -> Any:
-    """Inicializa la aplicación QGIS una sola vez por proceso."""
-    global _APLICACION
-    if _APLICACION is not None:
-        return _APLICACION
-    try:
-        from qgis.core import QgsApplication
-    except ImportError as exc:
-        raise ErrorEntorno(
-            "No se pudo importar qgis.core. El M01 debe ejecutarse con el "
-            "intérprete de QGIS declarado en entornos.qgis.python."
-        ) from exc
-    QgsApplication.setPrefixPath(prefix_path, True)
-    aplicacion = QgsApplication([], False)
-    aplicacion.initQgis()
-    _APLICACION = aplicacion
-    return aplicacion
-
-
-def finalizar_qgis() -> None:
-    """Cierra la aplicación QGIS. Solo al terminar el proceso."""
-    global _APLICACION
-    if _APLICACION is not None:
-        _APLICACION.exitQgis()
-        _APLICACION = None
+# El ciclo de vida de QGIS y la escritura de capas viven en src/sig.py, que los
+# comparte con los demás módulos del entorno SIG.
+iniciar_qgis = sig.iniciar_qgis
+finalizar_qgis = sig.finalizar_qgis
+reescribir_prj_con_autoridad = sig.reescribir_prj_con_autoridad
 
 
 # =============================================================================
@@ -465,134 +440,6 @@ def _buscar_subzona(capa, geometria_punto, punto_calculo, crs_calculo,
 # =============================================================================
 # Escritura de las capas
 # =============================================================================
-def _tipos_qgis() -> dict[str, Any]:
-    """
-    Traduce los tipos del repositorio a los de QGIS.
-
-    QGIS 4 construye los campos con QMetaType; las series 3.x usaban QVariant.
-    Se resuelve aquí, en un solo punto, para que un cambio de versión no obligue
-    a tocar la declaración de campos de ningún módulo.
-    """
-    try:
-        from qgis.PyQt.QtCore import QMetaType
-
-        return {
-            "texto": QMetaType.Type.QString,
-            "entero": QMetaType.Type.Int,
-            "decimal": QMetaType.Type.Double,
-            "fecha": QMetaType.Type.QDate,
-        }
-    except (ImportError, AttributeError):  # pragma: no cover - QGIS 3.x
-        from qgis.PyQt.QtCore import QVariant
-
-        return {
-            "texto": QVariant.String,
-            "entero": QVariant.Int,
-            "decimal": QVariant.Double,
-            "fecha": QVariant.Date,
-        }
-
-
-def escribir_capa(
-    destino: Path,
-    campos_salida: Sequence[CampoSalida],
-    geometria: Any,
-    valores: dict[str, Any],
-    crs_id: str,
-    tipo_geometria: str,
-) -> Path:
-    """
-    Escribe una capa de una sola entidad, con su .prj explícito.
-
-    Excepciones
-    -----------
-    ErrorFormato
-        Si los campos no son escribibles o QGIS no pudo escribir el archivo.
-    """
-    from qgis.core import (
-        QgsCoordinateTransformContext, QgsFeature, QgsField, QgsVectorFileWriter,
-        QgsVectorLayer,
-    )
-
-    mod_campos.validar_campos(campos_salida)
-    tipos = _tipos_qgis()
-
-    capa = QgsVectorLayer(f"{tipo_geometria}?crs={crs_id}", destino.stem, "memory")
-    proveedor = capa.dataProvider()
-    proveedor.addAttributes([
-        QgsField(campo.corto, tipos[campo.tipo],
-                 len=campo.longitud, prec=campo.precision)
-        for campo in campos_salida
-    ])
-    capa.updateFields()
-
-    entidad = QgsFeature(capa.fields())
-    entidad.setGeometry(geometria)
-    for campo in campos_salida:
-        entidad[campo.corto] = valores.get(campo.corto)
-    proveedor.addFeature(entidad)
-    capa.updateExtents()
-
-    destino.parent.mkdir(parents=True, exist_ok=True)
-
-    # Se eliminan los componentes previos en lugar de confiar en el modo de
-    # sobrescritura del escritor: un .dbf antiguo con otros campos junto a un
-    # .shp nuevo produce una capa que abre pero miente.
-    for extension in (".shp", ".shx", ".dbf", ".prj", ".cpg", ".qix"):
-        destino.with_suffix(extension).unlink(missing_ok=True)
-
-    opciones = QgsVectorFileWriter.SaveVectorOptions()
-    opciones.driverName = "ESRI Shapefile"
-    opciones.fileEncoding = "UTF-8"
-
-    error, mensaje = QgsVectorFileWriter.writeAsVectorFormatV3(
-        capa, str(destino), QgsCoordinateTransformContext(), opciones
-    )[:2]
-
-    if error != QgsVectorFileWriter.WriterError.NoError:
-        raise ErrorFormato(
-            f"QGIS no pudo escribir {destino}: {mensaje or error}"
-        )
-    if not destino.with_suffix(".prj").is_file():
-        raise ErrorFormato(
-            f"{destino.name} se escribió sin .prj. CLAUDE.md, sección 5, exige "
-            "escritura explícita del .prj."
-        )
-
-    reescribir_prj_con_autoridad(destino, crs_id)
-    return destino
-
-
-def reescribir_prj_con_autoridad(destino: Path, crs_id: str) -> None:
-    """
-    Reescribe el .prj en WKT1 de GDAL, que sí declara el código EPSG.
-
-    QGIS escribe el .prj de un shapefile en WKT1 sabor ESRI, que no incluye
-    nodo AUTHORITY. El archivo es válido y QGIS lo reinterpreta bien, pero
-    ninguna herramienta que lea el .prj como texto puede confirmar de qué CRS se
-    trata, empezando por el adaptador comun.shapefile que usa el M00c.
-
-    WKT1_GDAL conserva la compatibilidad de WKT1, de modo que ArcGIS y GDAL lo
-    leen igual, y añade AUTHORITY["EPSG",...]. La ambigüedad desaparece sin
-    perder interoperabilidad.
-    """
-    from qgis.core import QgsCoordinateReferenceSystem
-
-    crs = QgsCoordinateReferenceSystem(crs_id)
-    if not crs.isValid():
-        return
-
-    variante = getattr(QgsCoordinateReferenceSystem, "WKT1_GDAL", None)
-    if variante is None:  # pragma: no cover - depende de la versión de QGIS
-        return
-
-    wkt = crs.toWkt(variante)
-    if 'AUTHORITY["EPSG"' not in wkt:  # pragma: no cover - CRS sin autoridad
-        return
-
-    destino.with_suffix(".prj").write_text(wkt, encoding="utf-8")
-
-
 def escribir_productos(
     ubicacion: Ubicacion,
     configuracion: Config,
@@ -623,13 +470,13 @@ def escribir_productos(
     }
     valores_punto.update(ubicacion.atributos)
 
-    escribir_capa(
+    sig.escribir_capa(
         destino=destino_punto,
         campos_salida=CAMPOS_PUNTO,
-        geometria=QgsGeometry.fromPointXY(
+        geometrias=[QgsGeometry.fromPointXY(
             QgsPointXY(ubicacion.x_calculo, ubicacion.y_calculo)
-        ),
-        valores=valores_punto,
+        )],
+        valores=[valores_punto],
         crs_id=crs_calculo.authid(),
         tipo_geometria="Point",
     )
@@ -649,11 +496,11 @@ def escribir_productos(
     valores_subzona["area_km2"] = ubicacion.area_km2
     valores_subzona["perim_km"] = ubicacion.perimetro_km
 
-    escribir_capa(
+    sig.escribir_capa(
         destino=destino_subzona,
         campos_salida=CAMPOS_SUBZONA,
-        geometria=ubicacion.geometria_subzona,
-        valores=valores_subzona,
+        geometrias=[ubicacion.geometria_subzona],
+        valores=[valores_subzona],
         crs_id=crs_calculo.authid(),
         tipo_geometria="MultiPolygon",
     )

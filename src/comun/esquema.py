@@ -314,6 +314,44 @@ ESQUEMA: dict[str, Campo] = {
     "dem.area_influencia.buffer_km": numero(
         "buffer del área de influencia en kilómetros", minimo=0, maximo=50,
     ),
+    "dem.asf.nivel": texto(
+        "nivel de producto de ASF", opciones=("RTC_HI_RES", "RTC_LOW_RES"),
+    ),
+    "dem.asf.plataforma": texto("plataforma satelital", no_vacio=True),
+    "dem.asf.buffer_busqueda_km": numero(
+        "holgura sobre la subzona para buscar escenas", minimo=0, maximo=50,
+    ),
+    "dem.asf.max_escenas": entero(
+        "tope de escenas a descargar", minimo=1, maximo=500,
+    ),
+    "dem.asf.max_volumen_gb": numero(
+        "tope de volumen de descarga en gigabytes", minimo=0.1, maximo=500,
+    ),
+    "dem.asf.verificar_md5": booleano("verificar la huella md5 de cada escena"),
+    "dem.asf.reintentos": entero("reintentos por escena", minimo=1, maximo=10),
+    "dem.asf.patron_dem_en_zip": texto(
+        "sufijo del archivo de elevación dentro del .zip", no_vacio=True,
+    ),
+    "dem.asf.cobertura_minima_pct": numero(
+        "cobertura mínima del área antes de advertir", minimo=0, maximo=100,
+    ),
+    "dem.delimitacion.umbral_celdas_cauce": entero(
+        "celdas acumuladas para definir un cauce", minimo=1, maximo=10_000_000,
+    ),
+    "dem.delimitacion.radio_ajuste_m": numero(
+        "radio de búsqueda del cauce alrededor del punto", minimo=0, maximo=5000,
+    ),
+    "dem.delimitacion.detener_si_toca_borde": booleano(
+        "detener si la cuenca delimitada toca el borde del DEM",
+    ),
+    "dem.delimitacion.salida_dem": texto("ráster de elevación recortado",
+                                         no_vacio=True),
+    "dem.delimitacion.salida_cuenca": texto("cuenca preliminar", no_vacio=True),
+    "dem.delimitacion.salida_envolvente": texto("envolvente de la cuenca",
+                                                no_vacio=True),
+    "dem.delimitacion.salida_area_influencia": texto(
+        "área de influencia", no_vacio=True,
+    ),
 
     # --- M03 -----------------------------------------------------------------
     "estaciones.buffer_adicional_km": numero(
