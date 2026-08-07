@@ -70,6 +70,19 @@ _EN_CURSO = ("esriJobSubmitted", "esriJobWaiting", "esriJobExecuting",
 _CORRECTO = "esriJobSucceeded"
 
 
+# El servicio distingue tres situaciones con mensajes de texto, no con códigos
+# de error, y significan cosas distintas. Confundirlas lleva a dar por
+# inexistente una serie que solo carece de datos en el periodo pedido.
+MENSAJES_SIN_DATOS = {
+    "Estación no configurada en la serie seleccionada":
+        "la etiqueta existe pero la estación no tiene ese instrumento",
+    "No hay información para el rango seleccionado":
+        "la estación tiene la serie pero no hay datos en ese periodo",
+    "Sequence contains no elements":
+        "la etiqueta no existe en el servicio",
+}
+
+
 class ErrorDHIME(ErrorHidrologia):
     """El servicio de descarga no respondió como se espera."""
 

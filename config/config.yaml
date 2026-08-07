@@ -322,14 +322,30 @@ ideam:
         # al cálculo del M07 sobre la serie diaria: sirve de contraste, para
         # verificar que la Pmáx calculada coincide con la publicada.
         - {parametro: "PRECIPITACION", etiqueta: "PTPM_MX_TT_M", tipo_serie: "Estandar", calculo: ""}
+        # Pluviógrafo, por simetría con el pluviómetro. Etiquetas válidas,
+        # verificadas: una estación sin pluviógrafo responde "Estación no
+        # configurada en la serie seleccionada", que es distinto de que la
+        # etiqueta no exista.
         - {parametro: "PRECIPITACION", etiqueta: "PTPG_TT_D", tipo_serie: "Estandar", calculo: ""}
+        - {parametro: "PRECIPITACION", etiqueta: "PTPG_TT_M", tipo_serie: "Estandar", calculo: ""}
+        - {parametro: "PRECIPITACION", etiqueta: "PTPG_MX_D", tipo_serie: "Estandar", calculo: ""}
       temperatura:
         - {parametro: "TEMPERATURA", etiqueta: "TMX_CON", tipo_serie: "Estandar", calculo: ""}
         - {parametro: "TEMPERATURA", etiqueta: "TMN_CON", tipo_serie: "Estandar", calculo: ""}
       evaporacion:
         - {parametro: "EVAPORACION", etiqueta: "EV_TT_D", tipo_serie: "Estandar", calculo: ""}
       caudal:
+        # ATENCIÓN: el catálogo del servicio (ObtenerListaSeriesTiempoCalculo)
+        # NO lista CAUDAL como parámetro, y sin embargo estas series existen.
+        # El catálogo está incompleto y no es autoritativo: lo único que
+        # determina si una etiqueta existe es descargarla. Verificadas el
+        # 2026-08-07 sobre la estación 21197080.
+        - {parametro: "CAUDAL", etiqueta: "Q_MEDIA_D", tipo_serie: "Estandar", calculo: ""}
         - {parametro: "CAUDAL", etiqueta: "Q_MEDIA_M", tipo_serie: "Estandar", calculo: ""}
+        - {parametro: "CAUDAL", etiqueta: "Q_MX_D", tipo_serie: "Estandar", calculo: ""}
+        - {parametro: "CAUDAL", etiqueta: "Q_MX_M", tipo_serie: "Estandar", calculo: ""}
+        - {parametro: "CAUDAL", etiqueta: "Q_MN_M", tipo_serie: "Estandar", calculo: ""}
+        - {parametro: "NIVEL", etiqueta: "NV_MEDIA_D", tipo_serie: "Estandar", calculo: ""}
 
   dhime_zip:
     patron_archivo: "*.csv"      # se descubre por patrón, nunca por nombre fijo
