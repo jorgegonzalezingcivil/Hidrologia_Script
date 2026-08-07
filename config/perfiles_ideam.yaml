@@ -80,6 +80,57 @@ perfiles:
     recortar_espacios: true
 
   # ---------------------------------------------------------------------------
+  vigente_21:
+    descripcion: >-
+      Formato que entrega el servicio en 2026. Idéntico al de 2022 salvo que la
+      columna IdParametro pasó a llamarse Variable. Sigue trayendo 21 columnas,
+      de modo que el paso a 8 que documenta CLAUDE.md sección 7 no está vigente
+      o se revirtió.
+    verificado: true
+    fecha_verificacion: "2026-08-07"
+    muestra_verificacion: "descarga de prueba, estacion 21201200, PTPM_TT_M"
+    separador: ","
+    codificacion: "utf-8-sig"
+    columnas:
+      - CodigoEstacion
+      - NombreEstacion
+      - Latitud
+      - Longitud
+      - Altitud
+      - Categoria
+      - Entidad
+      - AreaOperativa
+      - Departamento
+      - Municipio
+      - FechaInstalacion
+      - FechaSuspension
+      - Variable
+      - Etiqueta
+      - DescripcionSerie
+      - Frecuencia
+      - Fecha
+      - Valor
+      - Grado
+      - Calificador
+      - NivelAprobacion
+    campos:
+      codigo: "CodigoEstacion"
+      nombre: "NombreEstacion"
+      latitud: "Latitud"
+      longitud: "Longitud"
+      altitud: "Altitud"
+      categoria: "Categoria"
+      parametro: "Variable"
+      etiqueta: "Etiqueta"
+      frecuencia: "Frecuencia"
+      fecha: "Fecha"
+      valor: "Valor"
+      calificador: "Calificador"
+      nivel_aprobacion: "NivelAprobacion"
+    formato_fecha: "%Y-%m-%d %H:%M"
+    recortar_espacios: true
+
+  # ---------------------------------------------------------------------------
   reducido_8:
     descripcion: >-
       Formato actual de 8 columnas. Perdió coordenadas, fechas de instalación y
@@ -155,6 +206,33 @@ calificadores:
     "AUSENCIA OBSERVADOR":
       registros: 293
       efecto: "tratar como dato faltante"
+    # --- Estimados por el propio IDEAM ---------------------------------------
+    # No son observaciones sino valores calculados por la entidad. Decisión del
+    # consultor: se MARCAN y se CONSERVAN, no se descartan. El M05 debe
+    # distinguirlos al decidir el relleno, porque rellenar sobre un dato ya
+    # estimado encadena dos estimaciones sin dejar rastro.
+    "EST. OTROS METODOS":
+      registros: 17497
+      efecto: "marcar como estimado por el IDEAM y conservar"
+    "EST. REGRESION":
+      registros: 12329
+      efecto: "marcar como estimado por el IDEAM y conservar"
+    "EST. INTERPOLACION":
+      registros: 318
+      efecto: "marcar como estimado por el IDEAM y conservar"
+    "MIRA NO TIENE DATO":
+      registros: 21
+      efecto: "tratar como dato faltante"
+    "SECCION INESTABLE":
+      registros: 52
+      efecto: "marcar y reportar"
+  # Calificadores que implican que el valor NO es una observación directa.
+  # El M05 los necesita para no encadenar estimaciones.
+  estimados:
+    - "EST. OTROS METODOS"
+    - "EST. REGRESION"
+    - "EST. INTERPOLACION"
+    - "ESTIMADO"
 
 # =============================================================================
 # NIVEL DE APROBACION

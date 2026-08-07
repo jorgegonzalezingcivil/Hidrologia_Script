@@ -104,6 +104,44 @@ decisiones:
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "términos de uso y política de descarga del IDEAM"
+    valor: "Aceptados. Descarga automatizada del servicio DHIME autorizada."
+    justificacion: >-
+      La aplicación web del IDEAM presenta un diálogo de términos de uso que se
+      acepta en cada descarga manual. El M04 invoca el servicio de descarga de
+      forma directa y no muestra ese diálogo. El consultor declara que acepta
+      esos términos de forma habitual al descargar y autoriza la automatización
+      bajo las mismas condiciones. Queda constancia aquí porque la aceptación
+      deja de ser un acto explícito por descarga.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
+  - tema: "formato de descarga del IDEAM vigente en 2026"
+    valor: "21 columnas, con IdParametro renombrada a Variable"
+    justificacion: >-
+      CLAUDE.md sección 7 documenta un cambio de 21 a 8 columnas con pérdida de
+      coordenadas, fechas y del campo Calificador. Verificado por descarga real
+      el 2026-08-07: el servicio entrega 21 columnas y conserva todos esos
+      campos. El único cambio respecto de 2022 es el nombre de una columna. Se
+      declaran ambos perfiles para poder leer archivos de las dos épocas.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
+  - tema: "tratamiento de los datos estimados por el IDEAM"
+    valor: "Marcar y conservar. No se descartan."
+    justificacion: >-
+      Los archivos traen 30.144 registros con calificador de estimación (EST.
+      OTROS METODOS 17.497, EST. REGRESION 12.329, EST. INTERPOLACION 318 y
+      ESTIMADO 826 sobre el histórico verificado). No son observaciones directas
+      sino valores calculados por la entidad. Decisión del consultor: se
+      conservan y se marcan, porque descartarlos reduciría la longitud de serie
+      disponible y esa decisión corresponde al análisis de sensibilidad del
+      M04b. La marca es indispensable para el M05: rellenar sobre un dato ya
+      estimado encadena dos estimaciones, y sin distinguirlos el porcentaje de
+      dato sintético del estudio quedaría subestimado.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""
