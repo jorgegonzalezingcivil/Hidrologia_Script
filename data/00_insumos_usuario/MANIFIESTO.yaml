@@ -225,6 +225,33 @@ decisiones:
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "dónde se generan las gráficas del estudio"
+    valor: >-
+      Cada módulo de análisis emite las suyas mediante src/graficos.py, punto
+      único de estilo. El M15 las selecciona, numera y coloca.
+    justificacion: >-
+      CLAUDE.md no asignaba la generación de gráficas a ningún módulo. El bloque
+      'informe' de config.yaml define cómo el M15 las numera y rotula, y
+      'cartografia' corresponde al M16, que son mapas. La generación quedaba sin
+      dueño y las rutinas heredadas la hacían por su cuenta.
+      Se distinguen dos cosas que se confunden: las gráficas de DIAGNÓSTICO,
+      que el consultor necesita para decidir, y las del ENTREGABLE, que el
+      informe numera. Suelen ser la misma imagen, pero no el mismo momento. La
+      curva de sensibilidad del M04b existe para fijar el umbral: si solo se
+      produjera en el M15, llegaría después de la decisión que debía sustentar.
+      La alternativa, generar todo en el M15, lo obligaría a releer y rederivar
+      cada producto intermedio, acoplándolo a las interioridades de veinte
+      módulos.
+      El estilo (paleta, rampa ordinal, tamaños, tipografía, formatos, dpi) vive
+      en el bloque 'graficos' de config.yaml y ningún módulo fija ninguno por su
+      cuenta. Sin ese punto único, las figuras del informe saldrían con aspectos
+      distintos, cosa que se nota ante interventoría.
+      Se instala matplotlib en el venv. NO puede importarla src/comun, que lo
+      comparte el Python de QGIS; la separación la comprueba
+      tests/test_graficos.py.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""

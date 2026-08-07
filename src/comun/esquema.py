@@ -880,6 +880,27 @@ ESQUEMA: dict[str, Campo] = {
     ),
 
     # --- M15 / M16 / M17 -----------------------------------------------------
+    # --- Gráficas de los módulos de análisis ---------------------------------
+    "graficos.directorio": texto("directorio de salida de las gráficas",
+                                 no_vacio=True),
+    "graficos.formatos": lista("formatos de salida",
+                               texto("formato", no_vacio=True), no_vacio=True),
+    "graficos.dpi": entero("resolución de salida", minimo=72, maximo=1200),
+    "graficos.ancho_cm": numero("ancho de la figura", minimo=4.0, maximo=60.0),
+    "graficos.alto_cm": numero("alto de la figura", minimo=3.0, maximo=60.0),
+    "graficos.tamano_fuente": numero("tamaño de fuente base",
+                                     minimo=4.0, maximo=24.0),
+    "graficos.tipografia": texto("familia tipográfica", no_vacio=True),
+    "graficos.rejilla": booleano("dibujar rejilla de fondo"),
+    "graficos.paleta": lista("paleta de identificación de series",
+                             texto("color", no_vacio=True), no_vacio=True),
+    "graficos.rampa": texto("rampa secuencial para categorías ordinales",
+                            no_vacio=True),
+    "graficos.nombres_variable": mapa(
+        "nombre presentable de cada variable en los rótulos",
+        texto("nombre", no_vacio=True),
+    ),
+
     "informe.plantilla": ruta("plantilla .dotx del informe"),
     "informe.formato_figuras": texto("rótulo de las figuras", no_vacio=True),
     "informe.formato_graficos": texto("rótulo de los gráficos", no_vacio=True),

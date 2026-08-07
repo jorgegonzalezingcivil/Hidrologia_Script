@@ -42,9 +42,11 @@ Productos:
     data/02_procesado/estaciones/matriz_sensibilidad.csv
     data/02_procesado/estaciones/M04b_sensibilidad.md
     data/02_procesado/M04b_sensibilidad.json
+    data/05_resultados/graficos/M04b_*.png y .svg
 
 Uso:
     python src/M04b_sensibilidad_series.py
+    python src/M04b_sensibilidad_series.py --sin-graficas
 
 Códigos de salida:
     0  matriz producida
@@ -593,12 +595,260 @@ def escribir_reporte_markdown(
 
 
 # =============================================================================
+# Gráficas
+# =============================================================================
+def _figuras(configuracion, base, resultado, acumulado, ventanas, umbrales,
+             minimo, variable_de, seleccionadas, logger) -> None:
+    """
+    Emite las cuatro figuras del módulo.
+
+    La graficación se importa aquí y no en la cabecera a propósito: matplotlib
+    es dependencia de los módulos de análisis, no del núcleo. Si falta, el
+    módulo debe seguir entregando la matriz, que es su producto sustantivo, y
+    reportar la ausencia en lugar de detenerse.
+    """
+    try:
+        import graficos
+    except ImportError as exc:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "graficos.ausente",
+            f"no se pudieron generar las figuras: {exc}. La matriz y el detalle "
+            "sí se escribieron. Instalar matplotlib (ver requirements.txt).",
+        ))
+        return
+
+    estilo = graficos.Estilo.desde_config(configuracion)
+    directorio = rutas.resolver(configuracion.obtener("graficos.directorio"), base)
+    ventana_ref = next(iter(ventanas))
+
+    nombres = dict(configuracion.obtener("graficos.nombres_variable") or {})
+    _figura_sensibilidad(graficos, estilo, directorio, resultado, ventanas,
+                         umbrales, base, nombres)
+    _figura_disponibilidad(graficos, estilo, directorio, acumulado, minimo,
+                           variable_de, seleccionadas, resultado, base)
+    _figura_completitud(graficos, estilo, directorio, acumulado, minimo,
+                        resultado, base)
+    _figura_cobertura(graficos, estilo, directorio, resultado, base,
+                      variable_de, umbrales, ventana_ref)
+    logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
+
+
+def _figura_sensibilidad(graficos, estilo, directorio, resultado, ventanas,
+                         umbrales, base, nombres=None) -> None:
+    """Estaciones que sobreviven a cada umbral, por variable y ventana."""
+    variables = sorted({c["variable"] for c in resultado.matriz})
+    if not variables:
+        return
+    with graficos.figura(
+        estilo, titulo="Sensibilidad de la longitud de serie",
+        filas=len(variables), columnas=1,
+        alto_cm=max(estilo.alto_cm, 4.5 * len(variables)),
+    ) as (fig, ejes):
+        for indice, variable in enumerate(variables):
+            ax = ejes[indice][0]
+            series = {}
+            for nombre in ventanas:
+                celdas = sorted(
+                    (c for c in resultado.matriz
+                     if c["variable"] == variable and c["ventana"] == nombre
+                     and c["evaluable"]),
+                    key=lambda c: c["umbral_anios"])
+                if not celdas:
+                    continue
+                eje_x = [c["umbral_anios"] for c in celdas]
+                series[nombre] = (eje_x, [c["estaciones"] for c in celdas])
+                series[nombre + " (consecutivos)"] = (
+                    eje_x, [c["estaciones_continuas"] for c in celdas])
+            graficos.lineas(
+                ax, series, estilo,
+                discontinuas=[k for k in series if k.endswith("(consecutivos)")],
+                leyenda=False,
+            )
+            ax.set_title((nombres or {}).get(variable, variable),
+                         fontsize=estilo.tamano_fuente, loc="left",
+                         color="#333333")
+            ax.set_ylabel("estaciones", fontsize=estilo.tamano_fuente)
+            ax.set_xticks(list(umbrales))
+            ax.grid(True, color=graficos.GRIS_CONTEXTO, linewidth=0.4, alpha=0.5)
+            ax.set_axisbelow(True)
+            for lado in ("top", "right"):
+                ax.spines[lado].set_visible(False)
+            if indice == len(variables) - 1:
+                ax.set_xlabel("umbral de años útiles",
+                              fontsize=estilo.tamano_fuente)
+        manijas, rotulos = ejes[0][0].get_legend_handles_labels()
+        # La leyenda va fuera de los ejes: dentro tapaba los datos del panel
+        # de caudal, que es el de rango más estrecho. El ajuste del lienzo
+        # va ANTES de colocarla, porque tight_layout no la tiene en cuenta y
+        # la superponía al rótulo del eje.
+        fig.tight_layout()
+        fig.legend(manijas, rotulos, loc="upper center",
+                   ncol=min(3, max(1, len(rotulos) // 2)),
+                   fontsize=estilo.tamano_fuente - 1, frameon=False,
+                   bbox_to_anchor=(0.5, -0.01))
+        for ruta in graficos.guardar(fig, directorio / "M04b_sensibilidad",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+
+def _figura_disponibilidad(graficos, estilo, directorio, acumulado, minimo,
+                           variable_de, seleccionadas, resultado, base) -> None:
+    """
+    Años útiles de cada estación de precipitación, dibujados como tramos.
+
+    Es la figura que distingue una serie continua de una partida, cosa que la
+    tabla solo deja ver comparando dos columnas.
+    """
+    por_estacion: dict[str, set[int]] = {}
+    for (codigo, etiqueta), serie in acumulado.items():
+        if variable_de.get(etiqueta) != "precipitacion":
+            continue
+        if seleccionadas and codigo not in seleccionadas:
+            continue
+        por_estacion.setdefault(codigo, set()).update(
+            anios_utiles(serie.por_anio, serie.frecuencia, minimo))
+    if not por_estacion:
+        return
+
+    ordenadas = sorted(por_estacion.items(),
+                       key=lambda kv: (min(kv[1]) if kv[1] else 9999))
+    etiquetas = [c for c, _ in ordenadas]
+    tramos = [graficos.tramos_consecutivos(a) for _, a in ordenadas]
+
+    with graficos.figura(
+        estilo, titulo="Disponibilidad de precipitación por estación",
+        etiqueta_x="año",
+        alto_cm=graficos.alto_para_filas(len(etiquetas), estilo),
+    ) as (fig, ax):
+        graficos.barras_horizontales(ax, etiquetas, tramos, estilo)
+        ax.set_ylabel("estación", fontsize=estilo.tamano_fuente)
+        fig.tight_layout()
+        for ruta in graficos.guardar(fig, directorio / "M04b_disponibilidad",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+
+def _figura_completitud(graficos, estilo, directorio, acumulado, minimo,
+                        resultado, base) -> None:
+    """Distribución de la completitud anual, con el umbral aplicado marcado."""
+    grupos: dict[str, list[float]] = {}
+    for serie in acumulado.values():
+        for anio, registros in serie.por_anio.items():
+            proporcion = completitud_anual(
+                registros, registros_esperados(serie.frecuencia, anio))
+            if proporcion is None:
+                continue
+            grupos.setdefault(serie.frecuencia or "sin declarar",
+                              []).append(proporcion)
+    if not grupos:
+        return
+    with graficos.figura(
+        estilo, titulo="Completitud anual medida, por frecuencia",
+        etiqueta_x="proporción del año con registro",
+        etiqueta_y="años-estación",
+    ) as (fig, ax):
+        graficos.histograma(ax, grupos, estilo, casillas=25, referencia=minimo,
+                            etiqueta_referencia="umbral %.0f%%" % (minimo * 100),
+                            escala_log=True)
+        fig.tight_layout()
+        for ruta in graficos.guardar(fig, directorio / "M04b_completitud",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+
+def _figura_cobertura(graficos, estilo, directorio, resultado, base,
+                      variable_de, umbrales, ventana) -> None:
+    """
+    Dónde quedan las estaciones que sobreviven a cada umbral.
+
+    Un umbral exigente puede conservar un número razonable de estaciones y aun
+    así vaciar una zona entera. La interpolación del M06 y del M11 tendría que
+    rellenar ese hueco por extrapolación, que es donde se cometen los errores
+    grandes. El conteo de la matriz no lo muestra; esta figura sí.
+    """
+    reporte_m02 = rutas.directorio("procesado", base) / "M02_delimitacion.json"
+    poligonos: list = []
+    if reporte_m02.is_file():
+        try:
+            datos = json.loads(reporte_m02.read_text(encoding="utf-8"))
+            wkt = (datos.get("geometrias_epsg4326") or {}).get("area_estaciones")
+            if wkt:
+                from comun import geometria
+                poligonos = geometria.poligonos_de_wkt(wkt)
+        except (OSError, json.JSONDecodeError, ErrorFormato):
+            poligonos = []
+    if not poligonos:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "graficos.area",
+            "la figura de cobertura se dibuja sin el contorno del área de "
+            "influencia: no se pudo leer del reporte del M02. Los huecos "
+            "quedan sin referencia contra la que juzgarse.",
+        ))
+
+    clave = "utiles_" + ventana
+    por_codigo: dict[str, tuple[float, float, int]] = {}
+    for fila in resultado.filas:
+        if not fila["en_m03"]:
+            continue
+        if variable_de.get(fila["etiqueta"]) != "precipitacion":
+            continue
+        try:
+            x = float(fila.get("longitud"))
+            y = float(fila.get("latitud"))
+        except (TypeError, ValueError):
+            continue
+        previo = por_codigo.get(fila["codigo"])
+        mejor = max(int(fila.get(clave, 0)), previo[2] if previo else 0)
+        por_codigo[fila["codigo"]] = (x, y, mejor)
+    if not por_codigo:
+        # Sin ubicaciones no hay figura, y callarlo dejaría al consultor
+        # creyendo que la cobertura se revisó.
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "graficos.cobertura",
+            "no se pudo dibujar la cobertura espacial: ninguna estación de "
+            "precipitación del M03 trae latitud y longitud utilizables.",
+        ))
+        return
+
+    cortes = sorted(set(int(u) for u in umbrales), reverse=True)
+    grupos: dict[str, tuple[list[float], list[float]]] = {}
+    asignadas: set[str] = set()
+    for corte in cortes:
+        equis, yes = [], []
+        for codigo, (x, y, anios) in sorted(por_codigo.items()):
+            if codigo not in asignadas and anios >= corte:
+                equis.append(x)
+                yes.append(y)
+                asignadas.add(codigo)
+        if equis:
+            grupos["\u2265 %d años" % corte] = (equis, yes)
+    restantes = [(x, y) for c, (x, y, _) in sorted(por_codigo.items())
+                 if c not in asignadas]
+    if restantes:
+        grupos["< %d años" % min(cortes)] = ([x for x, _ in restantes],
+                                              [y for _, y in restantes])
+
+    with graficos.figura(
+        estilo,
+        titulo="Cobertura espacial de precipitación, ventana " + ventana,
+        etiqueta_x="longitud", etiqueta_y="latitud",
+        alto_cm=max(estilo.alto_cm, 12.0),
+    ) as (fig, ax):
+        graficos.dispersion_sobre_area(ax, poligonos, grupos, estilo,
+                                       ordinal=True)
+        fig.tight_layout()
+        for ruta in graficos.guardar(fig, directorio / "M04b_cobertura",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+# =============================================================================
 # Ejecución
 # =============================================================================
 def ejecutar(
     raiz: Path | None = None,
     ruta_config: Path | None = None,
     ruta_json: Path | None = None,
+    con_graficas: bool = True,
     consola: bool = True,
 ) -> tuple[int, list[Hallazgo]]:
     """Construye la matriz de sensibilidad y escribe los productos."""
@@ -689,6 +939,8 @@ def ejecutar(
             fila["nombre"] = meta.get("nombre", "")
             fila["categoria"] = meta.get("categoria", "")
             fila["altitud"] = meta.get("altitud", "")
+            fila["latitud"] = meta.get("latitud", "")
+            fila["longitud"] = meta.get("longitud", "")
             fila["estado_susp"] = estado_por_suspension(
                 str(meta.get("f_suspen", "")), anio_estudio, max_suspension)
             fila["en_m03"] = serie.codigo in seleccionadas
@@ -721,6 +973,11 @@ def ejecutar(
     with registro.bloque(logger, "Escritura de productos"):
         _escribir_productos(configuracion, base, resultado, ventanas, umbrales,
                             minimo, anio_estudio, delimitador, logger)
+
+    if con_graficas:
+        with registro.bloque(logger, "Gráficas"):
+            _figuras(configuracion, base, resultado, acumulado, ventanas,
+                     umbrales, minimo, variable_de, seleccionadas, logger)
 
     resultado.hallazgos.extend(
         _resumir(resultado, configuracion, ventanas, umbrales))
@@ -898,6 +1155,9 @@ def _analizar_argumentos(argv: Sequence[str] | None = None) -> argparse.Namespac
     )
     analizador.add_argument("--raiz", type=Path, default=None)
     analizador.add_argument("--config", type=Path, default=None)
+    analizador.add_argument("--sin-graficas", action="store_true",
+                            dest="sin_graficas",
+                            help="Omite la generación de figuras.")
     analizador.add_argument("--json", type=Path, default=None, dest="json_salida")
     analizador.add_argument("--silencioso", action="store_true")
     return analizador.parse_args(argv)
@@ -909,7 +1169,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         codigo, _ = ejecutar(
             raiz=argumentos.raiz, ruta_config=argumentos.config,
-            ruta_json=argumentos.json_salida, consola=not argumentos.silencioso,
+            ruta_json=argumentos.json_salida,
+            con_graficas=not argumentos.sin_graficas,
+            consola=not argumentos.silencioso,
         )
         return codigo
     except (ErrorRutas, ErrorConfiguracion, ErrorFormato) as exc:

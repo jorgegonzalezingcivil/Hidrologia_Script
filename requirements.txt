@@ -24,3 +24,13 @@ pyyaml==6.0.2
 # También los usan el complemento de series del M05 y el balance del M18.
 numpy==2.5.1
 scipy==1.18.0
+
+# --- Graficación -------------------------------------------------------------
+# La consume src/graficos.py, punto único de estilo de las figuras. CLAUDE.md no
+# asignaba su generación a ningún módulo: 'informe' define cómo el M15 las numera
+# y rotula, y 'cartografia' corresponde al M16, que son mapas.
+#
+# Tampoco puede importarla src/comun, por la misma razón que numpy y scipy: el
+# Python de QGIS comparte ese paquete. La separación la comprueba
+# tests/test_graficos.py.
+matplotlib==3.11.1

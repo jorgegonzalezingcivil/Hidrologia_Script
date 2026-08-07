@@ -611,6 +611,44 @@ caudal_ambiental:
   metodo_adoptado: "qirh"
 
 # -----------------------------------------------------------------------------
+# GRÁFICAS DE LOS MÓDULOS DE ANÁLISIS
+# -----------------------------------------------------------------------------
+# Punto único de estilo, consumido por src/graficos.py. CLAUDE.md no asignaba la
+# generación de gráficas a ningún módulo: el bloque 'informe' define cómo el M15
+# las numera y rotula, y 'cartografia' corresponde al M16, que son mapas. Cada
+# módulo de análisis emite las suyas y el M15 las selecciona y coloca.
+#
+# Si cada módulo fijara su propio aspecto, las figuras del informe saldrían con
+# tipografías y colores distintos, y esa inconsistencia se nota en un entregable.
+graficos:
+  directorio: "data/05_resultados/graficos"
+  # El vectorial sirve al informe, que puede escalarlo sin pérdida; el mapa de
+  # bits sirve a la revisión rápida y a los visores que no interpretan SVG.
+  formatos: [png, svg]
+  dpi: 300                       # igual que cartografia, para no mezclar calidades
+  ancho_cm: 16.0                 # ancho útil de página con márgenes de informe
+  alto_cm: 10.0
+  tamano_fuente: 9.0
+  tipografia: "DejaVu Sans"      # si falta, matplotlib recurre a su propia sans
+  rejilla: true
+  # Paleta de identificación de series. El gris de rejillas y contornos no sale
+  # de aquí: no identifica ninguna serie.
+  paleta: ["#1f4e79", "#c00000", "#2e7d32", "#e07b00", "#6a1b9a", "#00838f"]
+  # Rampa para categorías ORDINALES (umbrales, periodos de retorno, rangos de
+  # altitud). La paleta de arriba es categórica y no tiene orden: aplicada a
+  # categorías ordenadas hace que los dos extremos salgan en tonos parecidos.
+  rampa: "Blues"
+  # Nombre presentable de cada variable en los rótulos. Las claves son las de
+  # ideam.descarga.series_por_variable, que son identificadores sin tilde: usarlas
+  # tal cual en una figura del informe se nota. Una variable no listada aquí
+  # aparece con su clave, sin fallar.
+  nombres_variable:
+    precipitacion: "Precipitación"
+    caudal: "Caudal"
+    temperatura: "Temperatura"
+    evaporacion: "Evaporación"
+
+# -----------------------------------------------------------------------------
 # M15 / M16 / M17 - SALIDAS
 # -----------------------------------------------------------------------------
 informe:
