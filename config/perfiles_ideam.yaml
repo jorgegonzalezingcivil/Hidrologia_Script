@@ -176,6 +176,20 @@ series_observadas:
     frecuencia: "Diaria"
     descripcion: "Evaporación total diaria"
     registros: 47422
+  PTPM_CON:
+    parametro: "PRECIPITACION"
+    frecuencia: "Diaria"
+    descripcion: "Precipitación diaria de pluviómetro (convencional)"
+    registros: 0            # ausente en los archivos de 2022
+    nota: >-
+      Imprescindible para el M07. Sin ella no hay serie de Pmáx 24 h y la marca
+      ACUMULADO del Calificador queda sin objeto.
+  PTPM_MX_TT_M:
+    parametro: "PRECIPITACION"
+    frecuencia: "Mensual"
+    descripcion: "Máximo mensual de totales diarios"
+    registros: 0            # ausente en los archivos de 2022
+    nota: "Contraste de la Pmáx que calcule el M07 sobre la serie diaria."
   Q_MEDIA_M:
     parametro: "CAUDAL"
     frecuencia: "Mensual"

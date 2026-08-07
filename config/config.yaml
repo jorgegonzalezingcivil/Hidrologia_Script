@@ -306,7 +306,22 @@ ideam:
     # los archivos reales y contra el catálogo del servicio.
     series_por_variable:
       precipitacion:
+        # El sufijo _CON marca observación convencional directa, y es el que
+        # distingue la serie DIARIA: PTPM_CON es pluviómetro diario, igual que
+        # TMX_CON y TMN_CON son temperatura diaria. Verificadas por descarga el
+        # 2026-08-07 sobre la estación 21201200.
+        #
+        # PTPM_CON es IMPRESCINDIBLE para el análisis de máximos. Sin ella el
+        # M07 no tiene serie de Pmáx 24 h, y la detección de registros
+        # ACUMULADO del Calificador pierde sentido, porque solo existe sobre la
+        # serie diaria. Los archivos de 2022 no la traen: aquel estudio era de
+        # balance hídrico y la serie mensual bastaba.
+        - {parametro: "PRECIPITACION", etiqueta: "PTPM_CON", tipo_serie: "Estandar", calculo: ""}
         - {parametro: "PRECIPITACION", etiqueta: "PTPM_TT_M", tipo_serie: "Estandar", calculo: ""}
+        # Máximo mensual de totales diarios que publica el IDEAM. No sustituye
+        # al cálculo del M07 sobre la serie diaria: sirve de contraste, para
+        # verificar que la Pmáx calculada coincide con la publicada.
+        - {parametro: "PRECIPITACION", etiqueta: "PTPM_MX_TT_M", tipo_serie: "Estandar", calculo: ""}
         - {parametro: "PRECIPITACION", etiqueta: "PTPG_TT_D", tipo_serie: "Estandar", calculo: ""}
       temperatura:
         - {parametro: "TEMPERATURA", etiqueta: "TMX_CON", tipo_serie: "Estandar", calculo: ""}

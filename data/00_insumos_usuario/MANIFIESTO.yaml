@@ -142,6 +142,20 @@ decisiones:
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "series de precipitación a descargar"
+    valor: "Se añaden PTPM_CON (diaria) y PTPM_MX_TT_M (máximo mensual)."
+    justificacion: >-
+      Los archivos aportados del estudio de 2022 solo traen PTPM_TT_M, la serie
+      mensual, porque aquel trabajo era de balance hídrico. La estructura actual
+      incluye análisis de máximos, y el M07 necesita la serie diaria íntegra
+      para la Pmáx 24 h: CLAUDE.md, sección 6, prohíbe construir una serie
+      diaria sintética interpolada. Además, la marca ACUMULADO del Calificador,
+      que detecta falsos máximos en 24 horas, solo tiene sentido sobre la serie
+      diaria. Se añade también PTPM_MX_TT_M como contraste de la Pmáx calculada.
+      Ambas verificadas por descarga sobre la estación 21201200.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""
