@@ -142,6 +142,7 @@ class ResultadoM02:
     # geográficas en que el catálogo de estaciones publica su ubicación.
     wkt_geografico: dict[str, str] = field(default_factory=dict)
     escenario: Any = None
+    cota_punto: float | None = None
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
 
@@ -1053,6 +1054,10 @@ def _escribir_area(configuracion, base, area, escenario, ruta_dem, crs_calculo,
     buffer_est = float(configuracion.obtener("estaciones.buffer_adicional_km"))
     seleccion = area.buffer(buffer_est * 1000.0, 12) if buffer_est > 0         else QgsGeometry(area)
 
+    x, y = _punto_de_descarga(configuracion, base)
+    resultado.cota_punto = _cota_en(ruta_dem, x, y)
+    logger.info("Cota del punto de descarga: %s m",
+                f"{resultado.cota_punto:.0f}" if resultado.cota_punto else "no disponible")
     logger.info("Área de influencia %.1f km2 | cotas %.0f a %.0f m",
                 resultado.area_cuenca_km2, cotas["minimo"], cotas["maximo"])
 
@@ -1060,6 +1065,22 @@ def _escribir_area(configuracion, base, area, escenario, ruta_dem, crs_calculo,
         {"area_influencia": area, "envolvente": envolvente,
          "area_estaciones": seleccion},
         crs_calculo, configuracion)
+
+
+def _cota_en(ruta_raster, este, norte):
+    """Lee la cota del DEM en una coordenada. None si cae fuera del ráster."""
+    from osgeo import gdal
+
+    conjunto = gdal.Open(str(ruta_raster))
+    if conjunto is None:
+        return None
+    gt = conjunto.GetGeoTransform()
+    columna = int((este - gt[0]) / gt[1])
+    fila = int((norte - gt[3]) / gt[5])
+    if not (0 <= columna < conjunto.RasterXSize and 0 <= fila < conjunto.RasterYSize):
+        return None
+    valor = conjunto.GetRasterBand(1).ReadAsArray(columna, fila, 1, 1)
+    return float(valor[0][0]) if valor is not None else None
 
 
 def _registrar_producto(resultado, base, destino, campos_salida, delimitador):
@@ -1112,6 +1133,7 @@ def _cerrar(logger, resultado: ResultadoM02, base: Path, ruta_json: Path | None,
         "plan_descarga": resultado.plan.como_dict(),
         "escenas_descargadas": resultado.descargadas,
         "dem": resultado.dem,
+        "punto": {"cota_m": resultado.cota_punto},
         "escenario": (resultado.escenario.como_dict()
                       if resultado.escenario else None),
         "area_influencia": {

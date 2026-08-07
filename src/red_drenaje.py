@@ -55,6 +55,7 @@ __all__ = [
     "empalmar_eje",
     "Escenario",
     "diagnosticar_escenario",
+    "medir_conectividad",
 ]
 
 
@@ -765,3 +766,74 @@ def diagnosticar_escenario(
         distancia_sencillo_m=distancia_sencillo,
         nombre_doble=nombre_doble, nombre_sencillo=nombre_sencillo,
     )
+
+
+def medir_conectividad(
+    tramos: Sequence[Tramo], tolerancia_m: float = 5.0, radio_m: float = 1000.0
+) -> dict[str, Any]:
+    """
+    Mide a que distancia esta cada tramo de su receptor mas proximo.
+
+    Es la medicion que decide si la red cartografica es utilizable para trazar
+    una cuenca, y que en este proyecto se hizo a mano tras varios intentos de
+    corregir el algoritmo a ciegas. Sobre la subzona del Rio Bogota: el 85,1%
+    de los tramos toca a su receptor exactamente y el 15% restante esta a
+    cientos de metros, no a unos pocos. Subir la tolerancia de 5 a 50 m
+    recuperaba 52 tramos de 8.754, de modo que NO hay tolerancia que arregle la
+    conectividad: la holgura se compensa con buffer del area de influencia.
+
+    Ejecutarla de oficio evita repetir ese descubrimiento en cada proyecto.
+    """
+    from qgis.core import QgsFeature, QgsGeometry, QgsPointXY, QgsSpatialIndex
+
+    if not tramos:
+        return {"tramos": 0}
+
+    indice = QgsSpatialIndex()
+    por_id: dict[int, Tramo] = {}
+    for tramo in tramos:
+        entidad = QgsFeature(tramo.identificador)
+        entidad.setGeometry(tramo.geometria)
+        indice.addFeature(entidad)
+        por_id[tramo.identificador] = tramo
+
+    distancias: list[float] = []
+    for tramo in tramos:
+        punto = QgsGeometry.fromPointXY(QgsPointXY(*tramo.fin))
+        caja = punto.boundingBox()
+        caja.grow(radio_m)
+        mejor = float("inf")
+        for candidato_id in indice.intersects(caja):
+            if candidato_id == tramo.identificador:
+                continue
+            candidato = por_id[candidato_id]
+            if _misma_posicion(candidato.fin, tramo.fin, tolerancia_m):
+                continue
+            distancia = candidato.geometria.distance(punto)
+            if distancia < mejor:
+                mejor = distancia
+        if mejor < float("inf"):
+            distancias.append(mejor)
+
+    if not distancias:
+        return {"tramos": len(tramos), "con_receptor": 0}
+
+    distancias.sort()
+    total = len(distancias)
+    umbrales = (0.0, tolerancia_m, 50.0, 200.0, 500.0)
+    return {
+        "tramos": len(tramos),
+        "con_receptor": total,
+        "sin_receptor": len(tramos) - total,
+        "acumulado_pct": {
+            f"<= {u:g} m": round(
+                100.0 * sum(1 for d in distancias if d <= u) / total, 2)
+            for u in umbrales
+        },
+        "mediana_m": round(distancias[total // 2], 2),
+        "p90_m": round(distancias[int(total * 0.9)], 2),
+        "tolerancia_util": (
+            "si" if sum(1 for d in distancias if d <= tolerancia_m) / total > 0.95
+            else "no: ampliarla apenas recupera tramos, compensar con buffer"
+        ),
+    }

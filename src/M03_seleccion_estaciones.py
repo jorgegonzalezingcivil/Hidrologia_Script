@@ -98,6 +98,11 @@ CAMPOS_ESTACION: tuple[CampoSalida, ...] = (
     CampoSalida("f_suspen", "Fecha de suspensión", "texto", 12),
     CampoSalida("variables", "Variables a las que sirve", "texto", 80),
     CampoSalida("motivo", "Motivo del descarte", "texto", 40),
+    CampoSalida("dif_cota", "Diferencia de cota respecto al punto",
+                "decimal", 12, 1, "m"),
+    CampoSalida("dist_km", "Distancia al punto de descarga", "decimal",
+                12, 3, "km"),
+    CampoSalida("apta_cal", "Aptitud para calibrar", "texto", 24),
 )
 
 
@@ -321,6 +326,113 @@ def verificar_categorias(
     return hallazgos
 
 
+
+# =============================================================================
+# Aptitud para calibrar
+# =============================================================================
+# Categorias que miden caudal o nivel. Solo ellas pueden servir a la
+# calibracion del M14b.
+CATEGORIAS_CAUDAL = ("LG", "LM", "RM")
+
+APTA = "posible"
+NO_APTA_COTA = "no: aguas abajo"
+NO_APTA_TIPO = "no mide caudal"
+DUDOSA = "verificar con la red"
+
+
+def evaluar_aptitud_calibracion(
+    estacion: "Estacion",
+    longitud_punto: float,
+    latitud_punto: float,
+    cota_punto: float | None,
+    margen_cota_m: float = 0.0,
+) -> tuple[float | None, float | None, str]:
+    """
+    Indica si una estacion puede servir para calibrar el modelo del punto.
+
+    Devuelve (diferencia de cota, distancia en km, aptitud).
+
+    La condicion necesaria es estar aguas arriba del punto de descarga: una
+    estacion aguas abajo mide una cuenca que contiene a la del estudio y la
+    supera, de modo que sus caudales son de otro orden. Verificado en este
+    proyecto: de cuatro estaciones de caudal dentro del area de influencia,
+    tres estaban 2.100 metros por debajo del punto, al otro lado de un salto,
+    y ninguna servia.
+
+    El criterio es la cota, que es condicion NECESARIA pero NO SUFICIENTE: una
+    estacion mas alta puede pertenecer a otra vertiente. Por eso las que la
+    superan se marcan como 'verificar con la red' y no como aptas sin mas. La
+    confirmacion definitiva exige el trazado de la red de drenaje, que vive en
+    red_drenaje y corre en el entorno de QGIS.
+    """
+    if (estacion.valores.get("categoria") or "").strip().upper() \
+            not in CATEGORIAS_CAUDAL:
+        return None, None, NO_APTA_TIPO
+
+    distancia = None
+    if estacion.longitud is not None and estacion.latitud is not None:
+        # Aproximacion suficiente para ordenar por cercania: un grado de
+        # latitud son unos 111 km, y la longitud se corrige por el coseno.
+        import math
+
+        dy = (estacion.latitud - latitud_punto) * 111.0
+        dx = ((estacion.longitud - longitud_punto) * 111.0
+              * math.cos(math.radians(latitud_punto)))
+        distancia = math.hypot(dx, dy)
+
+    altitud = estacion.valores.get("altitud")
+    if altitud is None or cota_punto is None:
+        return None, distancia, DUDOSA
+
+    diferencia = float(altitud) - float(cota_punto)
+    if diferencia < -margen_cota_m:
+        return diferencia, distancia, NO_APTA_COTA
+    return diferencia, distancia, DUDOSA
+
+
+def revisar_calibracion(
+    seleccionadas, longitud_punto, latitud_punto, cota_punto,
+) -> list[Hallazgo]:
+    """
+    Evalua todas las estaciones y reporta si la calibracion es viable.
+
+    Responde de oficio a una pregunta que todo estudio debe hacerse y que hoy
+    solo se descubria al llegar al M14b: hay estaciones de caudal utilizables?
+    CLAUDE.md, seccion 6, declara la calibracion condicional a que existan
+    series utilizables, y esta comprobacion es la que lo determina.
+    """
+    de_caudal = [e for e in seleccionadas
+                 if (e.valores.get("categoria") or "").strip().upper()
+                 in CATEGORIAS_CAUDAL]
+
+    if not de_caudal:
+        return [Hallazgo(
+            INFORMATIVO, "calibracion",
+            "no hay estaciones de caudal o nivel en el area. La calibracion "
+            "del M14b no aplica (CLAUDE.md, seccion 6).",
+        )]
+
+    posibles = [e for e in de_caudal
+                if e.valores.get("apta_cal") != NO_APTA_COTA]
+    abajo = len(de_caudal) - len(posibles)
+
+    hallazgos = [Hallazgo(
+        INFORMATIVO, "calibracion",
+        f"{len(de_caudal)} estacion(es) de caudal o nivel en el area: "
+        f"{abajo} descartada(s) por estar aguas abajo del punto y "
+        f"{len(posibles)} por verificar con la red de drenaje.",
+    )]
+
+    if not posibles:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "calibracion",
+            "todas las estaciones de caudal del area estan aguas abajo del "
+            "punto de descarga: miden cuencas que contienen a la del estudio. "
+            "La calibracion del M14b no tiene base y debe documentarse.",
+        ))
+    return hallazgos
+
+
 # =============================================================================
 # Escritura de productos
 # =============================================================================
@@ -466,6 +578,30 @@ def ejecutar(
         return _cerrar(logger, resultado, base, ruta_json, inicio,
                        SALIDA_BLOQUEANTE)
 
+    with registro.bloque(logger, "Aptitud para calibrar"):
+        punto = _punto_del_m01(base)
+        for estacion in resultado.seleccionadas:
+            dif, dist, apta = evaluar_aptitud_calibracion(
+                estacion, punto["longitud"], punto["latitud"], punto["cota"])
+            estacion.valores["dif_cota"] = dif
+            estacion.valores["dist_km"] = dist
+            estacion.valores["apta_cal"] = apta
+        for estacion in resultado.descartadas:
+            estacion.valores.setdefault("dif_cota", None)
+            estacion.valores.setdefault("dist_km", None)
+            estacion.valores.setdefault("apta_cal", "")
+        if punto["cota"] is None:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "calibracion.cota",
+                f"sin cota del punto de descarga ({punto['motivo_sin_cota']}): "
+                "no se puede descartar por posición y todas las estaciones "
+                "quedan como 'verificar con la red'. El resultado NO significa "
+                "que sean aptas.",
+            ))
+        resultado.hallazgos.extend(revisar_calibracion(
+            resultado.seleccionadas, punto["longitud"], punto["latitud"],
+            punto["cota"]))
+
     with registro.bloque(logger, "Escritura del inventario"):
         _escribir_productos(configuracion, base, info, resultado, logger)
 
@@ -475,6 +611,44 @@ def ejecutar(
               else SALIDA_CORRECTA)
     return _cerrar(logger, resultado, base, ruta_json, inicio, codigo)
 
+
+
+def _punto_del_m01(base: Path) -> dict:
+    """
+    Lee del reporte del M01 la posicion del punto de descarga.
+
+    La cota no la produce el M01, de modo que se toma del DEM del M02 si esta
+    disponible. Sin ella la comparacion de alturas no se puede hacer y las
+    estaciones quedan como 'verificar con la red' en lugar de descartarse.
+    """
+    ruta = rutas.directorio("procesado", base) / "M01_punto_descarga.json"
+    if not ruta.is_file():
+        raise ErrorFormato(
+            f"No existe {ruta.name}. La aptitud para calibrar se evalua "
+            "respecto al punto de descarga: ejecutar el M01 primero."
+        )
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    geo = (datos.get("resultado") or {}).get("geografico_4326") or {}
+    calc = (datos.get("resultado") or {}).get("calculo") or {}
+
+    # La cota del punto sale del DEM del M02. El venv no tiene GDAL, de modo que
+    # se toma del propio reporte del M02 si la publicó, y si no del atributo de
+    # la capa de cuenca. Nunca se silencia el motivo del fallo: sin cota, la
+    # comparación de alturas no se hace y TODAS las estaciones quedan como
+    # 'verificar con la red', lo que parece un resultado pero no lo es.
+    cota, motivo = None, ""
+    ruta_m02 = rutas.directorio("procesado", base) / "M02_delimitacion.json"
+    if ruta_m02.is_file():
+        m02 = json.loads(ruta_m02.read_text(encoding="utf-8"))
+        cota = (m02.get("punto") or {}).get("cota_m")
+        if cota is None:
+            motivo = ("el reporte del M02 no publica la cota del punto de "
+                      "descarga")
+    else:
+        motivo = f"no existe {ruta_m02.name}"
+
+    return {"longitud": geo.get("longitud"), "latitud": geo.get("latitud"),
+            "cota": cota, "motivo_sin_cota": motivo}
 
 def _escribir_productos(configuracion, base, info, resultado, logger) -> None:
     """Escribe las dos capas, el inventario y los diccionarios de campos."""
