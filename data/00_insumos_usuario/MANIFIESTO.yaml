@@ -157,24 +157,31 @@ decisiones:
     responsable: ""              # pendiente de diligenciar
 
   - tema: "viabilidad de la calibración del modelo (M14b)"
-    valor: "No viable. No hay estación de caudal aguas arriba del punto."
+    valor: >-
+      No viable. Hay una estación aguas arriba, pero solo mide nivel y desde
+      2018.
     justificacion: >-
-      Verificado sobre las series descargadas del IDEAM. De las 40 estaciones
-      con caudal, solo 4 caen en el área de influencia, y ninguna sirve:
-      21207960 (Puente Portillo, cota 361 m), 21209200 (425 m) y 21237030
-      (257 m) están aguas abajo del Salto del Tequendama y miden cuencas que
-      contienen a la del estudio y la superan ampliamente; 21209920 está a
-      2598 m pero al nororiente, hacia la vertiente del Meta, y aparece en el
-      área solo porque el área de influencia es la subzona completa y no la
-      cuenca vertiente. El punto de descarga está a 2568 m.
-      Cobertura de las series de máximos: Q_MX_D existe en 2 estaciones con 7 y
-      8 años, y Q_MX_M en 4, con una serie larga de 42 años en 21207960, pero
-      aguas abajo. CLAUDE.md, sección 6, declara la calibración condicional a
-      que existan series utilizables: no las hay.
-      Salvedad de método: la verificación se apoyó en cota y posición, no en la
-      red de drenaje. Es concluyente para las tres de cota 257 a 425 m, donde
-      la diferencia supera los 2000 m. Para 21209920 el argumento es más débil
-      y quedaría por confirmar con el motor de red si se quisiera certeza.
+      RECTIFICA un registro anterior que afirmaba que no había ninguna estación
+      aguas arriba. Esa conclusión se apoyaba en la cota, y era errónea.
+      La estación 2120700146 (Universidad de La Sabana, limnigráfica) está 6,26
+      km AGUAS ARRIBA del punto sobre el mismo eje del Río Bogotá, verificado
+      por recorrido sobre el cauce: su distancia a la desembocadura es 221,86 km
+      frente a 215,60 km del punto. El criterio de cota la había descartado por
+      estar 15 m más baja, pero en la sabana el desnivel del río es de
+      centímetros por kilómetro y el DEM de radar tiene ruido de varios metros:
+      esos 15 m eran ruido, no desnivel.
+      Aun así la calibración no es viable, por dos razones distintas: la
+      estación solo publica NV_MEDIA_D y NV_MEDIA_M, no caudal, y su registro
+      empieza en octubre de 2018, siete años. Convertir nivel en caudal exigiría
+      una curva de gasto, que es insumo del consultor y hoy no existe; y siete
+      años no sostienen un análisis de crecientes para periodos de retorno de 25
+      años o más.
+      Las otras cinco estaciones de caudal o nivel del área están aguas abajo
+      del Salto del Tequendama, con cotas de 257 a 614 m frente a los 2568 m del
+      punto, y miden cuencas que contienen a la del estudio y la superan.
+      CLAUDE.md, sección 6, declara la calibración condicional a que existan
+      series utilizables. Si el consultor aporta curva de gasto para 2120700146,
+      esta decisión debe revisarse.
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 

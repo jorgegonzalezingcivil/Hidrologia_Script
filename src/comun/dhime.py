@@ -80,6 +80,8 @@ MENSAJES_SIN_DATOS = {
         "la estación tiene la serie pero no hay datos en ese periodo",
     "Sequence contains no elements":
         "la etiqueta no existe en el servicio",
+    "No cumple con las restricciones definidas":
+        "el rango pedido excede el límite de 30 años por descarga",
 }
 
 
