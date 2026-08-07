@@ -437,7 +437,7 @@ def _parece_base64_zip(valor) -> bool:
     return valor.lstrip().startswith("UEsD")
 
 def descargar_inventario(configuracion, base, logger, resultado,
-                         limite_estaciones=None) -> int:
+                         limite_estaciones=None, etiquetas=None) -> int:
     """
     Descarga las series de las estaciones seleccionadas por el M03.
 
@@ -484,6 +484,12 @@ def descargar_inventario(configuracion, base, logger, resultado,
     for indice, estacion in enumerate(estaciones, start=1):
         codigo = str(estacion["codigo"]).strip()
         deseadas = series_de_estacion(estacion["categoria"], categorias, catalogo)
+        if etiquetas:
+            # Acotar a unas etiquetas concretas permite completar un vacio del
+            # histórico sin volver a pedir lo que ya se tiene. La serie diaria
+            # PTPM_CON es el caso: falta en los archivos de 2022 y es la que
+            # necesita el M07 para la Pmáx 24 h.
+            deseadas = [s for s in deseadas if s["etiqueta"] in etiquetas]
         if not deseadas:
             resultado.hallazgos.append(Hallazgo(
                 INFORMATIVO, f"descarga.{codigo}",
@@ -501,8 +507,9 @@ def descargar_inventario(configuracion, base, logger, resultado,
                         calculo=s.get("calculo", ""),
                     ) for s in deseadas[i:i + lote]
                 ]
+                marca = grupo[0].etiqueta if len(grupo) == 1 else f"g{i // lote}"
                 archivo = destino / (
-                    f"dhime_{codigo}_{desde[:4]}_{hasta[:4]}_{i // lote}.zip")
+                    f"dhime_{codigo}_{marca}_{desde[:4]}_{hasta[:4]}.zip")
                 if archivo.is_file():
                     continue
                 try:
@@ -558,6 +565,7 @@ def ejecutar(
     solo_inventario: bool = False,
     descargar: bool = False,
     limite_estaciones: int | None = None,
+    etiquetas: tuple | None = None,
     ruta_json: Path | None = None,
     consola: bool = True,
 ) -> tuple[int, list[Hallazgo]]:
@@ -618,7 +626,8 @@ def ejecutar(
     if configuracion.obtener("ideam.descarga.activar", False) or descargar:
         with registro.bloque(logger, "Descarga desde el servicio DHIME"):
             nuevos = descargar_inventario(configuracion, base, logger,
-                                          resultado, limite_estaciones)
+                                          resultado, limite_estaciones,
+                                          etiquetas)
             logger.info("Archivos nuevos descargados: %d", nuevos)
 
     archivos = sorted(directorio.glob("*.zip"))
@@ -827,6 +836,9 @@ def _analizar_argumentos(argv: Sequence[str] | None = None) -> argparse.Namespac
     analizador.add_argument("--limite-estaciones", type=int, default=None,
                             dest="limite_estaciones",
                             help="Descarga solo las N primeras, para pruebas.")
+    analizador.add_argument("--etiquetas", default=None,
+                            help="Etiquetas a descargar, separadas por coma. "
+                                 "Sin ella se piden todas las de la categoria.")
     analizador.add_argument("--json", type=Path, default=None, dest="json_salida")
     analizador.add_argument("--silencioso", action="store_true")
     return analizador.parse_args(argv)
@@ -841,6 +853,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             solo_inventario=argumentos.solo_inventario,
             descargar=argumentos.descargar,
             limite_estaciones=argumentos.limite_estaciones,
+            etiquetas=(tuple(e.strip() for e in
+                             argumentos.etiquetas.split(','))
+                       if argumentos.etiquetas else None),
             ruta_json=argumentos.json_salida,
             consola=not argumentos.silencioso,
         )
