@@ -285,6 +285,37 @@ ideam:
     token: ""                    # token de aplicación (gratuito). Vacío = sin token
     limite_pagina: 50000
     dataset_catalogo: "hp9r-jxuu"
+  # --- Descarga automática desde el servicio DHIME --------------------------
+  # El servicio es una tarea de geoprocesamiento pública de ArcGIS Server y
+  # devuelve el .zip embebido en base64 dentro de la respuesta, de modo que el
+  # tamaño de cada petición tiene un límite práctico: se trocea por estación y
+  # por ventana temporal.
+  #
+  # El límite de 30 años por descarga que documenta CLAUDE.md, sección 7, es la
+  # razón de 'ventana_anios' y, con ella, de que haya varios archivos por
+  # estación y de que la deduplicación sea imprescindible.
+  descarga:
+    activar: false               # true habilita la descarga en el M04
+    fecha_inicio: "1970-01-01"
+    fecha_fin: "2025-12-31"
+    ventana_anios: 30
+    max_series_por_trabajo: 4    # series por petición al servicio
+    espera_entre_trabajos_s: 2.0
+    reintentos: 3
+    # Series a solicitar por variable. Las etiquetas están verificadas contra
+    # los archivos reales y contra el catálogo del servicio.
+    series_por_variable:
+      precipitacion:
+        - {parametro: "PRECIPITACION", etiqueta: "PTPM_TT_M", tipo_serie: "Estandar", calculo: ""}
+        - {parametro: "PRECIPITACION", etiqueta: "PTPG_TT_D", tipo_serie: "Estandar", calculo: ""}
+      temperatura:
+        - {parametro: "TEMPERATURA", etiqueta: "TMX_CON", tipo_serie: "Estandar", calculo: ""}
+        - {parametro: "TEMPERATURA", etiqueta: "TMN_CON", tipo_serie: "Estandar", calculo: ""}
+      evaporacion:
+        - {parametro: "EVAPORACION", etiqueta: "EV_TT_D", tipo_serie: "Estandar", calculo: ""}
+      caudal:
+        - {parametro: "CAUDAL", etiqueta: "Q_MEDIA_M", tipo_serie: "Estandar", calculo: ""}
+
   dhime_zip:
     patron_archivo: "*.csv"      # se descubre por patrón, nunca por nombre fijo
     perfiles: "config/perfiles_ideam.yaml"

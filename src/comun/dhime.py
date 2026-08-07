@@ -152,12 +152,25 @@ def construir_filtro(
 
 def construir_items(series: Sequence[SerieSolicitada]) -> str:
     """Construye la cadena Items, que es la lista de series serializada."""
-    return json.dumps([s.como_item() for s in series], ensure_ascii=False)
+    # ensure_ascii=True es deliberado. La cadena viaja dentro de una petición
+    # HTTP y http.client rechaza argumentos con caracteres no ASCII: un nombre
+    # de parámetro con tilde hacía fallar la descarga de la estación entera.
+    return json.dumps([s.como_item() for s in series], ensure_ascii=True)
 
 
 def _peticion(url: str, datos: dict | None = None) -> dict:
-    cuerpo = urllib.parse.urlencode(datos).encode() if datos else None
-    peticion = urllib.request.Request(url, data=cuerpo, headers=_UA)
+    """
+    Envía una petición al servicio y devuelve su respuesta como diccionario.
+
+    La URL se normaliza y el cuerpo se codifica de forma explícita. Sin ello,
+    cualquier carácter no ASCII en un nombre de estación o de parámetro hace
+    fallar la petición completa con un ValueError de http.client, y la estación
+    entera se queda sin descargar.
+    """
+    seguro = urllib.parse.quote(url, safe=":/?&=%.,~'()[]{}+*-_")
+    cuerpo = (urllib.parse.urlencode(datos, encoding="utf-8").encode("ascii")
+              if datos else None)
+    peticion = urllib.request.Request(seguro, data=cuerpo, headers=_UA)
     try:
         with urllib.request.urlopen(peticion, timeout=_TIEMPO_ESPERA) as r:
             crudo = r.read().decode("utf-8", "replace")

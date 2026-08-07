@@ -41,6 +41,7 @@ import io
 import json
 import sys
 import time
+import base64
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -52,7 +53,7 @@ _DIRECTORIO_SRC = Path(__file__).resolve().parent
 if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
-from comun import esquema, registro, rutas  # noqa: E402
+from comun import dhime, esquema, registro, rutas  # noqa: E402
 from comun.config import Config, cargar, leer_yaml  # noqa: E402
 from comun.errores import (  # noqa: E402
     ErrorConfiguracion,
@@ -367,6 +368,187 @@ def deduplicar(
     return conservados, leidos, conflictos
 
 
+
+# =============================================================================
+# Descarga desde el servicio
+# =============================================================================
+def ventanas(fecha_inicio: str, fecha_fin: str, anios: int) -> list:
+    """
+    Trocea el periodo en ventanas de como mucho `anios` anios.
+
+    El IDEAM limita cada descarga a 30 anios (CLAUDE.md, seccion 7). De ahi que
+    haya varios archivos por estacion con rangos solapados, y de ahi que la
+    deduplicacion sea imprescindible y no un adorno.
+    """
+    inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
+    fin = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
+    if inicio > fin:
+        raise ValueError(f"{fecha_inicio} no es anterior a {fecha_fin}")
+
+    tramos, actual = [], inicio
+    while actual <= fin:
+        try:
+            siguiente = actual.replace(year=actual.year + anios)
+        except ValueError:                      # 29 de febrero
+            siguiente = actual.replace(year=actual.year + anios, day=28)
+        cierre = min(siguiente, fin)
+        tramos.append((actual.isoformat(), cierre.isoformat()))
+        if cierre >= fin:
+            break
+        actual = cierre
+    return tramos
+
+
+def series_de_estacion(categoria, categorias_por_variable, series_por_variable):
+    """
+    Devuelve las series a pedir para una estacion, segun su categoria.
+
+    Una climatica principal sirve a precipitacion, temperatura y evaporacion a
+    la vez, de modo que se acumulan las series de todas las variables que su
+    categoria cubre, sin repetir.
+    """
+    objetivo = (categoria or "").strip().upper()
+    elegidas, vistas = [], set()
+    for variable, categorias in sorted(categorias_por_variable.items()):
+        if objetivo not in {str(c).strip().upper() for c in categorias}:
+            continue
+        for serie in series_por_variable.get(variable, ()):
+            clave = (serie.get("parametro"), serie.get("etiqueta"))
+            if clave in vistas:
+                continue
+            vistas.add(clave)
+            elegidas.append(dict(serie))
+    return elegidas
+
+
+
+def _parece_base64_zip(valor) -> bool:
+    """
+    Indica si el valor devuelto es un .zip en base64 y no un mensaje de texto.
+
+    El servicio responde con un mensaje legible cuando la serie no tiene datos
+    en el periodo pedido, y ese caso no es un error: es informacion. 'UEsDB' es
+    la firma PK de un ZIP codificada en base64.
+    """
+    if not isinstance(valor, str) or len(valor) < 32:
+        return False
+    if not valor.isascii():
+        return False
+    return valor.lstrip().startswith("UEsD")
+
+def descargar_inventario(configuracion, base, logger, resultado,
+                         limite_estaciones=None) -> int:
+    """
+    Descarga las series de las estaciones seleccionadas por el M03.
+
+    Cada peticion cubre una estacion, un grupo de series y una ventana temporal.
+    El archivo llega embebido en base64 dentro de la respuesta y se escribe tal
+    cual en el directorio de crudos, de modo que la lectura posterior es la
+    misma tanto si el .zip vino del servicio como si se descargo a mano.
+
+    Los archivos ya presentes no se vuelven a pedir: la descarga es reanudable.
+    """
+    from comun import shapefile as shp
+
+    inventario = rutas.resolver(
+        configuracion.obtener("estaciones.salida_seleccionadas"), base)
+    if not inventario.is_file():
+        raise ErrorFormato(
+            f"No existe {inventario.name}. La descarga parte del inventario "
+            "del M03: ejecutarlo primero."
+        )
+
+    estaciones = list(shp.leer_registros(inventario, ["codigo", "categoria"]))
+    if limite_estaciones:
+        estaciones = estaciones[:limite_estaciones]
+
+    categorias = {v: list(c) for v, c in
+                  configuracion.obtener(
+                      "estaciones.categorias_por_variable").items()}
+    catalogo = {v: list(s) for v, s in
+                configuracion.obtener(
+                    "ideam.descarga.series_por_variable").items()}
+    tramos = ventanas(
+        configuracion.obtener("ideam.descarga.fecha_inicio"),
+        configuracion.obtener("ideam.descarga.fecha_fin"),
+        int(configuracion.obtener("ideam.descarga.ventana_anios")))
+    lote = int(configuracion.obtener("ideam.descarga.max_series_por_trabajo"))
+    espera = float(configuracion.obtener(
+        "ideam.descarga.espera_entre_trabajos_s"))
+    destino = rutas.directorio("crudos_ideam_zip", base, crear=True)
+
+    logger.info("Descarga: %d estacion(es), %d ventana(s)",
+                len(estaciones), len(tramos))
+
+    escritos = 0
+    for indice, estacion in enumerate(estaciones, start=1):
+        codigo = str(estacion["codigo"]).strip()
+        deseadas = series_de_estacion(estacion["categoria"], categorias, catalogo)
+        if not deseadas:
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, f"descarga.{codigo}",
+                f"categoria {estacion['categoria']!r} sin series declaradas.",
+            ))
+            continue
+
+        for desde, hasta in tramos:
+            for i in range(0, len(deseadas), lote):
+                grupo = [
+                    dhime.SerieSolicitada(
+                        estacion=codigo, parametro=s["parametro"],
+                        etiqueta=s["etiqueta"],
+                        tipo_serie=s.get("tipo_serie", "Estandar"),
+                        calculo=s.get("calculo", ""),
+                    ) for s in deseadas[i:i + lote]
+                ]
+                archivo = destino / (
+                    f"dhime_{codigo}_{desde[:4]}_{hasta[:4]}_{i // lote}.zip")
+                if archivo.is_file():
+                    continue
+                try:
+                    trabajo = dhime.enviar_trabajo(grupo, desde, hasta)
+                    dhime.esperar_trabajo(trabajo)
+                    salida = dhime.consultar_trabajo(
+                        f"{trabajo}/results/Archivo")
+                    valor = salida.get("value")
+                    if not valor:
+                        raise dhime.ErrorDHIME(
+                            "el servicio no devolvio contenido")
+                    # El servicio NO falla cuando no hay datos: devuelve un
+                    # mensaje en texto en lugar del archivo. Decodificarlo como
+                    # base64 lanzaba un ValueError que parecia un fallo de red y
+                    # ocultaba la causa real, que es una serie sin registros en
+                    # ese periodo.
+                    if not _parece_base64_zip(valor):
+                        resultado.hallazgos.append(Hallazgo(
+                            INFORMATIVO, f"descarga.{codigo}",
+                            f"{desde} a {hasta}: sin datos para "
+                            f"{[g.etiqueta for g in grupo]}. "
+                            f"El servicio respondio: {str(valor)[:80]!r}",
+                        ))
+                        time.sleep(espera)
+                        continue
+                    crudo = base64.b64decode(valor)
+                    if crudo[:2] != b"PK":
+                        raise dhime.ErrorDHIME(
+                            "el contenido devuelto no es un .zip")
+                    archivo.write_bytes(crudo)
+                    escritos += 1
+                except Exception as exc:
+                    resultado.hallazgos.append(Hallazgo(
+                        ADVERTENCIA, f"descarga.{codigo}",
+                        f"{desde} a {hasta}: {type(exc).__name__} "
+                        f"{str(exc)[:160]}",
+                    ))
+                time.sleep(espera)
+
+        if indice % 5 == 0 or indice == len(estaciones):
+            logger.info("  %d/%d estaciones | %d archivo(s) nuevos",
+                        indice, len(estaciones), escritos)
+
+    return escritos
+
+
 # =============================================================================
 # Orquestación
 # =============================================================================
@@ -374,6 +556,8 @@ def ejecutar(
     raiz: Path | None = None,
     ruta_config: Path | None = None,
     solo_inventario: bool = False,
+    descargar: bool = False,
+    limite_estaciones: int | None = None,
     ruta_json: Path | None = None,
     consola: bool = True,
 ) -> tuple[int, list[Hallazgo]]:
@@ -430,6 +614,12 @@ def ejecutar(
                 f"el perfil {perfil.nombre} no está verificado contra archivos "
                 "reales.",
             ))
+
+    if configuracion.obtener("ideam.descarga.activar", False) or descargar:
+        with registro.bloque(logger, "Descarga desde el servicio DHIME"):
+            nuevos = descargar_inventario(configuracion, base, logger,
+                                          resultado, limite_estaciones)
+            logger.info("Archivos nuevos descargados: %d", nuevos)
 
     archivos = sorted(directorio.glob("*.zip"))
     if not archivos:
@@ -632,6 +822,11 @@ def _analizar_argumentos(argv: Sequence[str] | None = None) -> argparse.Namespac
     analizador.add_argument("--solo-inventario", action="store_true",
                             dest="solo_inventario",
                             help="Caracteriza sin escribir la serie consolidada.")
+    analizador.add_argument("--descargar", action="store_true",
+                            help="Descarga las series del inventario del M03.")
+    analizador.add_argument("--limite-estaciones", type=int, default=None,
+                            dest="limite_estaciones",
+                            help="Descarga solo las N primeras, para pruebas.")
     analizador.add_argument("--json", type=Path, default=None, dest="json_salida")
     analizador.add_argument("--silencioso", action="store_true")
     return analizador.parse_args(argv)
@@ -644,6 +839,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         codigo, _ = ejecutar(
             raiz=argumentos.raiz, ruta_config=argumentos.config,
             solo_inventario=argumentos.solo_inventario,
+            descargar=argumentos.descargar,
+            limite_estaciones=argumentos.limite_estaciones,
             ruta_json=argumentos.json_salida,
             consola=not argumentos.silencioso,
         )

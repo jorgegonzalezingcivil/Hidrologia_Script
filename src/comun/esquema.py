@@ -486,6 +486,23 @@ ESQUEMA: dict[str, Campo] = {
     "ideam.socrata.dataset_catalogo": texto(
         "identificador del Catálogo Nacional de Estaciones", no_vacio=True,
     ),
+    "ideam.descarga.activar": booleano("habilitar la descarga automática"),
+    "ideam.descarga.fecha_inicio": texto("inicio del periodo", no_vacio=True),
+    "ideam.descarga.fecha_fin": texto("fin del periodo", no_vacio=True),
+    "ideam.descarga.ventana_anios": entero(
+        "años por petición; el IDEAM limita a 30", minimo=1, maximo=30,
+    ),
+    "ideam.descarga.max_series_por_trabajo": entero(
+        "series por petición al servicio", minimo=1, maximo=50,
+    ),
+    "ideam.descarga.espera_entre_trabajos_s": numero(
+        "espera entre peticiones", minimo=0, maximo=60,
+    ),
+    "ideam.descarga.reintentos": entero("reintentos por trabajo", minimo=1, maximo=10),
+    "ideam.descarga.series_por_variable": mapa(
+        "series a solicitar por variable",
+        valor=Campo(tipo=(list,), descripcion="lista de series", no_vacio=True),
+    ),
     "ideam.dhime_zip.patron_archivo": texto(
         "patrón de descubrimiento de archivos DHIME", no_vacio=True,
     ),
