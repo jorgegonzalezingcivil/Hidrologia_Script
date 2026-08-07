@@ -207,6 +207,24 @@ decisiones:
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "umbral de completitud anual para contar un año como útil (M04b)"
+    valor: "0.80 (sensibilidad_series.completitud_anual_minima)"
+    justificacion: >-
+      Un año cuenta como útil solo si tiene registro en al menos el 80% de sus
+      días o meses. Sin este control, un año con tres días de dato sumaría igual
+      que uno completo y la longitud de serie quedaría inflada.
+      Medido sobre la serie consolidada del estudio: la completitud anual tiene
+      mediana 0,97 en las series diarias y 1,00 en las mensuales, con una cola de
+      años parciales (percentil 10 en 0,37). El umbral conserva el 73,6% de los
+      años diarios y el 91,8% de los mensuales, y deja fuera esa cola.
+      ADVERTENCIA que debe atenderse en el M07: 0,80 en una serie diaria admite
+      hasta 73 días ausentes. Para medir LONGITUD es razonable, pero no basta
+      para la serie de máximos: un año al que le falte parte de la temporada de
+      lluvias puede no contener su propio máximo anual. El M07 debe imponer un
+      criterio estacional propio y no heredar este.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""

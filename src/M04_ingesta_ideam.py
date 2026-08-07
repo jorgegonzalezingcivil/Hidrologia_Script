@@ -103,6 +103,7 @@ class ResultadoM04:
     ejemplos_fecha: list = field(default_factory=list)
     estaciones: set = field(default_factory=set)
     series: dict = field(default_factory=dict)
+    series_leidas: dict = field(default_factory=dict)
     perfiles_usados: dict = field(default_factory=dict)
     calificadores: dict = field(default_factory=dict)
     productos: list = field(default_factory=list)
@@ -647,6 +648,14 @@ def ejecutar(
         resultado.registros_leidos = leidos
         resultado.registros_unicos = len(conservados)
         resultado.conflictos = conflictos
+        # Recuento por serie sobre lo CONSERVADO, no sobre lo leído. El
+        # contador del generador corre antes de deduplicar, de modo que
+        # publicarlo junto a registros_unicos invitaba a compararlos: sumaban
+        # cosas distintas (2,161,619 frente a 1,844,712) sin decirlo.
+        resultado.series = {}
+        for fila in conservados.values():
+            etiqueta = fila.get("etiqueta", "")
+            resultado.series[etiqueta] = resultado.series.get(etiqueta, 0) + 1
 
     logger.info(
         "Leídos %s | únicos %s | conflictos %s (%.1f%% redundante)",
@@ -795,6 +804,7 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "fechas_ilegibles": resultado.fechas_ilegibles,
         "estaciones": len(resultado.estaciones),
         "series": resultado.series,
+        "series_leidas": resultado.series_leidas,
         "perfiles_usados": resultado.perfiles_usados,
         "calificadores": resultado.calificadores,
         "productos": resultado.productos,

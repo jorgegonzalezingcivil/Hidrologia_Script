@@ -382,6 +382,22 @@ ideam:
 sensibilidad_series:
   umbrales_anios: [10, 15, 20, 25, 30]
   ventanas: [[1980, null], [1990, null], [2000, null]]   # null = año del estudio
+  # Proporción del año que debe tener registro para que ese año cuente como
+  # útil. Sin este control, un año con tres días de dato sumaría igual que uno
+  # completo y la longitud de serie quedaría inflada.
+  #
+  # Medido sobre la serie consolidada de este estudio: la completitud anual
+  # tiene mediana 0,97 en las series diarias y 1,00 en las mensuales, con una
+  # cola de años parciales (percentil 10 en 0,37). El umbral 0,80 conserva el
+  # 73,6% de los años diarios y el 91,8% de los mensuales, y deja fuera esa
+  # cola.
+  #
+  # ADVERTENCIA: 0,80 en una serie diaria admite hasta 73 días ausentes. Para
+  # medir LONGITUD es razonable, pero NO basta para la serie de máximos del M07:
+  # un año al que le falte parte de la temporada de lluvias puede no contener su
+  # propio máximo anual. El M07 debe imponer su criterio, estacional, y no
+  # heredar este.
+  completitud_anual_minima: 0.80
   anios_max_suspension: 5
   umbral_adoptado_anios: null    # lo define el consultor tras revisar la matriz
   ventana_adoptada: null

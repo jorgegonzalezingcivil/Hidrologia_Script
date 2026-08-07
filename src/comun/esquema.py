@@ -548,6 +548,10 @@ ESQUEMA: dict[str, Campo] = {
         entero("años", minimo=1, maximo=150), creciente=True,
     ),
     "sensibilidad_series.ventanas": lista("ventanas temporales evaluadas"),
+    "sensibilidad_series.completitud_anual_minima": numero(
+        "proporción mínima del año con registro para contarlo como útil",
+        minimo=0.0, maximo=1.0,
+    ),
     "sensibilidad_series.anios_max_suspension": entero(
         "antigüedad máxima admitida de la suspensión", minimo=0, maximo=100,
     ),
