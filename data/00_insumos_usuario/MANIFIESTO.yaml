@@ -91,6 +91,19 @@ decisiones:
     fecha: "2026-08-05"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "tratamiento del NivelAprobacion del IDEAM"
+    valor: "1200 Definitivo, 1100 En revisión, 900 Preliminar. Sin filtrado."
+    justificacion: >-
+      Los archivos de descarga traen códigos numéricos y no los textos que cita
+      CLAUDE.md. Confirmada la correspondencia por el consultor. Todos los datos
+      entran al procesamiento con independencia de su nivel, conforme a la
+      decisión cerrada de la sección 6, que lo declara marca informativa y no
+      criterio de descarte. La precedencia se usa solo para resolver qué
+      registro se conserva cuando la deduplicación encuentra la misma terna
+      repetida, que afecta al 4,1% de los registros verificados.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""

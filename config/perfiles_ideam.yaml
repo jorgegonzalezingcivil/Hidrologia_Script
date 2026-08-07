@@ -1,0 +1,184 @@
+# =============================================================================
+# PERFILES DE FORMATO DE DESCARGA DEL IDEAM  (insumo del M04)
+# -----------------------------------------------------------------------------
+# El formato de descarga del IDEAM cambió y perdió columnas por el camino
+# (CLAUDE.md, sección 7). Este archivo declara cada formato conocido para que el
+# adaptador lo detecte y lo lea, en lugar de suponer uno solo.
+#
+# La detección es por número y nombre de columnas, nunca por nombre de archivo:
+# la rutina heredada asumía que el .csv interno se llamaba 'excel.csv.csv' y se
+# rompía si cambiaba. El adaptador descubre el .csv por patrón dentro del .zip.
+#
+# ESTADO DE VERIFICACIÓN
+#   completo_21  VERIFICADO contra 59 archivos y 1.054.398 registros de un
+#                estudio del Río Bogotá, descargados hacia 2022.
+#   reducido_8   DECLARADO PERO NO VERIFICADO. Se describe según CLAUDE.md,
+#                sección 7. El adaptador debe advertir de forma explícita al
+#                leerlo, porque carece de Calificador y de coordenadas.
+# =============================================================================
+
+version: 1
+
+deteccion:
+  # Dentro de cada .zip se busca el archivo de datos por patrón, no por nombre.
+  patron_interno: "*.csv"
+  # El perfil se resuelve comparando el encabezado con 'columnas' de cada uno.
+  por: "encabezado"
+
+perfiles:
+
+  # ---------------------------------------------------------------------------
+  completo_21:
+    descripcion: >-
+      Formato antiguo de 21 columnas. Conserva coordenadas, altitud, fechas de
+      instalación y suspensión, y el campo Calificador. Es el único que permite
+      detectar acumulados, y por tanto falsos máximos en 24 horas.
+    verificado: true
+    fecha_verificacion: "2026-08-07"
+    muestra_verificacion: "59 archivos, 1.054.398 registros, 401 estaciones"
+    separador: ","
+    codificacion: "utf-8-sig"
+    columnas:
+      - CodigoEstacion
+      - NombreEstacion
+      - Latitud
+      - Longitud
+      - Altitud
+      - Categoria
+      - Entidad
+      - AreaOperativa
+      - Departamento
+      - Municipio
+      - FechaInstalacion
+      - FechaSuspension
+      - IdParametro
+      - Etiqueta
+      - DescripcionSerie
+      - Frecuencia
+      - Fecha
+      - Valor
+      - Grado
+      - Calificador
+      - NivelAprobacion
+    # Correspondencia con los nombres internos del repositorio.
+    campos:
+      codigo: "CodigoEstacion"
+      nombre: "NombreEstacion"
+      latitud: "Latitud"
+      longitud: "Longitud"
+      altitud: "Altitud"
+      categoria: "Categoria"
+      parametro: "IdParametro"
+      etiqueta: "Etiqueta"
+      frecuencia: "Frecuencia"
+      fecha: "Fecha"
+      valor: "Valor"
+      calificador: "Calificador"
+      nivel_aprobacion: "NivelAprobacion"
+    # Formato observado: día sin cero a la izquierda y espacio final.
+    formato_fecha: "%d/%m/%Y"
+    recortar_espacios: true
+
+  # ---------------------------------------------------------------------------
+  reducido_8:
+    descripcion: >-
+      Formato actual de 8 columnas. Perdió coordenadas, fechas de instalación y
+      suspensión, y el campo Calificador. Sin Calificador no se pueden detectar
+      los registros ACUMULADO, que son falsos máximos en 24 horas.
+    verificado: false
+    advertencia: >-
+      Perfil declarado a partir de la documentación, no verificado contra
+      archivos reales. Al leerlo, el M04 debe advertir de que los máximos en 24
+      horas no son contrastables y de que las coordenadas deben tomarse del
+      Catálogo Nacional de Estaciones.
+    separador: ","
+    codificacion: "utf-8-sig"
+    columnas: []      # por completar cuando se disponga de un archivo real
+    campos: {}
+    formato_fecha: "%d/%m/%Y"
+    recortar_espacios: true
+
+# =============================================================================
+# VOCABULARIO OBSERVADO
+# Etiquetas de serie encontradas en los archivos verificados, con su recuento.
+# El catálogo completo del servicio, con 117 series, está en
+# data/01_crudos/ideam/api/dhime_series_tiempo.json
+# =============================================================================
+series_observadas:
+  PTPM_TT_M:
+    parametro: "PRECIPITACION"
+    frecuencia: "Mensual"
+    descripcion: "Precipitación total mensual"
+    registros: 124066
+  TMX_CON:
+    parametro: "TEMPERATURA"
+    frecuencia: "Diaria"
+    descripcion: "Temperatura máxima"
+    registros: 377518
+  TMN_CON:
+    parametro: "TEMPERATURA"
+    frecuencia: "Diaria"
+    descripcion: "Temperatura mínima"
+    registros: 445731
+  EV_TT_D:
+    parametro: "EVAPORACION"
+    frecuencia: "Diaria"
+    descripcion: "Evaporación total diaria"
+    registros: 47422
+  Q_MEDIA_M:
+    parametro: "CAUDAL"
+    frecuencia: "Mensual"
+    descripcion: "Caudal medio mensual"
+    registros: 59661
+
+# =============================================================================
+# CALIFICADOR
+# Marca la condición del dato. Los valores pueden venir combinados con '|'.
+# ACUMULADO es el crítico: señala un registro que agrupa varios días y que, sin
+# esta marca, se tomaría como un máximo diario que nunca ocurrió.
+# =============================================================================
+calificadores:
+  separador_multiple: "|"
+  observados:
+    ACUMULADO:
+      registros: 54
+      efecto: "excluir de la serie de máximos diarios"
+    "DATO RECHAZADO":
+      registros: 4234
+      efecto: "excluir del análisis"
+    DUDOSO:
+      registros: 913
+      efecto: "marcar y reportar"
+    ESTIMADO:
+      registros: 804
+      efecto: "marcar y reportar"
+    "AUSENCIA OBSERVADOR":
+      registros: 293
+      efecto: "tratar como dato faltante"
+
+# =============================================================================
+# NIVEL DE APROBACION
+# -----------------------------------------------------------------------------
+# Correspondencia confirmada por el consultor. Los archivos traen códigos
+# numéricos, no los textos 'Definitivo' y 'Preliminar' que menciona CLAUDE.md.
+#
+# DOS USOS DISTINTOS DEL MISMO CAMPO, que no deben confundirse:
+#
+#   Filtrado.  NO se filtra. Todos los datos entran al procesamiento con
+#     independencia de su nivel. Coincide con la decisión cerrada de CLAUDE.md,
+#     sección 6: marca informativa, no criterio de descarte.
+#
+#   Deduplicación.  SÍ se usa. Cuando la misma terna (estación, serie, fecha)
+#     aparece repetida, hay que conservar una sola y se conserva la de mayor
+#     precedencia. Eso resuelve un conflicto, no descarta información. Sobre los
+#     archivos verificados afecta al 4,1% de los registros.
+# =============================================================================
+nivel_aprobacion:
+  confirmada: true
+  fuente: "consultor, 2026-08-07"
+  filtrar: false                 # ningún dato se descarta por su nivel
+  usar_en_deduplicacion: true    # sí decide cuál se conserva si hay conflicto
+  observados:
+    "1200": {registros: 728495, significado: "Definitivo",  precedencia: 1}
+    "1100": {registros: 18626,  significado: "En revisión", precedencia: 2}
+    "900":  {registros: 307277, significado: "Preliminar",  precedencia: 3}
