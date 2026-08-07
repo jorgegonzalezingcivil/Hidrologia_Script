@@ -460,6 +460,10 @@ ESQUEMA: dict[str, Campo] = {
     "estaciones.campos.fecha_suspension": texto(
         "campo de la fecha de suspensión", no_vacio=True,
     ),
+    "estaciones.banda_cota_m": numero(
+        "banda de incertidumbre vertical para juzgar la posición relativa",
+        minimo=0, maximo=500,
+    ),
     "estaciones.salida_seleccionadas": texto(
         "capa de estaciones seleccionadas", no_vacio=True,
     ),

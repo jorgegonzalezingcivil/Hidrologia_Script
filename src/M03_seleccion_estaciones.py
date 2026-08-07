@@ -334,10 +334,10 @@ def verificar_categorias(
 # calibracion del M14b.
 CATEGORIAS_CAUDAL = ("LG", "LM", "RM")
 
-APTA = "posible"
 NO_APTA_COTA = "no: aguas abajo"
 NO_APTA_TIPO = "no mide caudal"
 DUDOSA = "verificar con la red"
+DUDOSA_BANDA = "en la banda: verificar"
 
 
 def evaluar_aptitud_calibracion(
@@ -345,7 +345,7 @@ def evaluar_aptitud_calibracion(
     longitud_punto: float,
     latitud_punto: float,
     cota_punto: float | None,
-    margen_cota_m: float = 0.0,
+    banda_cota_m: float = 30.0,
 ) -> tuple[float | None, float | None, str]:
     """
     Indica si una estacion puede servir para calibrar el modelo del punto.
@@ -359,11 +359,22 @@ def evaluar_aptitud_calibracion(
     tres estaban 2.100 metros por debajo del punto, al otro lado de un salto,
     y ninguna servia.
 
-    El criterio es la cota, que es condicion NECESARIA pero NO SUFICIENTE: una
-    estacion mas alta puede pertenecer a otra vertiente. Por eso las que la
-    superan se marcan como 'verificar con la red' y no como aptas sin mas. La
-    confirmacion definitiva exige el trazado de la red de drenaje, que vive en
-    red_drenaje y corre en el entorno de QGIS.
+    El criterio es la cota, que NO decide por si sola en ninguno de los dos
+    sentidos:
+
+    - Una estacion mas alta puede pertenecer a otra vertiente, de modo que no se
+      declara apta sino 'verificar con la red'.
+    - Una estacion que aparece mas baja puede estar aguas arriba, si la
+      diferencia cae dentro del ruido del modelo de elevacion. Por eso existe la
+      banda: dentro de ella tampoco se descarta.
+
+    La banda no es una cautela teorica. La estacion 2120700146 aparecia 15 m por
+    debajo del punto y estaba 6,26 km AGUAS ARRIBA sobre el mismo cauce: en
+    terreno plano el desnivel real del rio es menor que la incertidumbre
+    vertical del DEM de radar. Sin banda, ese caso se descartaba en silencio.
+
+    La confirmacion definitiva exige el trazado de la red de drenaje, que vive
+    en red_drenaje y corre en el entorno de QGIS.
     """
     if (estacion.valores.get("categoria") or "").strip().upper() \
             not in CATEGORIAS_CAUDAL:
@@ -385,8 +396,11 @@ def evaluar_aptitud_calibracion(
         return None, distancia, DUDOSA
 
     diferencia = float(altitud) - float(cota_punto)
-    if diferencia < -margen_cota_m:
+    if diferencia < -abs(banda_cota_m):
         return diferencia, distancia, NO_APTA_COTA
+    if diferencia < 0:
+        # Por debajo, pero dentro del ruido del modelo: no se descarta.
+        return diferencia, distancia, DUDOSA_BANDA
     return diferencia, distancia, DUDOSA
 
 
@@ -413,14 +427,18 @@ def revisar_calibracion(
         )]
 
     posibles = [e for e in de_caudal
-                if e.valores.get("apta_cal") != NO_APTA_COTA]
+                if e.valores.get("apta_cal") in (DUDOSA, DUDOSA_BANDA)]
+    en_banda = [e for e in de_caudal
+                if e.valores.get("apta_cal") == DUDOSA_BANDA]
     abajo = len(de_caudal) - len(posibles)
 
     hallazgos = [Hallazgo(
         INFORMATIVO, "calibracion",
         f"{len(de_caudal)} estacion(es) de caudal o nivel en el area: "
         f"{abajo} descartada(s) por estar aguas abajo del punto y "
-        f"{len(posibles)} por verificar con la red de drenaje.",
+        f"{len(posibles)} por verificar con la red de drenaje, "
+        f"de las cuales {len(en_banda)} caen dentro de la banda de "
+        "incertidumbre del modelo de elevación.",
     )]
 
     if not posibles:
@@ -582,7 +600,8 @@ def ejecutar(
         punto = _punto_del_m01(base)
         for estacion in resultado.seleccionadas:
             dif, dist, apta = evaluar_aptitud_calibracion(
-                estacion, punto["longitud"], punto["latitud"], punto["cota"])
+                estacion, punto["longitud"], punto["latitud"], punto["cota"],
+                float(configuracion.obtener("estaciones.banda_cota_m")))
             estacion.valores["dif_cota"] = dif
             estacion.valores["dist_km"] = dist
             estacion.valores["apta_cal"] = apta

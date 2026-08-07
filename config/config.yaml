@@ -266,6 +266,16 @@ estaciones:
     subzona: "d_SUBZONA_"
     fecha_instalacion: "FECHA_INST"
     fecha_suspension: "FECHA_SUSP"
+  # Banda de incertidumbre vertical para juzgar si una estación está aguas
+  # arriba del punto de descarga. Dentro de ella la cota NO decide y el caso se
+  # remite a la red de drenaje.
+  #
+  # Medido en este proyecto: la estación 2120700146 aparecía 15 m por debajo del
+  # punto y estaba 6,26 km AGUAS ARRIBA sobre el mismo cauce. En la sabana el
+  # Río Bogotá cae centímetros por kilómetro, y el DEM de radar tiene
+  # incertidumbre vertical de varios metros: la diferencia era ruido. Descartar
+  # por cota dentro de esa banda elimina estaciones válidas en silencio.
+  banda_cota_m: 30.0
   salida_seleccionadas: "data/03_SIG/vector/estaciones_seleccionadas.shp"
   salida_descartadas: "data/03_SIG/vector/estaciones_descartadas.shp"
   inventario_csv: "data/02_procesado/estaciones/inventario_estaciones.csv"

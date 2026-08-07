@@ -185,6 +185,28 @@ decisiones:
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "banda de incertidumbre vertical para juzgar posición relativa (M03)"
+    valor: "30 m (estaciones.banda_cota_m)"
+    justificacion: >-
+      Una estación cuya cota es menor que la del punto de descarga NO se
+      descarta si la diferencia cae dentro de esta banda: se remite a la red de
+      drenaje.
+      El valor no es teórico. La estación 2120700146 aparecía 15 m por debajo
+      del punto y estaba 6,26 km aguas arriba sobre el mismo cauce. En la sabana
+      el Río Bogotá cae centímetros por kilómetro, mientras que el DEM ALOS
+      PALSAR RTC tiene incertidumbre vertical de varios metros: el signo de la
+      diferencia era ruido, no desnivel. Se adopta el doble de la discrepancia
+      medida, que cubre el caso conocido con holgura sin volver inútil el
+      criterio: las estaciones bajo el Salto del Tequendama quedan a 1954 m o
+      más por debajo y se siguen descartando.
+      La banda solo relaja el descarte; nunca declara apta una estación. La
+      confirmación sigue exigiendo el trazado de la red.
+      Debe reducirse si el estudio se hace en terreno de relieve marcado, donde
+      el desnivel real supera el ruido, o si se emplea un DEM de mejor calidad
+      vertical.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""

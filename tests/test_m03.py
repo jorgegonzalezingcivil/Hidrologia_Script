@@ -312,6 +312,79 @@ class PruebaClasificacion(unittest.TestCase):
         self.assertEqual(r.por_variable, {"precipitacion": 1, "caudal": 1})
 
 
+class PruebaAptitudCalibracion(unittest.TestCase):
+    """
+    La cota no decide por si sola en ninguno de los dos sentidos.
+
+    Regresion medida en el proyecto: la estacion 2120700146 aparecia 15 m por
+    DEBAJO del punto de descarga y estaba 6,26 km AGUAS ARRIBA sobre el mismo
+    cauce del Rio Bogota. El criterio anterior la descartaba sin apelacion. En
+    terreno plano el desnivel real del rio es menor que la incertidumbre
+    vertical de un DEM de radar, de modo que el signo de la diferencia es ruido.
+    """
+
+    # Punto de descarga del estudio: 2568 m, sobre el Rio Bogota en la sabana.
+    COTA_PUNTO = 2568.0
+    LON, LAT = -74.15, 4.75
+
+    def _evaluar(self, altitud, categoria="LG", banda=30.0):
+        estacion = m03.Estacion(
+            valores={"categoria": categoria, "altitud": altitud},
+            latitud=self.LAT + 0.01, longitud=self.LON + 0.01,
+        )
+        return m03.evaluar_aptitud_calibracion(
+            estacion, self.LON, self.LAT, self.COTA_PUNTO, banda)
+
+    def test_el_caso_real_cae_dentro_de_la_banda(self) -> None:
+        # 2553 m frente a 2568: 15 m por debajo, y aguas arriba en realidad.
+        dif, _, apta = self._evaluar(2553.0)
+        self.assertAlmostEqual(dif, -15.0)
+        self.assertEqual(apta, m03.DUDOSA_BANDA)
+        self.assertNotEqual(apta, m03.NO_APTA_COTA)
+
+    def test_por_encima_se_remite_a_la_red(self) -> None:
+        _, _, apta = self._evaluar(2598.0)
+        self.assertEqual(apta, m03.DUDOSA)
+
+    def test_muy_por_debajo_se_descarta(self) -> None:
+        # 614 m: bajo el Salto del Tequendama, sin ambiguedad posible.
+        _, _, apta = self._evaluar(614.0)
+        self.assertEqual(apta, m03.NO_APTA_COTA)
+
+    def test_el_borde_de_la_banda_todavia_no_descarta(self) -> None:
+        self.assertEqual(self._evaluar(self.COTA_PUNTO - 30.0)[2],
+                         m03.DUDOSA_BANDA)
+        self.assertEqual(self._evaluar(self.COTA_PUNTO - 30.001)[2],
+                         m03.NO_APTA_COTA)
+
+    def test_una_banda_nula_recupera_el_criterio_estricto(self) -> None:
+        self.assertEqual(self._evaluar(2553.0, banda=0.0)[2], m03.NO_APTA_COTA)
+
+    def test_la_banda_negativa_no_invierte_el_criterio(self) -> None:
+        # Un valor mal declarado no debe ampliar el descarte en silencio.
+        self.assertEqual(self._evaluar(2553.0, banda=-30.0)[2],
+                         m03.DUDOSA_BANDA)
+
+    def test_la_categoria_manda_sobre_la_cota(self) -> None:
+        # Una pluviometrica no calibra aunque este aguas arriba.
+        _, _, apta = self._evaluar(2600.0, categoria="PM")
+        self.assertEqual(apta, m03.NO_APTA_TIPO)
+
+    def test_sin_cota_del_punto_no_se_descarta_nada(self) -> None:
+        estacion = m03.Estacion(
+            valores={"categoria": "LG", "altitud": 2553.0},
+            latitud=self.LAT, longitud=self.LON,
+        )
+        _, _, apta = m03.evaluar_aptitud_calibracion(
+            estacion, self.LON, self.LAT, None, 30.0)
+        self.assertNotEqual(apta, m03.NO_APTA_COTA)
+
+    def test_la_banda_configurada_es_utilizable(self) -> None:
+        banda = _CFG.obtener("estaciones.banda_cota_m")
+        self.assertIsInstance(banda, (int, float))
+        self.assertGreater(banda, 0)
+
+
 class PruebaLecturaArea(unittest.TestCase):
     def setUp(self) -> None:
         self.temporal = Path(tempfile.mkdtemp())
