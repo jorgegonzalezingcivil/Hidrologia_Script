@@ -112,7 +112,16 @@ dem:
   fuente: "ALOS_PALSAR_RTC"
   resolucion_m: 12.5
   earthdata:
-    netrc: true                  # credenciales en ~/.netrc, nunca en este archivo
+    netrc: true                  # credenciales en un archivo netrc, nunca aquí
+    # Ubicación del archivo de credenciales. null usa ~/.netrc, que es lo
+    # estándar y lo que leen también curl, wget y GDAL.
+    #
+    # Se admite declarar otra ruta para compartir un solo archivo entre varios
+    # estudios o entre varios equipos, pero DEBE quedar fuera del repositorio:
+    # la carpeta del proyecto se comprime y se entrega como anexo, y ni el
+    # .gitignore ni ninguna protección de git alcanzan a un .zip o a una copia.
+    # El M02 se detiene si la ruta declarada cae dentro del repositorio.
+    ruta_netrc: null
   area_influencia:
     metodo: "envolvente"         # envolvente del polígono delimitado
     buffer_km: 1.0

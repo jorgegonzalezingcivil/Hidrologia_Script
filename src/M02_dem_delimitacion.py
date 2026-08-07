@@ -669,7 +669,8 @@ def ejecutar(
         raiz=base, consola=consola,
     )
 
-    disponibles, motivo = asf.credenciales_disponibles()
+    ruta_netrc = configuracion.obtener("dem.earthdata.ruta_netrc", None)
+    disponibles, motivo = asf.credenciales_disponibles(ruta_declarada=ruta_netrc)
     registro.registrar_cabecera(
         logger, MODULO, DESCRIPCION, config=configuracion,
         insumos={
@@ -790,7 +791,8 @@ def _descargar_escenas(configuracion: Config, base: Path, plan: PlanDescarga,
             escena.nombre_archivo, escena.tamano_mb,
         )
         destino = asf.descargar(
-            escena, directorio, verificar=verificar, reintentos=reintentos
+            escena, directorio, verificar=verificar, reintentos=reintentos,
+            ruta_netrc=configuracion.obtener("dem.earthdata.ruta_netrc", None),
         )
         descargadas.append(destino.name)
     return descargadas

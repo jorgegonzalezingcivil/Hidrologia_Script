@@ -112,13 +112,9 @@ class PruebaAdaptadorASF(unittest.TestCase):
                 "password CLAVE_SECRETA_DE_PRUEBA\n",
                 encoding="utf-8",
             )
-            original = asf._ruta_netrc
-            asf._ruta_netrc = lambda: falso
-            try:
-                disponibles, motivo = asf.credenciales_disponibles()
-            finally:
-                asf._ruta_netrc = original
-
+            disponibles, motivo = asf.credenciales_disponibles(
+                ruta_declarada=falso
+            )
             self.assertTrue(disponibles)
             self.assertNotIn("CLAVE_SECRETA_DE_PRUEBA", motivo)
             self.assertNotIn("usuario_prueba", motivo)
@@ -128,16 +124,66 @@ class PruebaAdaptadorASF(unittest.TestCase):
     def test_credenciales_ausentes_se_reportan_con_instrucciones(self) -> None:
         temporal = Path(tempfile.mkdtemp())
         try:
-            original = asf._ruta_netrc
-            asf._ruta_netrc = lambda: None
-            try:
-                disponibles, motivo = asf.credenciales_disponibles()
-            finally:
-                asf._ruta_netrc = original
+            disponibles, motivo = asf.credenciales_disponibles(
+                ruta_declarada=temporal / "no_existe.netrc"
+            )
             self.assertFalse(disponibles)
-            self.assertIn("netrc", motivo)
+            self.assertIn("no_existe.netrc", motivo)
         finally:
             shutil.rmtree(temporal, ignore_errors=True)
+
+    def test_la_ruta_declarada_no_cae_al_perfil_del_usuario(self) -> None:
+        """
+        Declarar una ruta inexistente no debe usar ~/.netrc en su lugar.
+
+        Caer al archivo del perfil sería peor que fallar: el estudio se
+        ejecutaría con las credenciales de otra cuenta sin que nadie lo note.
+        """
+        temporal = Path(tempfile.mkdtemp())
+        try:
+            self.assertIsNone(
+                asf._ruta_netrc(temporal / "ausente.netrc")
+            )
+        finally:
+            shutil.rmtree(temporal, ignore_errors=True)
+
+
+class PruebaUbicacionCredenciales(unittest.TestCase):
+    """La ruta declarada no puede caer dentro del repositorio."""
+
+    def _hallazgos(self, valor):
+        from comun import esquema as mod_esquema
+
+        datos = _CFG.como_dict()
+        datos["dem"]["earthdata"]["ruta_netrc"] = valor
+        return mod_esquema.validar_rutas(datos, _RAIZ_REPO)
+
+    def test_ruta_dentro_del_repositorio_es_bloqueante(self) -> None:
+        dentro = str(_RAIZ_REPO / "config" / ".netrc")
+        hallazgos = self._hallazgos(dentro)
+        self.assertTrue(any(h.es_bloqueante
+                            and h.clave == "dem.earthdata.ruta_netrc"
+                            for h in hallazgos), hallazgos)
+
+    def test_ruta_relativa_es_bloqueante(self) -> None:
+        hallazgos = self._hallazgos("config/.netrc")
+        self.assertTrue(any(h.es_bloqueante
+                            and h.clave == "dem.earthdata.ruta_netrc"
+                            for h in hallazgos))
+
+    def test_ruta_fuera_del_repositorio_se_admite(self) -> None:
+        fuera = str(Path(tempfile.gettempdir()).resolve() / "credenciales" / ".netrc")
+        hallazgos = self._hallazgos(fuera)
+        self.assertEqual(
+            [h for h in hallazgos
+             if h.clave == "dem.earthdata.ruta_netrc" and h.es_bloqueante], []
+        )
+
+    def test_null_mantiene_el_comportamiento_estandar(self) -> None:
+        hallazgos = self._hallazgos(None)
+        self.assertEqual(
+            [h for h in hallazgos if h.clave == "dem.earthdata.ruta_netrc"], []
+        )
 
 
 # =============================================================================

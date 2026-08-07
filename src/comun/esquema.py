@@ -306,7 +306,11 @@ ESQUEMA: dict[str, Campo] = {
         opciones=("ALOS_PALSAR_RTC", "SRTM", "COPERNICUS_DEM", "usuario"),
     ),
     "dem.resolucion_m": numero("resolución del DEM en metros", minimo=0.5, maximo=90),
-    "dem.earthdata.netrc": booleano("credenciales de Earthdata en ~/.netrc"),
+    "dem.earthdata.netrc": booleano("credenciales de Earthdata en archivo netrc"),
+    "dem.earthdata.ruta_netrc": texto(
+        "ubicación del archivo de credenciales; null usa ~/.netrc",
+        permite_nulo=True,
+    ),
     "dem.area_influencia.metodo": texto(
         "construcción del área de influencia",
         opciones=("envolvente", "buffer_cuenca", "poligono_usuario"),
@@ -1510,6 +1514,52 @@ def validar_invariantes(datos: dict) -> list[Hallazgo]:
 # =============================================================================
 # Verificación de rutas declaradas
 # =============================================================================
+def _validar_ubicacion_credenciales(datos: dict, base: Path) -> list[Hallazgo]:
+    """
+    Impide que el archivo de credenciales viva dentro del repositorio.
+
+    La carpeta del proyecto se comprime y se entrega como anexo. El .gitignore
+    protege el historial de versiones, no una copia ni un .zip: una contraseña
+    depositada ahí acabaría en manos del cliente o de la interventoría.
+    """
+    declarada = obtener(datos, "dem.earthdata.ruta_netrc")
+    if not isinstance(declarada, str) or not declarada.strip():
+        return []
+
+    candidata = Path(declarada).expanduser()
+    try:
+        absoluta = candidata.resolve()
+    except OSError:  # pragma: no cover - ruta con caracteres inválidos
+        return [Hallazgo(
+            BLOQUEANTE, "dem.earthdata.ruta_netrc",
+            f"la ruta declarada no se pudo resolver: {declarada!r}",
+        )]
+
+    if not candidata.is_absolute():
+        return [Hallazgo(
+            BLOQUEANTE, "dem.earthdata.ruta_netrc",
+            f"{declarada!r} es una ruta relativa, de modo que se resolvería "
+            "dentro del repositorio. Declarar una ruta absoluta fuera de él.",
+        )]
+
+    try:
+        absoluta.relative_to(base.resolve())
+    except ValueError:
+        return [Hallazgo(
+            INFORMATIVO, "dem.earthdata.ruta_netrc",
+            f"archivo de credenciales declarado fuera del repositorio: {absoluta}",
+        )]
+
+    return [Hallazgo(
+        BLOQUEANTE, "dem.earthdata.ruta_netrc",
+        f"{absoluta} está dentro del repositorio. La carpeta del proyecto se "
+        "comprime y se entrega como anexo, y el .gitignore no alcanza a un .zip "
+        "ni a una copia: la contraseña saldría con el entregable. Declarar una "
+        "ruta fuera del repositorio, o dejar la clave en null para usar "
+        "~/.netrc.",
+    )]
+
+
 def validar_rutas(
     datos: dict,
     raiz: str | os.PathLike,
@@ -1522,6 +1572,8 @@ def validar_rutas(
     """
     base = Path(raiz)
     hallazgos: list[Hallazgo] = []
+
+    hallazgos.extend(_validar_ubicacion_credenciales(datos, base))
 
     for clave in CLAVES_RUTA:
         valor = obtener(datos, clave)

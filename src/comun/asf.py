@@ -253,8 +253,18 @@ def deduplicar_por_huella(escenas: Sequence[EscenaASF]) -> list[EscenaASF]:
 # =============================================================================
 # Credenciales
 # =============================================================================
-def _ruta_netrc() -> Path | None:
-    """Devuelve la ruta del archivo netrc si existe, sin leer su contenido."""
+def _ruta_netrc(declarada: str | os.PathLike | None = None) -> Path | None:
+    """
+    Devuelve la ruta del archivo netrc si existe, sin leer su contenido.
+
+    Con una ruta declarada se usa esa y solo esa: si no existe, el resultado es
+    None y no se cae en silencio al archivo del perfil del usuario, que podría
+    tener credenciales de otra cuenta.
+    """
+    if declarada:
+        candidato = Path(declarada).expanduser()
+        return candidato if candidato.is_file() else None
+
     inicio = Path(os.path.expanduser("~"))
     for nombre in (".netrc", "_netrc"):
         candidato = inicio / nombre
@@ -263,17 +273,22 @@ def _ruta_netrc() -> Path | None:
     return None
 
 
-def credenciales_disponibles(servidor: str = SERVIDOR_EARTHDATA) -> tuple[bool, str]:
+def credenciales_disponibles(
+    servidor: str = SERVIDOR_EARTHDATA,
+    ruta_declarada: str | os.PathLike | None = None,
+) -> tuple[bool, str]:
     """
     Indica si hay credenciales de Earthdata configuradas.
 
     Devuelve (disponibles, motivo). El motivo nunca incluye el usuario ni la
-    clave: solo describe qué falta.
+    clave: solo describe qué falta y dónde se buscó.
     """
-    ruta = _ruta_netrc()
+    ruta = _ruta_netrc(ruta_declarada)
     if ruta is None:
+        donde = (f"no existe el archivo declarado {ruta_declarada}"
+                 if ruta_declarada else "no existe ~/.netrc ni ~/_netrc")
         return False, (
-            "no existe ~/.netrc ni ~/_netrc. Crearlo con una línea "
+            f"{donde}. Crearlo con una línea "
             f"'machine {servidor} login USUARIO password CLAVE' y permisos de "
             "solo lectura para el usuario."
         )
@@ -290,7 +305,10 @@ def credenciales_disponibles(servidor: str = SERVIDOR_EARTHDATA) -> tuple[bool, 
     return True, f"credenciales de {servidor} encontradas en {ruta.name}."
 
 
-def _abridor_autenticado(servidor: str = SERVIDOR_EARTHDATA):
+def _abridor_autenticado(
+    servidor: str = SERVIDOR_EARTHDATA,
+    ruta_declarada: str | os.PathLike | None = None,
+):
     """
     Construye el abridor de URL que sobrevive a la redirección de Earthdata.
 
@@ -298,7 +316,7 @@ def _abridor_autenticado(servidor: str = SERVIDOR_EARTHDATA):
     vuelve. Sin gestor de cookies la sesión se pierde en el regreso y el
     servidor responde con una página de inicio de sesión en lugar del archivo.
     """
-    ruta = _ruta_netrc()
+    ruta = _ruta_netrc(ruta_declarada)
     if ruta is None:
         raise ErrorASF(
             "No hay archivo netrc con las credenciales de Earthdata. "
@@ -339,6 +357,7 @@ def descargar(
     verificar: bool = True,
     reintentos: int = 3,
     progreso: Callable[[str, int, int], None] | None = None,
+    ruta_netrc: str | os.PathLike | None = None,
 ) -> Path:
     """
     Descarga una escena, omitiendo la transferencia si ya está completa.
@@ -359,7 +378,7 @@ def descargar(
     if destino.is_file() and (not verificar or verificar_md5(destino, escena.md5)):
         return destino
 
-    abridor = _abridor_autenticado()
+    abridor = _abridor_autenticado(ruta_declarada=ruta_netrc)
     parcial = destino.with_suffix(destino.suffix + ".parcial")
     ultimo_error: Exception | None = None
 

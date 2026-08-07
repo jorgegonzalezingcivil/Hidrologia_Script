@@ -34,6 +34,7 @@ __all__ = [
     "directorio",
     "resolver",
     "resolver_desde",
+    "esta_dentro",
     "relativa",
 ]
 
@@ -233,6 +234,27 @@ def resolver_desde(
     if directorio_base.is_file():
         directorio_base = directorio_base.parent
     return (directorio_base / candidata).resolve()
+
+
+def esta_dentro(
+    ruta: str | os.PathLike,
+    base: str | os.PathLike | None = None,
+) -> bool:
+    """
+    Indica si una ruta queda dentro de un directorio base.
+
+    Se usa para impedir que archivos que no deben salir de la máquina, como el
+    de credenciales, se coloquen dentro del árbol del repositorio: esa carpeta
+    se comprime y se entrega como anexo, y ni el .gitignore ni ninguna otra
+    protección de git alcanzan a una copia o a un .zip.
+    """
+    referencia = Path(base).resolve() if base is not None else raiz_proyecto()
+    candidata = Path(ruta).expanduser().resolve()
+    try:
+        candidata.relative_to(referencia)
+    except ValueError:
+        return False
+    return True
 
 
 def relativa(ruta: str | os.PathLike, raiz: str | os.PathLike | None = None) -> str:
