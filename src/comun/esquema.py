@@ -625,6 +625,10 @@ ESQUEMA: dict[str, Campo] = {
     "complemento.valor_minimo": numero(
         "valor mínimo admisible del dato rellenado", permite_nulo=True,
     ),
+    "complemento.max_huecos_residual_pct": numero(
+        "huecos admitidos por estación tras el complemento",
+        minimo=0.0, maximo=100.0,
+    ),
     "complemento.max_porcentaje_sintetico": numero(
         "porcentaje máximo de dato sintético antes de advertir",
         minimo=0, maximo=100,

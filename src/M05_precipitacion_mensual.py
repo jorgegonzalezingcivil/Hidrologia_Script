@@ -141,6 +141,7 @@ class ResultadoM05:
     anomalos: list[dict[str, Any]] = field(default_factory=list)
     consistencia: list[dict[str, Any]] = field(default_factory=list)
     correlaciones: dict[str, Any] = field(default_factory=dict)
+    estado: list[dict[str, Any]] = field(default_factory=list)
     complemento: list[dict[str, Any]] = field(default_factory=list)
     metodo_recomendado: str = ""
     descartes: list[dict[str, Any]] = field(default_factory=list)
@@ -510,6 +511,45 @@ def patron_de_vecinas(
 # =============================================================================
 # Etapa 3: complemento
 # =============================================================================
+def estado_por_estacion(
+    orden: Sequence[str],
+    claves: Sequence[tuple[int, int]],
+    datos: np.ndarray,
+    completada: np.ndarray | None,
+    aisladas: Sequence[str] = (),
+) -> list[dict[str, Any]]:
+    """
+    Estado de cada estación al salir del módulo.
+
+    Es lo que los módulos siguientes necesitan para decidir cómo usarla, y sin
+    esta tabla no lo saben. Una estación sin vecina admisible no se rellena y
+    llega al M05b y al M06 con sus huecos abiertos: medido en este estudio, las
+    que tienen vecina quedan con 1,5% de huecos y las diez que no la tienen con
+    11,8%, una de ellas con el 31%.
+
+    Una media mensual multianual calculada sobre el 69% de los meses no es
+    comparable con otra calculada sobre el 99%, y la interpolación las trata
+    igual salvo que alguien lo advierta.
+    """
+    total = len(claves)
+    filas: list[dict[str, Any]] = []
+    for columna, codigo in enumerate(orden):
+        observados = int(np.sum(np.isfinite(datos[:, columna])))
+        finales = (int(np.sum(np.isfinite(completada[:, columna])))
+                   if completada is not None else observados)
+        filas.append({
+            "codigo": codigo,
+            "periodos": total,
+            "observados": observados,
+            "completados": finales - observados,
+            "huecos": total - finales,
+            "pct_observado": round(100.0 * observados / max(1, total), 1),
+            "pct_huecos": round(100.0 * (total - finales) / max(1, total), 1),
+            "sin_vecina": codigo in set(aisladas),
+        })
+    return filas
+
+
 def _matriz_numpy(
     codigos: Sequence[str],
     matriz: dict[str, dict[tuple[int, int], float]],
@@ -1191,6 +1231,29 @@ def ejecutar(
                    if resultado.metodo_recomendado else "."),
             ))
 
+        aisladas = [d["codigo"] for d in resultado.descartes]
+        resultado.estado = estado_por_estacion(
+            orden, claves, datos, completada, aisladas)
+        maximo_huecos = float(
+            configuracion.obtener("complemento.max_huecos_residual_pct"))
+        incompletas = [f for f in resultado.estado
+                       if f["pct_huecos"] > maximo_huecos]
+        if incompletas:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "complemento.huecos_residuales",
+                f"{len(incompletas)} estacion(es) conservan mas del "
+                f"{maximo_huecos:.0f}% de huecos tras el complemento: "
+                + ", ".join(f"{f['codigo']} ({f['pct_huecos']:.0f}%)"
+                            for f in sorted(incompletas,
+                                            key=lambda x: -x["pct_huecos"])[:8])
+                + (", ..." if len(incompletas) > 8 else "")
+                + ". SIGUEN en la serie que consumen el M05b y el M06. Una media "
+                "mensual multianual calculada sobre menos meses no es comparable "
+                "con las demas, y la interpolacion las trata igual salvo que se "
+                "declare lo contrario: el modulo siguiente debe decidir si las "
+                "usa, con que peso, o si las excluye.",
+            ))
+
     # --- Productos -----------------------------------------------------------
     with registro.bloque(logger, "Escritura de productos"):
         _escribir_productos(configuracion, base, resultado, series, orden,
@@ -1311,6 +1374,7 @@ def _escribir_productos(configuracion, base, resultado, series, orden, claves,
     resultado.productos.append(rutas.relativa(destino, base))
 
     for nombre, contenido in (
+        ("M05_estado_estaciones.csv", resultado.estado),
         ("M05_consistencia.csv", list(_aplanar_consistencia(resultado.consistencia))),
         ("M05_complemento.csv", resultado.complemento),
         ("M05_anomalos.csv", resultado.anomalos),
@@ -1586,6 +1650,7 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "complemento": resultado.complemento,
         "metodo_recomendado": resultado.metodo_recomendado,
         "correlaciones": resultado.correlaciones,
+        "estado_estaciones": resultado.estado,
         "descartes": resultado.descartes,
         "productos": resultado.productos,
         "resumen": conteo,

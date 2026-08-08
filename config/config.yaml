@@ -483,6 +483,16 @@ complemento:
   k_vecinos: 5
   valor_minimo: 0                # 0 para lluvia; null para temperatura
   max_porcentaje_sintetico: 25   # advertir si se supera
+  # Huecos que una estacion puede conservar DESPUES del complemento sin que se
+  # advierta. Existe porque una estacion sin vecina admisible no se rellena y
+  # sigue al M05b y al M06 en un estado muy distinto al de las demas: medido en
+  # este estudio, las que tienen vecina quedan con 1,5% de huecos y las diez que
+  # no la tienen con 11,8%, y una de ellas con el 31%.
+  #
+  # Una media mensual multianual calculada sobre el 69% de los meses no es
+  # comparable con otra calculada sobre el 99%, y la isoyeta del M06 las trata
+  # igual salvo que alguien lo advierta.
+  max_huecos_residual_pct: 10.0
 
 # -----------------------------------------------------------------------------
 # M05b - ENSO
