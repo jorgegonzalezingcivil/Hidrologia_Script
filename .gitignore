@@ -120,3 +120,7 @@ desktop.ini
 .netrc
 .env
 *.secret
+
+# Figuras por estación: se regeneran con cada corrida y son cientos de archivos.
+# El repositorio versiona las agregadas, que son las que fijan el criterio.
+data/05_resultados/graficos/estaciones/

@@ -971,6 +971,18 @@ ESQUEMA: dict[str, Campo] = {
                              texto("color", no_vacio=True), no_vacio=True),
     "graficos.rampa": texto("rampa secuencial para categorías ordinales",
                             no_vacio=True),
+    "graficos.por_estacion": booleano(
+        "emitir además una figura por estación, agrupada por tema",
+    ),
+    "graficos.directorio_estaciones": texto(
+        "directorio raíz de las figuras por estación", no_vacio=True,
+    ),
+    "graficos.ancho_estacion_cm": numero(
+        "ancho de la figura individual", minimo=4.0, maximo=40.0,
+    ),
+    "graficos.alto_estacion_cm": numero(
+        "alto de la figura individual", minimo=3.0, maximo=40.0,
+    ),
     "graficos.crs_figuras": texto(
         "CRS proyectado en que se rotulan las figuras geográficas",
         permite_nulo=True,

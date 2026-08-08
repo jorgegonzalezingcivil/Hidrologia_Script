@@ -828,6 +828,24 @@ graficos:
   # altitud). La paleta de arriba es categórica y no tiene orden: aplicada a
   # categorías ordenadas hace que los dos extremos salgan en tonos parecidos.
   rampa: "Blues"
+
+  # DECISION DEL CONSULTOR, 2026-08-08. Registrada en MANIFIESTO.yaml.
+  #
+  # Una figura por ESTACION, ademas de la rejilla de resumen. Una rejilla de
+  # treinta y dos paneles sirve para revisar de un vistazo, pero no se puede
+  # insertar en el informe: cada panel queda del tamano de una estampilla. Las
+  # rutinas heredadas (EDA.py, Impute.py) escribian una figura por estacion en un
+  # subdirectorio Graph, y se recupera ese criterio.
+  #
+  # Se agrupan por TEMA y no por modulo: quien redacta el capitulo de
+  # consistencia busca todas las curvas de doble masa juntas, no las del M05
+  # mezcladas por tipo.
+  por_estacion: true
+  directorio_estaciones: "data/05_resultados/graficos/estaciones"
+  # Ancho de la figura individual. Menor que el de las agregadas: una figura por
+  # estacion ocupa media pagina, no el ancho util completo.
+  ancho_estacion_cm: 11.0
+  alto_estacion_cm: 8.0
   # Nombre presentable de cada variable en los rótulos. Las claves son las de
   # ideam.descarga.series_por_variable, que son identificadores sin tilde: usarlas
   # tal cual en una figura del informe se nota. Una variable no listada aquí

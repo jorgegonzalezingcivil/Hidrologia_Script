@@ -76,6 +76,8 @@ __all__ = [
     "transformador",
     "rotular_en_miles",
     "CM_POR_PULGADA",
+    "directorio_tema",
+    "estilo_individual",
     "ErrorGraficos",
 ]
 
@@ -134,6 +136,36 @@ class Estilo:
         if not self.paleta:
             return GRIS_CONTEXTO
         return self.paleta[indice % len(self.paleta)]
+
+
+def directorio_tema(raiz: Path, tema: str) -> Path:
+    """
+    Carpeta de un tema dentro del arbol de figuras por estacion.
+
+    Se agrupa por TEMA y no por modulo porque asi es como se redacta: quien
+    escribe el capitulo de consistencia busca todas las curvas de doble masa
+    juntas, no las del M05 mezcladas por tipo.
+    """
+    destino = Path(raiz) / tema
+    destino.mkdir(parents=True, exist_ok=True)
+    return destino
+
+
+def estilo_individual(estilo: Estilo, ancho_cm: float = 0.0,
+                      alto_cm: float = 0.0) -> Estilo:
+    """
+    Variante del estilo para una figura de una sola estacion.
+
+    Conserva paleta, tipografia y formatos; solo cambia el tamano. Una figura
+    por estacion ocupa media pagina, no el ancho util completo, y con el tamano
+    de las agregadas saldria con las marcas diminutas.
+    """
+    from dataclasses import replace
+    return replace(
+        estilo,
+        ancho_cm=ancho_cm or estilo.ancho_cm * 0.7,
+        alto_cm=alto_cm or estilo.alto_cm * 0.8,
+    )
 
 
 def rampa(cuantos: int, estilo: Estilo, invertir: bool = False) -> list[str]:

@@ -746,6 +746,8 @@ def _figuras(configuracion, base, resultado, maximos_por_estacion, periodos,
 
     _figura_histograma(graficos, estilo, directorio, resultado,
                        maximos_por_estacion, configuracion, base)
+    _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
+                          maximos_por_estacion, periodos, logger)
     logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
 
 
@@ -831,6 +833,122 @@ def _figura_histograma(graficos, estilo, directorio, resultado,
                                      estilo):
             resultado.productos.append(rutas.relativa(ruta, base))
 
+
+def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
+                          maximos_por_estacion, periodos, logger) -> None:
+    """
+    Una figura por estacion para el informe, agrupada por tema.
+
+    Las rejillas se conservan como resumen de revision, pero el informe necesita
+    una figura por estacion: en una rejilla de treinta y dos paneles no se lee
+    ni el eje.
+    """
+    if not bool(configuracion.obtener("graficos.por_estacion")):
+        return
+    raiz = rutas.resolver(
+        configuracion.obtener("graficos.directorio_estaciones"), base)
+    individual = graficos.estilo_individual(
+        estilo,
+        float(configuracion.obtener("graficos.ancho_estacion_cm")),
+        float(configuracion.obtener("graficos.alto_estacion_cm")))
+    formula = str(configuracion.obtener("frecuencia.posicion_grafica"))
+    distribuciones = list(configuracion.obtener("frecuencia.distribuciones"))
+    metodos = list(configuracion.obtener("frecuencia.ajuste"))
+    escritas = 0
+
+    # --- Serie de maximos ----------------------------------------------------
+    carpeta = graficos.directorio_tema(raiz, "pmax_serie")
+    for codigo, maximos in sorted(maximos_por_estacion.items()):
+        anios = sorted(maximos)
+        with graficos.figura(
+            individual, titulo=f"Pmax 24 h  {codigo}",
+            etiqueta_x="anio", etiqueta_y="Pmax 24 h (mm)",
+        ) as (fig, ax):
+            ax.bar(anios, [maximos[a] for a in anios],
+                   color=individual.color(0), alpha=0.8)
+            media = float(np.mean(list(maximos.values())))
+            ax.axhline(media, color="#c00000", linestyle="--", linewidth=1.0)
+            ax.annotate(f"media {media:.1f} mm", xy=(0.02, 0.94),
+                        xycoords="axes fraction",
+                        fontsize=individual.tamano_fuente - 2, color="#c00000")
+            fig.tight_layout()
+            graficos.guardar(fig, carpeta / str(codigo), individual)
+            escritas += 1
+
+    # --- Papel de probabilidad ----------------------------------------------
+    carpeta = graficos.directorio_tema(raiz, "papel_probabilidad")
+    for codigo, maximos in sorted(maximos_por_estacion.items()):
+        valores = np.sort(np.array(list(maximos.values()), dtype=float))
+        probabilidad = fr.posicion_grafica(valores.size, formula)
+        retorno = 1.0 / (1.0 - probabilidad)
+        adoptada = resultado.adoptadas.get(codigo)
+        with graficos.figura(
+            individual,
+            titulo=f"Papel de probabilidad  {codigo}",
+            etiqueta_x="periodo de retorno (anios)",
+            etiqueta_y="Pmax 24 h (mm)",
+        ) as (fig, ax):
+            ax.semilogx(retorno, valores, linestyle="none", marker="o",
+                        markersize=3.5, color=individual.color(0),
+                        label=f"dato ({formula})", zorder=3)
+            fila = next((c for c in resultado.cuantiles
+                         if c["codigo"] == codigo), None)
+            if fila and adoptada:
+                equis = [p for p in periodos if fila.get(f"T{p:g}") is not None]
+                ax.semilogx(equis, [fila[f"T{p:g}"] for p in equis],
+                            color="#c00000", linewidth=1.6, marker="s",
+                            markersize=3.0, zorder=4,
+                            label=f"{adoptada['distribucion']} "
+                                  f"({adoptada['metodo']})")
+            ax.legend(fontsize=individual.tamano_fuente - 2, frameon=False)
+            ax.grid(True, which="both", color=graficos.GRIS_CONTEXTO,
+                    linewidth=0.3, alpha=0.5)
+            fig.tight_layout()
+            graficos.guardar(fig, carpeta / str(codigo), individual)
+            escritas += 1
+
+    # --- Histograma con todas las densidades ---------------------------------
+    carpeta = graficos.directorio_tema(raiz, "histograma_pdf")
+    for codigo, maximos in sorted(maximos_por_estacion.items()):
+        valores = np.sort(np.array(list(maximos.values()), dtype=float))
+        adoptada = resultado.adoptadas.get(codigo)
+        malla = np.linspace(valores.min() * 0.6, valores.max() * 1.5, 300)
+        with graficos.figura(
+            individual,
+            titulo=f"Histograma y densidades  {codigo}",
+            etiqueta_x="Pmax 24 h (mm)", etiqueta_y="densidad",
+        ) as (fig, ax):
+            ax.hist(valores, bins=max(6, int(round(np.sqrt(valores.size)))),
+                    density=True, color=graficos.GRIS_CONTEXTO, alpha=0.35,
+                    edgecolor="white", linewidth=0.4, zorder=1)
+            for orden_d, distribucion in enumerate(distribuciones):
+                metodo = adoptada["metodo"] if adoptada else metodos[0]
+                ajuste = fr.ajustar(list(valores), distribucion, metodo)
+                if not ajuste.valido:
+                    ajuste = fr.ajustar(list(valores), distribucion,
+                                        "maxima_verosimilitud")
+                curva = fr.densidad(ajuste, malla)
+                if curva is None or not np.any(np.isfinite(curva)):
+                    continue
+                es_adoptada = bool(adoptada
+                                   and distribucion == adoptada["distribucion"])
+                ax.plot(malla, curva,
+                        color="#c00000" if es_adoptada
+                        else individual.color(orden_d),
+                        linewidth=2.2 if es_adoptada else 0.7,
+                        alpha=1.0 if es_adoptada else 0.5,
+                        label=distribucion if es_adoptada else None,
+                        zorder=5 if es_adoptada else 2)
+            if adoptada:
+                ax.legend(fontsize=individual.tamano_fuente - 2, frameon=False)
+            fig.tight_layout()
+            graficos.guardar(fig, carpeta / str(codigo), individual)
+            escritas += 1
+
+    resultado.productos.append(
+        f"{rutas.relativa(raiz, base)} ({escritas} figura(s) por estacion)")
+    logger.info("%d figura(s) por estacion en %s", escritas,
+                rutas.relativa(raiz, base))
 
 # =============================================================================
 # Cierre

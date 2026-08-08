@@ -1792,6 +1792,8 @@ def _figuras(configuracion, base, resultado, series, orden, claves, datos,
                      resultado, base)
     _figura_estaciones(graficos, estilo, directorio, resultado, base,
                        configuracion, ubicaciones or {})
+    _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
+                          orden, claves, datos, completada, logger)
     logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
 
 
@@ -2014,6 +2016,109 @@ def _figura_estaciones(graficos, estilo, directorio, resultado, base,
         fig.tight_layout()
         for ruta in graficos.guardar(fig, directorio / "M05_estaciones", estilo):
             resultado.productos.append(rutas.relativa(ruta, base))
+
+def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
+                          orden, claves, datos, completada, logger) -> None:
+    """
+    Una figura por estacion, agrupada por tema.
+
+    Una rejilla de treinta y dos paneles sirve para revisar de un vistazo, pero
+    no se puede insertar en el informe: cada panel queda del tamano de una
+    estampilla. Las rutinas heredadas escribian una figura por estacion, y se
+    recupera ese criterio.
+    """
+    if not bool(configuracion.obtener("graficos.por_estacion")):
+        return
+    raiz = rutas.resolver(
+        configuracion.obtener("graficos.directorio_estaciones"), base)
+    individual = graficos.estilo_individual(
+        estilo,
+        float(configuracion.obtener("graficos.ancho_estacion_cm")),
+        float(configuracion.obtener("graficos.alto_estacion_cm")))
+
+    escritas = 0
+
+    # --- Curva de doble masa -------------------------------------------------
+    carpeta = graficos.directorio_tema(raiz, "doble_masa")
+    for fila in resultado.consistencia:
+        acumulados = fila.get("acumulados")
+        if not acumulados or len(acumulados[0]) < 4:
+            continue
+        patron, estacion = acumulados
+        doble = fila.get("doble_masa") or {}
+        with graficos.figura(
+            individual,
+            titulo=f"Doble masa  {fila['codigo']}",
+            etiqueta_x="acumulado del patron de vecinas (mm)",
+            etiqueta_y="acumulado de la estacion (mm)",
+        ) as (fig, ax):
+            graficos.curva_doble_masa(
+                ax, patron, estacion, individual,
+                indice_quiebre=(doble.get("indice")
+                                if doble.get("hay_quiebre") else None),
+                razon=(doble.get("razon_pendientes")
+                       if doble.get("hay_quiebre") else None))
+            pie = (f"r contra el patron = {fila.get('r_patron')}"
+                   f"   |   {fila.get('n_vecinas', 0)} vecina(s)")
+            if doble.get("hay_quiebre"):
+                pie += f"   |   quiebre, factor {doble.get('razon_pendientes')}"
+            ax.annotate(pie, xy=(0, -0.16), xycoords="axes fraction",
+                        fontsize=individual.tamano_fuente - 2, color="#555555")
+            fig.tight_layout()
+            graficos.guardar(fig, carpeta / str(fila["codigo"]), individual)
+            escritas += 1
+
+    # --- Serie mensual, observada y complementada ---------------------------
+    carpeta = graficos.directorio_tema(raiz, "serie_mensual")
+    tiempo = [a + (m - 0.5) / 12.0 for a, m in claves]
+    for columna, codigo in enumerate(orden):
+        observado = datos[:, columna]
+        with graficos.figura(
+            individual,
+            titulo=f"Precipitacion mensual  {codigo}",
+            etiqueta_x="anio", etiqueta_y="precipitacion (mm)",
+        ) as (fig, ax):
+            if completada is not None:
+                relleno = np.where(np.isfinite(observado), np.nan,
+                                   completada[:, columna])
+                ax.plot(tiempo, relleno, linestyle="none", marker="o",
+                        markersize=2.2, color="#c00000", zorder=3,
+                        label="complementado")
+            ax.plot(tiempo, observado, color=individual.color(0),
+                    linewidth=0.8, zorder=2, label="observado")
+            ax.legend(fontsize=individual.tamano_fuente - 2, frameon=False)
+            fig.tight_layout()
+            graficos.guardar(fig, carpeta / str(codigo), individual)
+            escritas += 1
+
+    # --- Ciclo anual medio ---------------------------------------------------
+    carpeta = graficos.directorio_tema(raiz, "ciclo_anual")
+    for columna, codigo in enumerate(orden):
+        medias, desviaciones = [], []
+        for mes in range(1, 13):
+            muestras = [datos[i, columna] for i, c in enumerate(claves)
+                        if c[1] == mes and np.isfinite(datos[i, columna])]
+            medias.append(float(np.mean(muestras)) if muestras else np.nan)
+            desviaciones.append(float(np.std(muestras, ddof=1))
+                                if len(muestras) > 1 else 0.0)
+        with graficos.figura(
+            individual,
+            titulo=f"Ciclo anual medio  {codigo}",
+            etiqueta_x="mes", etiqueta_y="precipitacion media (mm)",
+        ) as (fig, ax):
+            meses = list(range(1, 13))
+            ax.bar(meses, medias, color=individual.color(0), alpha=0.75,
+                   yerr=desviaciones, capsize=2.5,
+                   error_kw={"linewidth": 0.7, "ecolor": "#555555"})
+            ax.set_xticks(meses)
+            fig.tight_layout()
+            graficos.guardar(fig, carpeta / str(codigo), individual)
+            escritas += 1
+
+    resultado.productos.append(
+        f"{rutas.relativa(raiz, base)} ({escritas} figura(s) por estacion)")
+    logger.info("%d figura(s) por estacion en %s", escritas,
+                rutas.relativa(raiz, base))
 
 # =============================================================================
 # Cierre

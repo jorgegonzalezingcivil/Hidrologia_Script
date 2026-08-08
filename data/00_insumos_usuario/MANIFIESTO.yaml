@@ -619,6 +619,32 @@ decisiones:
     fecha: "2026-08-08"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "figuras por estación, agrupadas por tema"
+    valor: >-
+      Además de las rejillas de resumen, una figura por estación en
+      data/05_resultados/graficos/estaciones, agrupada por tema
+      (graficos.por_estacion).
+    justificacion: >-
+      Decisión del consultor. Una rejilla de treinta y dos paneles sirve para
+      revisar de un vistazo, pero no se puede insertar en el informe: cada panel
+      queda del tamaño de una estampilla y no se lee ni el eje. Las rutinas
+      heredadas (EDA.py, Impute.py) escribían una figura por estación en un
+      subdirectorio Graph, y se recupera ese criterio.
+      Se agrupan por TEMA y no por módulo porque así es como se redacta: quien
+      escribe el capítulo de consistencia busca todas las curvas de doble masa
+      juntas, no las del M05 mezcladas por tipo.
+      Seis temas, 32 figuras cada uno: doble_masa, serie_mensual y ciclo_anual
+      del M05; pmax_serie, papel_probabilidad e histograma_pdf del M07. Son 192
+      figuras en PNG y otras tantas en SVG.
+      Las rejillas se CONSERVAN como resumen de revisión: sirven para detectar
+      de un vistazo una estación anómala entre treinta y dos, que es
+      precisamente como se descubrió el ajuste degenerado de la Pareto.
+      NO se versionan en el repositorio: se regeneran en cada corrida y son
+      cientos de archivos. El repositorio versiona las agregadas, que son las
+      que fijan el criterio.
+    fecha: "2026-08-08"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""
