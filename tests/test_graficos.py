@@ -175,6 +175,83 @@ class PruebaAltoDeBarras(unittest.TestCase):
         self.assertGreaterEqual(graficos.alto_para_filas(1, estilo), 6.0)
 
 
+
+@unittest.skipUnless(HAY_MATPLOTLIB, "matplotlib no está instalado")
+class PruebaReproyeccion(unittest.TestCase):
+    """
+    Las figuras geográficas se rotulan en coordenadas planas.
+
+    El informe de referencia presenta sus mapas en MAGNA Ciudad Bogotá, no en
+    grados. Además, la figura se dibuja a escala equivalente, y en grados eso
+    deforma las distancias con la latitud.
+    """
+
+    def test_mismo_sistema_es_la_identidad(self) -> None:
+        conv = graficos.transformador("EPSG:3116", "EPSG:3116")
+        self.assertEqual(conv(1000.0, 2000.0), (1000.0, 2000.0))
+
+    def test_destino_vacio_es_la_identidad(self) -> None:
+        conv = graficos.transformador("EPSG:4686", "")
+        self.assertEqual(conv(-74.0, 4.6), (-74.0, 4.6))
+
+    def test_reproyecta_a_magna_bogota(self) -> None:
+        conv = graficos.transformador("EPSG:4686", "EPSG:3116")
+        este, norte = conv(-74.03111111, 4.81316667)
+        # El punto de descarga del estudio ronda (1003512, 1025918).
+        self.assertTrue(9.5e5 < este < 1.1e6, este)
+        self.assertTrue(9.5e5 < norte < 1.1e6, norte)
+
+    def test_el_orden_es_este_norte(self) -> None:
+        # Sin always_xy algunos sistemas devuelven la latitud primero y la
+        # figura sale girada noventa grados.
+        conv = graficos.transformador("EPSG:4686", "EPSG:9377")
+        este, norte = conv(-74.0, 4.6)
+        self.assertGreater(este, norte)
+
+    def test_ida_y_vuelta(self) -> None:
+        ida = graficos.transformador("EPSG:4686", "EPSG:3116")
+        vuelta = graficos.transformador("EPSG:3116", "EPSG:4686")
+        lon, lat = vuelta(*ida(-74.1, 4.7))
+        self.assertAlmostEqual(lon, -74.1, places=6)
+        self.assertAlmostEqual(lat, 4.7, places=6)
+
+    def test_el_crs_de_figuras_por_defecto_es_el_de_ingreso(self) -> None:
+        declarado = _CFG.obtener("graficos.crs_figuras")
+        efectivo = declarado or _CFG.obtener("punto_descarga.crs")
+        self.assertTrue(str(efectivo).upper().startswith("EPSG:"))
+
+
+@unittest.skipUnless(HAY_MATPLOTLIB, "matplotlib no está instalado")
+class PruebaBarrasDeRango(unittest.TestCase):
+    """La longitud teórica del catálogo y el dato real, superpuestos."""
+
+    def setUp(self) -> None:
+        self.estilo = graficos.Estilo(formatos=("png",), dpi=72)
+
+    def test_dibuja_rango_y_tramos(self) -> None:
+        with graficos.figura(self.estilo) as (fig, ax):
+            graficos.barras_de_rango(
+                ax, ["A", "B"],
+                [(1970.0, 2020.0), (1990.0, 2000.0)],
+                [[(1970.0, 10.0), (1990.0, 5.0)], []],
+                self.estilo,
+            )
+            self.assertEqual(len(ax.get_yticklabels()), 2)
+
+    def test_una_estacion_sin_rango_no_revienta(self) -> None:
+        with graficos.figura(self.estilo) as (fig, ax):
+            graficos.barras_de_rango(
+                ax, ["A"], [None], [[(2000.0, 3.0)]], self.estilo)
+
+    def test_el_eje_queda_invertido(self) -> None:
+        # La primera fila debe quedar arriba, como en el gráfico de referencia.
+        with graficos.figura(self.estilo) as (fig, ax):
+            graficos.barras_de_rango(
+                ax, ["A", "B"], [(1, 2), (3, 4)], [[], []], self.estilo)
+            inferior, superior = ax.get_ylim()
+            self.assertGreater(inferior, superior)
+
+
 @unittest.skipUnless(HAY_MATPLOTLIB, "matplotlib no está instalado")
 class PruebaAislamientoDeEntornos(unittest.TestCase):
     """
@@ -186,7 +263,7 @@ class PruebaAislamientoDeEntornos(unittest.TestCase):
     """
 
     def test_comun_no_importa_matplotlib_ni_numpy(self) -> None:
-        prohibidas = ("matplotlib", "numpy", "scipy", "pandas")
+        prohibidas = ("matplotlib", "numpy", "scipy", "pandas", "pyproj")
         for archivo in (_DIRECTORIO_SRC / "comun").glob("*.py"):
             texto = archivo.read_text(encoding="utf-8")
             for linea in texto.splitlines():

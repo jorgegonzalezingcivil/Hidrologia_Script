@@ -50,6 +50,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Polygon as ParchePoligono  # noqa: E402
+from matplotlib.ticker import FuncFormatter  # noqa: E402
 
 __all__ = [
     "Estilo",
@@ -60,8 +61,16 @@ __all__ = [
     "histograma",
     "rampa",
     "dispersion_sobre_area",
+    "barras_de_rango",
+    "transformador",
+    "rotular_en_miles",
     "CM_POR_PULGADA",
+    "ErrorGraficos",
 ]
+
+class ErrorGraficos(RuntimeError):
+    """Falla de graficación que el módulo debe reportar, no ocultar."""
+
 
 CM_POR_PULGADA = 2.54
 
@@ -134,6 +143,87 @@ def rampa(cuantos: int, estilo: Estilo, invertir: bool = False) -> list[str]:
     if invertir:
         posiciones.reverse()
     return [matplotlib.colors.to_hex(mapa(p)) for p in posiciones]
+
+
+def transformador(crs_origen: str, crs_destino: str):
+    """
+    Devuelve una función que reproyecta (x, y) de un sistema a otro.
+
+    La reproyección es SIEMPRE explícita (CLAUDE.md, sección 5): quien dibuja
+    declara de dónde y adónde, y nada se convierte por defecto. Se apoya en
+    pyproj, que es la misma PROJ que usa QGIS, en lugar de programar la
+    proyección a mano: una fórmula de Gauss-Krüger escrita para la ocasión no
+    es defendible ante interventoría.
+
+    Si origen y destino coinciden, devuelve la identidad y no consulta PROJ.
+    """
+    if not crs_destino or crs_origen == crs_destino:
+        return lambda x, y: (x, y)
+    try:
+        from pyproj import Transformer
+    except ImportError as exc:  # pragma: no cover
+        raise ErrorGraficos(
+            f"se pidió reproyectar de {crs_origen} a {crs_destino} y pyproj no "
+            f"está instalado ({exc}). Ver requirements.txt."
+        ) from exc
+    # always_xy fija el orden a (este, norte) y (longitud, latitud), que es el
+    # que usa el resto del proyecto. Sin él, algunos sistemas devuelven la
+    # latitud primero y las figuras salen giradas noventa grados.
+    conversor = Transformer.from_crs(crs_origen, crs_destino, always_xy=True)
+    return lambda x, y: conversor.transform(x, y)
+
+
+def rotular_en_miles(ax: Any, decimales: int = 0) -> None:
+    """
+    Separador de miles en ambos ejes.
+
+    Una coordenada plana ronda el millón de metros, y sin separador el rótulo
+    se lee mal justo donde importa distinguir la cifra.
+    """
+    def como_miles(valor, _posicion):
+        return f"{valor:,.{decimales}f}".replace(",", " ")
+
+    ax.xaxis.set_major_formatter(FuncFormatter(como_miles))
+    ax.yaxis.set_major_formatter(FuncFormatter(como_miles))
+
+
+def barras_de_rango(
+    ax: Any,
+    etiquetas: Sequence[str],
+    rangos: Sequence[tuple[float, float] | None],
+    tramos: Sequence[Sequence[tuple[float, float]]],
+    estilo: Estilo,
+    alto_barra: float = 0.68,
+    color_rango: str | None = None,
+) -> None:
+    """
+    Dibuja, por fila, el rango declarado y los tramos con dato dentro de él.
+
+    Reproduce el Gráfico 3-1 del informe de referencia, que titula 'Longitud
+    Teórica' porque se construye con las fechas de instalación y suspensión del
+    catálogo. Aquí se superpone además el dato REAL: el contorno es lo que la
+    estación debería cubrir y el relleno es lo que efectivamente cubre. La
+    diferencia entre ambos es el diagnóstico, y en el gráfico original no se ve.
+    """
+    tono_rango = color_rango or GRIS_CONTEXTO
+    tono_dato = estilo.color(0)
+    for fila, rango in enumerate(rangos):
+        if rango is None:
+            continue
+        inicio, fin = rango
+        ax.broken_barh(
+            [(inicio, max(fin - inicio, 0.5))],
+            (fila - alto_barra / 2, alto_barra),
+            facecolors="none", edgecolors=tono_rango, linewidth=0.7, zorder=2,
+        )
+    for fila, piezas in enumerate(tramos):
+        if piezas:
+            ax.broken_barh(list(piezas), (fila - alto_barra / 2, alto_barra),
+                           facecolors=tono_dato, edgecolor="none", zorder=3)
+    ax.set_yticks(range(len(etiquetas)))
+    ax.set_yticklabels(etiquetas, fontsize=max(3.0, estilo.tamano_fuente - 3))
+    ax.set_ylim(-1, len(etiquetas))
+    ax.invert_yaxis()
 
 
 def _aplicar(ax: Any, estilo: Estilo, titulo: str, x: str, y: str) -> None:

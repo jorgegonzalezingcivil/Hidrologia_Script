@@ -896,6 +896,10 @@ ESQUEMA: dict[str, Campo] = {
                              texto("color", no_vacio=True), no_vacio=True),
     "graficos.rampa": texto("rampa secuencial para categorías ordinales",
                             no_vacio=True),
+    "graficos.crs_figuras": texto(
+        "CRS proyectado en que se rotulan las figuras geográficas",
+        permite_nulo=True,
+    ),
     "graficos.nombres_variable": mapa(
         "nombre presentable de cada variable en los rótulos",
         texto("nombre", no_vacio=True),

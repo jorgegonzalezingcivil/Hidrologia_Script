@@ -43,6 +43,7 @@ Productos:
     data/02_procesado/estaciones/M04b_sensibilidad.md
     data/02_procesado/M04b_sensibilidad.json
     data/05_resultados/graficos/M04b_*.png y .svg
+        (sensibilidad, linea_temporal, completitud, cobertura)
 
 Uso:
     python src/M04b_sensibilidad_series.py
@@ -95,6 +96,12 @@ REGISTROS_MENSUALES = 12
 VIGENTE = "vigente"
 SUSPENDIDA_RECIENTE = "suspendida reciente"
 SUSPENDIDA_ANTIGUA = "suspendida antigua"
+
+# El Catálogo Nacional de Estaciones publica la ubicación en MAGNA-SIRGAS
+# geográfico, no en WGS84. La diferencia en Colombia es de aproximadamente un
+# metro, irrelevante para seleccionar y visible en una coordenada plana, de
+# modo que se declara en lugar de asumir.
+CRS_CATALOGO = "EPSG:4686"
 
 
 # =============================================================================
@@ -456,8 +463,8 @@ def leer_metadatos_estaciones(base: Path, configuracion: Config) -> dict[str, di
         return {}
     metadatos: dict[str, dict] = {}
     for fila in shapefile.leer_registros(
-        ruta, ["codigo", "nombre", "categoria", "estado", "f_suspen",
-               "altitud", "latitud", "longitud"],
+        ruta, ["codigo", "nombre", "categoria", "estado", "f_instal",
+               "f_suspen", "altitud", "latitud", "longitud"],
     ):
         metadatos[str(fila.get("codigo", "")).strip()] = fila
     return metadatos
@@ -588,6 +595,21 @@ def escribir_reporte_markdown(
         "En `sensibilidad_series.csv`. La diferencia entre amplitud y años",
         "útiles mide el hueco que el M05 tendrá que resolver.",
         "",
+        "## Figuras",
+        "",
+        "En `data/05_resultados/graficos`, en PNG y SVG.",
+        "",
+        "* `M04b_sensibilidad`: estaciones que sobreviven a cada umbral. El trazo",
+        "  partido es el subconjunto con años consecutivos, y su separación de la",
+        "  línea continua es el costo real de exigir más longitud.",
+        "* `M04b_linea_temporal`: longitud de cada serie, en el formato del",
+        "  Gráfico 3-1 del informe de referencia. El contorno es la longitud",
+        "  teórica que declara el catálogo; el relleno, los años con dato.",
+        "* `M04b_completitud`: distribución medida de la completitud anual, con el",
+        "  umbral aplicado marcado.",
+        "* `M04b_cobertura`: dónde quedan las estaciones que superan cada umbral.",
+        "  Un umbral exigente puede vaciar una zona sin que el conteo lo delate.",
+        "",
     ]
 
     destino.parent.mkdir(parents=True, exist_ok=True)
@@ -598,7 +620,8 @@ def escribir_reporte_markdown(
 # Gráficas
 # =============================================================================
 def _figuras(configuracion, base, resultado, acumulado, ventanas, umbrales,
-             minimo, variable_de, seleccionadas, logger) -> None:
+             minimo, variable_de, seleccionadas, anio_estudio,
+             logger) -> None:
     """
     Emite las cuatro figuras del módulo.
 
@@ -622,14 +645,19 @@ def _figuras(configuracion, base, resultado, acumulado, ventanas, umbrales,
     ventana_ref = next(iter(ventanas))
 
     nombres = dict(configuracion.obtener("graficos.nombres_variable") or {})
+    # "Según se hayan ingresado": si no se declara otro, las figuras se
+    # rotulan en el mismo sistema en que el consultor dio el punto.
+    crs_figuras = (configuracion.obtener("graficos.crs_figuras")
+                   or configuracion.obtener("punto_descarga.crs"))
     _figura_sensibilidad(graficos, estilo, directorio, resultado, ventanas,
                          umbrales, base, nombres)
-    _figura_disponibilidad(graficos, estilo, directorio, acumulado, minimo,
-                           variable_de, seleccionadas, resultado, base)
     _figura_completitud(graficos, estilo, directorio, acumulado, minimo,
                         resultado, base)
     _figura_cobertura(graficos, estilo, directorio, resultado, base,
-                      variable_de, umbrales, ventana_ref)
+                      variable_de, umbrales, ventana_ref, crs_figuras)
+    _figura_linea_temporal(graficos, estilo, directorio, acumulado, minimo,
+                           variable_de, seleccionadas, resultado, base,
+                           anio_estudio)
     logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
 
 
@@ -691,43 +719,6 @@ def _figura_sensibilidad(graficos, estilo, directorio, resultado, ventanas,
             resultado.productos.append(rutas.relativa(ruta, base))
 
 
-def _figura_disponibilidad(graficos, estilo, directorio, acumulado, minimo,
-                           variable_de, seleccionadas, resultado, base) -> None:
-    """
-    Años útiles de cada estación de precipitación, dibujados como tramos.
-
-    Es la figura que distingue una serie continua de una partida, cosa que la
-    tabla solo deja ver comparando dos columnas.
-    """
-    por_estacion: dict[str, set[int]] = {}
-    for (codigo, etiqueta), serie in acumulado.items():
-        if variable_de.get(etiqueta) != "precipitacion":
-            continue
-        if seleccionadas and codigo not in seleccionadas:
-            continue
-        por_estacion.setdefault(codigo, set()).update(
-            anios_utiles(serie.por_anio, serie.frecuencia, minimo))
-    if not por_estacion:
-        return
-
-    ordenadas = sorted(por_estacion.items(),
-                       key=lambda kv: (min(kv[1]) if kv[1] else 9999))
-    etiquetas = [c for c, _ in ordenadas]
-    tramos = [graficos.tramos_consecutivos(a) for _, a in ordenadas]
-
-    with graficos.figura(
-        estilo, titulo="Disponibilidad de precipitación por estación",
-        etiqueta_x="año",
-        alto_cm=graficos.alto_para_filas(len(etiquetas), estilo),
-    ) as (fig, ax):
-        graficos.barras_horizontales(ax, etiquetas, tramos, estilo)
-        ax.set_ylabel("estación", fontsize=estilo.tamano_fuente)
-        fig.tight_layout()
-        for ruta in graficos.guardar(fig, directorio / "M04b_disponibilidad",
-                                     estilo):
-            resultado.productos.append(rutas.relativa(ruta, base))
-
-
 def _figura_completitud(graficos, estilo, directorio, acumulado, minimo,
                         resultado, base) -> None:
     """Distribución de la completitud anual, con el umbral aplicado marcado."""
@@ -757,7 +748,7 @@ def _figura_completitud(graficos, estilo, directorio, acumulado, minimo,
 
 
 def _figura_cobertura(graficos, estilo, directorio, resultado, base,
-                      variable_de, umbrales, ventana) -> None:
+                      variable_de, umbrales, ventana, crs_figuras) -> None:
     """
     Dónde quedan las estaciones que sobreviven a cada umbral.
 
@@ -765,6 +756,11 @@ def _figura_cobertura(graficos, estilo, directorio, resultado, base,
     así vaciar una zona entera. La interpolación del M06 y del M11 tendría que
     rellenar ese hueco por extrapolación, que es donde se cometen los errores
     grandes. El conteo de la matriz no lo muestra; esta figura sí.
+
+    Se rotula en coordenadas planas, como el informe de referencia, que presenta
+    sus mapas en MAGNA Ciudad Bogotá. Latitud y longitud en grados no son
+    comparables con el resto del estudio ni legibles para quien revisa. La
+    reproyección es explícita y se declara en el pie de la figura.
     """
     reporte_m02 = rutas.directorio("procesado", base) / "M02_delimitacion.json"
     poligonos: list = []
@@ -828,18 +824,113 @@ def _figura_cobertura(graficos, estilo, directorio, resultado, base,
         grupos["< %d años" % min(cortes)] = ([x for x, _ in restantes],
                                               [y for _, y in restantes])
 
+    # El polígono del M02 viaja en EPSG:4326 y el catálogo publica su ubicación
+    # en MAGNA geográfico. Se reproyectan por separado y de forma explícita.
+    a_plano_area = graficos.transformador("EPSG:4326", crs_figuras)
+    a_plano_est = graficos.transformador(CRS_CATALOGO, crs_figuras)
+    poligonos = [[[a_plano_area(float(x), float(y)) for x, y in anillo]
+                  for anillo in poligono] for poligono in poligonos]
+    grupos = {nombre: tuple(map(list, zip(*[a_plano_est(x, y)
+                                           for x, y in zip(equis, yes)])))
+              for nombre, (equis, yes) in grupos.items() if equis}
+
     with graficos.figura(
         estilo,
         titulo="Cobertura espacial de precipitación, ventana " + ventana,
-        etiqueta_x="longitud", etiqueta_y="latitud",
+        etiqueta_x="Este (m)", etiqueta_y="Norte (m)",
         alto_cm=max(estilo.alto_cm, 12.0),
     ) as (fig, ax):
         graficos.dispersion_sobre_area(ax, poligonos, grupos, estilo,
                                        ordinal=True)
+        graficos.rotular_en_miles(ax)
+        ax.annotate(f"Coordenadas {crs_figuras}", xy=(1, -0.09),
+                    xycoords="axes fraction", ha="right",
+                    fontsize=estilo.tamano_fuente - 2, color="#555555")
         fig.tight_layout()
         for ruta in graficos.guardar(fig, directorio / "M04b_cobertura",
                                      estilo):
             resultado.productos.append(rutas.relativa(ruta, base))
+
+def _figura_linea_temporal(graficos, estilo, directorio, acumulado, minimo,
+                           variable_de, seleccionadas, resultado, base,
+                           anio_estudio) -> None:
+    """
+    Línea temporal de las series, en el formato del Gráfico 3-1 de referencia.
+
+    Aquel se titula 'Longitud Teórica' porque se construye con las fechas de
+    instalación y suspensión del catálogo: dibuja lo que la estación DEBERÍA
+    cubrir. Aquí se conserva ese contorno y se rellena con los años que
+    efectivamente tienen dato.
+
+    La diferencia entre contorno y relleno es el diagnóstico que el gráfico
+    original no permite ver. Una estación instalada en 1970 y todavía activa
+    aparece allí como cincuenta y seis años de serie, aunque solo cuarenta y
+    nueve tengan dato y estén partidos en dos bloques.
+    """
+    por_estacion: dict[str, set[int]] = {}
+    for (codigo, etiqueta), serie in acumulado.items():
+        if variable_de.get(etiqueta) != "precipitacion":
+            continue
+        if seleccionadas and codigo not in seleccionadas:
+            continue
+        por_estacion.setdefault(codigo, set()).update(
+            anios_utiles(serie.por_anio, serie.frecuencia, minimo))
+    if not por_estacion:
+        return
+
+    meta_de: dict[str, dict] = {}
+    for fila in resultado.filas:
+        if fila["codigo"] in por_estacion:
+            meta_de.setdefault(fila["codigo"], fila)
+
+    def rango_teorico(codigo: str) -> tuple[float, float] | None:
+        meta = meta_de.get(codigo, {})
+        instalacion = anio_de_fecha(str(meta.get("f_instal", "")))
+        if instalacion is None:
+            return None
+        suspension = anio_de_fecha(str(meta.get("f_suspen", "")))
+        return (float(instalacion),
+                float(suspension if suspension is not None else anio_estudio))
+
+    # Se ordena por el inicio del rango teórico, como el gráfico de referencia,
+    # de modo que la escalera de instalaciones quede a la vista.
+    def clave(codigo: str) -> tuple[float, str]:
+        rango = rango_teorico(codigo)
+        return (rango[0] if rango else 9999.0, codigo)
+
+    ordenadas = sorted(por_estacion, key=clave, reverse=True)
+    etiquetas = []
+    for codigo in ordenadas:
+        nombre = str(meta_de.get(codigo, {}).get("nombre", "") or "").strip()
+        etiquetas.append(nombre if nombre else codigo)
+
+    rangos = [rango_teorico(c) for c in ordenadas]
+    tramos = [graficos.tramos_consecutivos(por_estacion[c]) for c in ordenadas]
+    sin_rango = sum(1 for r in rangos if r is None)
+
+    with graficos.figura(
+        estilo,
+        titulo="Longitud de las series de precipitación",
+        etiqueta_x="año",
+        alto_cm=graficos.alto_para_filas(len(etiquetas), estilo),
+    ) as (fig, ax):
+        graficos.barras_de_rango(ax, etiquetas, rangos, tramos, estilo)
+        graficos.leyenda_manual(ax, [
+            ("longitud teórica (catálogo)", graficos.GRIS_CONTEXTO),
+            ("años con dato utilizable", estilo.color(0)),
+        ], estilo)
+        fig.tight_layout()
+        for ruta in graficos.guardar(fig, directorio / "M04b_linea_temporal",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+    if sin_rango:
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "graficos.linea_temporal",
+            f"{sin_rango} estación(es) sin fecha de instalación en el catálogo: "
+            "su línea temporal se dibuja solo con los años que tienen dato, sin "
+            "el contorno teórico.",
+        ))
 
 # =============================================================================
 # Ejecución
@@ -941,6 +1032,8 @@ def ejecutar(
             fila["altitud"] = meta.get("altitud", "")
             fila["latitud"] = meta.get("latitud", "")
             fila["longitud"] = meta.get("longitud", "")
+            fila["f_instal"] = meta.get("f_instal", "")
+            fila["f_suspen"] = meta.get("f_suspen", "")
             fila["estado_susp"] = estado_por_suspension(
                 str(meta.get("f_suspen", "")), anio_estudio, max_suspension)
             fila["en_m03"] = serie.codigo in seleccionadas
@@ -977,7 +1070,8 @@ def ejecutar(
     if con_graficas:
         with registro.bloque(logger, "Gráficas"):
             _figuras(configuracion, base, resultado, acumulado, ventanas,
-                     umbrales, minimo, variable_de, seleccionadas, logger)
+                     umbrales, minimo, variable_de, seleccionadas,
+                     anio_estudio, logger)
 
     resultado.hallazgos.extend(
         _resumir(resultado, configuracion, ventanas, umbrales))

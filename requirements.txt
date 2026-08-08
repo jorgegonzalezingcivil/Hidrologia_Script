@@ -34,3 +34,13 @@ scipy==1.18.0
 # Python de QGIS comparte ese paquete. La separación la comprueba
 # tests/test_graficos.py.
 matplotlib==3.11.1
+
+# --- Reproyección ------------------------------------------------------------
+# Las figuras geográficas se rotulan en coordenadas planas, como los mapas del
+# informe de referencia, que usa MAGNA Ciudad Bogotá. El venv no tiene QGIS, de
+# modo que necesita reproyectar por su cuenta.
+#
+# Es la misma PROJ que usa QGIS por debajo. Programar la proyección a mano para
+# la ocasión no sería defendible ante interventoría. La reproyección sigue
+# siendo explícita (CLAUDE.md, sección 5): quien dibuja declara origen y destino.
+pyproj==3.7.2

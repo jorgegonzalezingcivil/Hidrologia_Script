@@ -252,6 +252,33 @@ decisiones:
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "sistema de coordenadas de las figuras geográficas"
+    valor: >-
+      El mismo en que se ingresó el punto de descarga (graficos.crs_figuras en
+      nulo lo resuelve a punto_descarga.crs, hoy EPSG:3116).
+    justificacion: >-
+      Las figuras geográficas se rotulan en coordenadas planas, no en latitud y
+      longitud. El informe de referencia presenta sus mapas y su tabla de
+      estaciones en coordenadas MAGNA Ciudad Bogotá, y una figura en grados no
+      sería comparable con el resto del estudio ni legible para quien revisa.
+      Además, las figuras se dibujan a escala equivalente y en grados eso
+      deforma las distancias con la latitud, lo que induciría a error al juzgar
+      huecos de cobertura.
+      El nulo significa "según se hayan ingresado", de modo que el sistema sigue
+      al del punto sin poder desincronizarse. Puede declararse otro, y debe ser
+      un sistema PROYECTADO.
+      Obliga a reproyectar dentro del venv, que no tiene QGIS. Se adopta pyproj,
+      que es la misma PROJ que QGIS usa por debajo; programar la proyección a
+      mano para la ocasión no sería defendible ante interventoría. La
+      reproyección sigue siendo explícita (CLAUDE.md, sección 5): quien dibuja
+      declara origen y destino, y el sistema queda escrito al pie de la figura.
+      Se registra además que el Catálogo Nacional de Estaciones publica su
+      ubicación en MAGNA-SIRGAS geográfico (EPSG:4686), no en WGS84. La
+      diferencia en Colombia ronda el metro, irrelevante para seleccionar pero
+      visible en una coordenada plana, de modo que se declara y no se asume.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""

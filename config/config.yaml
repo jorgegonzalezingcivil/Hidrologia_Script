@@ -642,6 +642,14 @@ graficos:
   # ideam.descarga.series_por_variable, que son identificadores sin tilde: usarlas
   # tal cual en una figura del informe se nota. Una variable no listada aquí
   # aparece con su clave, sin fallar.
+  # Sistema en que se rotulan las figuras geográficas. El nulo significa "el
+  # mismo en que el consultor ingresó el punto de descarga", que es lo que hace
+  # reconocibles las cifras: el informe de referencia rotula sus mapas en
+  # coordenadas MAGNA Ciudad Bogotá, no en latitud y longitud.
+  #
+  # DEBE ser un sistema PROYECTADO. Las figuras se dibujan a escala equivalente
+  # y en grados eso deforma las distancias con la latitud.
+  crs_figuras: null
   nombres_variable:
     precipitacion: "Precipitación"
     caudal: "Caudal"
