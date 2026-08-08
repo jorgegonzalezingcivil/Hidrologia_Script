@@ -655,6 +655,29 @@ decisiones:
     fecha: "2026-08-08"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "ALERTA: el error de la isoyeta crece con el periodo de retorno (M08)"
+    valor: >-
+      RMSE relativo de la validación dejando uno fuera: 9,7% en T2.33 y 18,5% en
+      T500.
+    justificacion: >-
+      Medido sobre las 32 estaciones, el error de interpolación crece de forma
+      monótona con el periodo de retorno: 9,7% en T2.33, 10,0% en T10, 11,6% en
+      T25, 14,7% en T100 y 18,5% en T500.
+      Es lo esperable y a la vez lo que debe declararse: el mapa de T500 no
+      merece la misma confianza que el de T2.33, y ambos se presentan con el
+      mismo aspecto. A esa incertidumbre de interpolación se suma la que el M07
+      ya advirtió, porque T500 se estima sobre series de 32 años de mediana.
+      Se conserva además la advertencia de rango: la red hereda del descarte del
+      M05 la franja 1850 a 3378 m, de modo que por debajo de esa cota el campo
+      extrapola.
+      Y una tercera, propia de este módulo: cada estación aporta el cuantil de la
+      distribución que el M07 adoptó PARA ELLA, de modo que un mismo campo puede
+      mezclar una Gumbel con una LogNormal vecina. Es lo correcto, porque cada
+      serie se ajusta a su propio dato, pero introduce discontinuidades que el
+      informe debe declarar.
+    fecha: "2026-08-08"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""
