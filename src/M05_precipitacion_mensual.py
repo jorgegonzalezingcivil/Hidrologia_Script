@@ -1736,8 +1736,8 @@ def _figuras(configuracion, base, resultado, series, orden, claves, datos,
 
     # --- Ciclo anual medio ---------------------------------------------------
     with graficos.figura(
-        estilo, titulo="Ciclo anual medio de precipitacion por estacion",
-        etiqueta_x="mes", etiqueta_y="precipitacion media (mm)",
+        estilo, titulo="Ciclo anual medio de precipitación por estación",
+        etiqueta_x="mes", etiqueta_y="precipitación media (mm)",
     ) as (fig, ax):
         for columna, codigo in enumerate(orden):
             medias = []
@@ -1763,7 +1763,7 @@ def _figuras(configuracion, base, resultado, series, orden, claves, datos,
     if validos:
         validos = sorted(validos, key=lambda c: c["rmse"])
         with graficos.figura(
-            estilo, titulo="Validacion cruzada de los metodos de complemento",
+            estilo, titulo="Validación cruzada de los métodos de complemento",
             etiqueta_y="error (mm)",
         ) as (fig, ax):
             posiciones = np.arange(len(validos))
@@ -1814,7 +1814,7 @@ def _figura_doble_masa(graficos, estilo, directorio, resultado, matriz, claves,
     columnas = 4
     filas = (len(con_curva) + columnas - 1) // columnas
     with graficos.figura(
-        estilo, titulo="Curvas de doble masa contra el patron de vecinas",
+        estilo, titulo="Curvas de doble masa contra el patrón de vecinas",
         filas=filas, columnas=columnas,
         alto_cm=max(estilo.alto_cm, 4.2 * filas),
     ) as (fig, ejes):
@@ -1835,9 +1835,9 @@ def _figura_doble_masa(graficos, estilo, directorio, resultado, matriz, claves,
                 ax.spines[lado].set_visible(False)
         for sobrante in range(len(con_curva), filas * columnas):
             ejes[sobrante // columnas][sobrante % columnas].axis("off")
-        fig.supxlabel("acumulado del patron (mm)",
+        fig.supxlabel("acumulado del patrón (mm)",
                       fontsize=estilo.tamano_fuente)
-        fig.supylabel("acumulado de la estacion (mm)",
+        fig.supylabel("acumulado de la estación (mm)",
                       fontsize=estilo.tamano_fuente)
         fig.tight_layout()
         for ruta in graficos.guardar(fig, directorio / "M05_doble_masa", estilo):
@@ -1886,7 +1886,7 @@ def _figura_faltantes(graficos, estilo, directorio, orden, claves, datos,
     if completada is not None:
         paneles.append(("tras el complemento", np.isfinite(completada)))
     with graficos.figura(
-        estilo, titulo="Disponibilidad de dato por estacion y periodo",
+        estilo, titulo="Disponibilidad de dato por estación y periodo",
         filas=1, columnas=len(paneles),
         alto_cm=max(estilo.alto_cm, 12.0),
     ) as (fig, ejes):
@@ -1936,12 +1936,12 @@ def _figura_anomalos(graficos, estilo, directorio, orden, claves, datos,
         return
     with graficos.figura(
         estilo,
-        titulo="Precipitacion mensual por mes calendario, con los valores marcados",
-        etiqueta_x="mes", etiqueta_y="precipitacion (mm)",
+        titulo="Precipitación mensual por mes calendario, con los valores marcados",
+        etiqueta_x="mes", etiqueta_y="precipitación (mm)",
     ) as (fig, ax):
         graficos.cajas_por_grupo(ax, grupos, estilo, marcados=senalados)
         graficos.leyenda_manual(ax, [
-            ("senalado por el metodo de anomalos", "#c00000"),
+            ("señalado por el método de anómalos", "#c00000"),
         ], estilo)
         fig.tight_layout()
         for ruta in graficos.guardar(fig, directorio / "M05_anomalos", estilo):
@@ -2003,7 +2003,7 @@ def _figura_estaciones(graficos, estilo, directorio, resultado, base,
         return
 
     with graficos.figura(
-        estilo, titulo="Estaciones de precipitacion tras el analisis del M05",
+        estilo, titulo="Estaciones de precipitación tras el análisis del M05",
         etiqueta_x="Este (m)", etiqueta_y="Norte (m)",
         alto_cm=max(estilo.alto_cm, 12.0),
     ) as (fig, ax):
@@ -2049,8 +2049,8 @@ def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
         with graficos.figura(
             individual,
             titulo=f"Doble masa  {fila['codigo']}",
-            etiqueta_x="acumulado del patron de vecinas (mm)",
-            etiqueta_y="acumulado de la estacion (mm)",
+            etiqueta_x="acumulado del patrón de vecinas (mm)",
+            etiqueta_y="acumulado de la estación (mm)",
         ) as (fig, ax):
             graficos.curva_doble_masa(
                 ax, patron, estacion, individual,
@@ -2058,10 +2058,10 @@ def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
                                 if doble.get("hay_quiebre") else None),
                 razon=(doble.get("razon_pendientes")
                        if doble.get("hay_quiebre") else None))
-            pie = (f"r contra el patron = {fila.get('r_patron')}"
+            pie = (f"r contra el patrón = {fila.get('r_patron')}"
                    f"   |   {fila.get('n_vecinas', 0)} vecina(s)")
             if doble.get("hay_quiebre"):
-                pie += f"   |   quiebre, factor {doble.get('razon_pendientes')}"
+                pie += "   |   quiebre, factor " + str(doble.get("razon_pendientes"))
             ax.annotate(pie, xy=(0, -0.16), xycoords="axes fraction",
                         fontsize=individual.tamano_fuente - 2, color="#555555")
             fig.tight_layout()
@@ -2075,8 +2075,8 @@ def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
         observado = datos[:, columna]
         with graficos.figura(
             individual,
-            titulo=f"Precipitacion mensual  {codigo}",
-            etiqueta_x="anio", etiqueta_y="precipitacion (mm)",
+            titulo=f"Precipitación mensual  {codigo}",
+            etiqueta_x="año", etiqueta_y="precipitación (mm)",
         ) as (fig, ax):
             if completada is not None:
                 relleno = np.where(np.isfinite(observado), np.nan,
@@ -2104,7 +2104,7 @@ def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
         with graficos.figura(
             individual,
             titulo=f"Ciclo anual medio  {codigo}",
-            etiqueta_x="mes", etiqueta_y="precipitacion media (mm)",
+            etiqueta_x="mes", etiqueta_y="precipitación media (mm)",
         ) as (fig, ax):
             meses = list(range(1, 13))
             ax.bar(meses, medias, color=individual.color(0), alpha=0.75,

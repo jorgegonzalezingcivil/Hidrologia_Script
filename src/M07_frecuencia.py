@@ -644,8 +644,8 @@ def _figuras(configuracion, base, resultado, maximos_por_estacion, periodos,
 
     # --- Series de maximos ---------------------------------------------------
     with graficos.figura(
-        estilo, titulo="Precipitacion maxima en 24 horas, maximos anuales",
-        etiqueta_x="anio", etiqueta_y="Pmax 24 h (mm)",
+        estilo, titulo="Precipitación máxima en 24 horas, máximos anuales",
+        etiqueta_x="año", etiqueta_y="Pmáx 24 h (mm)",
     ) as (fig, ax):
         for codigo, maximos in sorted(maximos_por_estacion.items()):
             anios = sorted(maximos)
@@ -671,7 +671,7 @@ def _figuras(configuracion, base, resultado, maximos_por_estacion, periodos,
     filas = (len(codigos) + columnas - 1) // columnas
     with graficos.figura(
         estilo,
-        titulo=f"Papel de probabilidad ({formula}) y distribucion adoptada",
+        titulo=f"Papel de probabilidad ({formula}) y distribución adoptada",
         filas=filas, columnas=columnas,
         alto_cm=max(estilo.alto_cm, 4.2 * filas),
     ) as (fig, ejes):
@@ -707,9 +707,9 @@ def _figuras(configuracion, base, resultado, maximos_por_estacion, periodos,
                 ax.spines[lado].set_visible(False)
         for sobrante in range(len(codigos), filas * columnas):
             ejes[sobrante // columnas][sobrante % columnas].axis("off")
-        fig.supxlabel("periodo de retorno (anios)",
+        fig.supxlabel("periodo de retorno (años)",
                       fontsize=estilo.tamano_fuente)
-        fig.supylabel("Pmax 24 h (mm)", fontsize=estilo.tamano_fuente)
+        fig.supylabel("Pmáx 24 h (mm)", fontsize=estilo.tamano_fuente)
         fig.tight_layout()
         for ruta in graficos.guardar(
                 fig, directorio / "M07_papel_probabilidad", estilo):
@@ -719,9 +719,9 @@ def _figuras(configuracion, base, resultado, maximos_por_estacion, periodos,
     if resultado.cuantiles:
         with graficos.figura(
             estilo,
-            titulo="Pmax 24 h por periodo de retorno, todas las estaciones",
-            etiqueta_x="periodo de retorno (anios)",
-            etiqueta_y="Pmax 24 h (mm)",
+            titulo="Pmáx 24 h por periodo de retorno, todas las estaciones",
+            etiqueta_x="periodo de retorno (años)",
+            etiqueta_y="Pmáx 24 h (mm)",
         ) as (fig, ax):
             for fila in resultado.cuantiles:
                 equis = [p for p in periodos if fila.get(f"T{p:g}") is not None]
@@ -823,11 +823,11 @@ def _figura_histograma(graficos, estilo, directorio, resultado,
         fig.legend(handles=manijas, loc="lower center", ncol=5,
                    fontsize=estilo.tamano_fuente - 2, frameon=False,
                    bbox_to_anchor=(0.5, -0.015))
-        fig.supxlabel("Pmax 24 h (mm)", fontsize=estilo.tamano_fuente)
+        fig.supxlabel("Pmáx 24 h (mm)", fontsize=estilo.tamano_fuente)
         fig.tight_layout()
         # El titulo se pone DESPUES de ajustar: puesto antes, tight_layout no
         # reserva su espacio y se solapa con la primera fila de paneles.
-        fig.suptitle("Histograma de Pmax 24 h y funciones de densidad ajustadas",
+        fig.suptitle("Histograma de Pmáx 24 h y funciones de densidad ajustadas",
                      fontsize=estilo.tamano_fuente + 2, y=1.005)
         for ruta in graficos.guardar(fig, directorio / "M07_histograma_pdf",
                                      estilo):
@@ -861,8 +861,8 @@ def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
     for codigo, maximos in sorted(maximos_por_estacion.items()):
         anios = sorted(maximos)
         with graficos.figura(
-            individual, titulo=f"Pmax 24 h  {codigo}",
-            etiqueta_x="anio", etiqueta_y="Pmax 24 h (mm)",
+            individual, titulo=f"Pmáx 24 h  {codigo}",
+            etiqueta_x="año", etiqueta_y="Pmáx 24 h (mm)",
         ) as (fig, ax):
             ax.bar(anios, [maximos[a] for a in anios],
                    color=individual.color(0), alpha=0.8)
@@ -885,8 +885,8 @@ def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
         with graficos.figura(
             individual,
             titulo=f"Papel de probabilidad  {codigo}",
-            etiqueta_x="periodo de retorno (anios)",
-            etiqueta_y="Pmax 24 h (mm)",
+            etiqueta_x="periodo de retorno (años)",
+            etiqueta_y="Pmáx 24 h (mm)",
         ) as (fig, ax):
             ax.semilogx(retorno, valores, linestyle="none", marker="o",
                         markersize=3.5, color=individual.color(0),
@@ -916,7 +916,7 @@ def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
         with graficos.figura(
             individual,
             titulo=f"Histograma y densidades  {codigo}",
-            etiqueta_x="Pmax 24 h (mm)", etiqueta_y="densidad",
+            etiqueta_x="Pmáx 24 h (mm)", etiqueta_y="densidad",
         ) as (fig, ax):
             ax.hist(valores, bins=max(6, int(round(np.sqrt(valores.size)))),
                     density=True, color=graficos.GRIS_CONTEXTO, alpha=0.35,

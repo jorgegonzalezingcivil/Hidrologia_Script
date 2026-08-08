@@ -555,8 +555,8 @@ def _figuras(configuracion, base, resultado, logger) -> None:
     anomalia = [f["anomalia"] for f in orden]
     umbral = float(configuracion.obtener("enso.umbral_anomalia_c"))
     with graficos.figura(
-        estilo, titulo="Indice ONI y episodios clasificados",
-        etiqueta_x="anio", etiqueta_y="anomalia (C)",
+        estilo, titulo="Índice ONI y episodios clasificados",
+        etiqueta_x="año", etiqueta_y="anomalía (°C)",
     ) as (fig, ax):
         ax.plot(tiempo, anomalia, color="#333333", linewidth=0.8, zorder=3)
         ax.axhline(0.0, color=graficos.GRIS_CONTEXTO, linewidth=0.6)
@@ -569,8 +569,8 @@ def _figuras(configuracion, base, resultado, logger) -> None:
                             color=color_de[fase], alpha=0.55, zorder=2,
                             interpolate=False)
         graficos.leyenda_manual(ax, [
-            ("Nino", color_de[oni.FASE_NINO]),
-            ("Nina", color_de[oni.FASE_NINA]),
+            ("Niño", color_de[oni.FASE_NINO]),
+            ("Niña", color_de[oni.FASE_NINA]),
         ], estilo)
         fig.tight_layout()
         for ruta in graficos.guardar(fig, directorio / "M05b_indice_oni",
@@ -579,8 +579,8 @@ def _figuras(configuracion, base, resultado, logger) -> None:
 
     # --- Ciclo anual medio por fase ------------------------------------------
     with graficos.figura(
-        estilo, titulo="Regimen medio por fase ENSO, promedio de las estaciones",
-        etiqueta_x="mes", etiqueta_y="precipitacion media (mm)",
+        estilo, titulo="Régimen medio por fase ENSO, promedio de las estaciones",
+        etiqueta_x="mes", etiqueta_y="precipitación media (mm)",
     ) as (fig, ax):
         for fase in FASES:
             medias = []
@@ -607,7 +607,7 @@ def _figuras(configuracion, base, resultado, logger) -> None:
         posiciones = np.arange(len(contraste))
         with graficos.figura(
             estilo,
-            titulo="Cambio de la precipitacion anual respecto de la fase neutral",
+            titulo="Cambio de la precipitación anual respecto de la fase neutral",
             etiqueta_x="cambio (%)",
             alto_cm=graficos.alto_para_filas(len(contraste), estilo),
         ) as (fig, ax):

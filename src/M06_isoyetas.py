@@ -785,7 +785,7 @@ def _figuras(configuracion, base, resultado, rasters, puntos_xy, ruta_area,
 
     anillos = _contorno_area(ruta_area, crs_figuras)
     orden = [f for f in ("nino", "neutral", "nina") if f in campos]
-    titulo_de = {"nino": "El Nino", "nina": "La Nina", "neutral": "Neutral"}
+    titulo_de = {"nino": "El Niño", "nina": "La Niña", "neutral": "Neutral"}
 
     # Escala comun a las tres fases: sin ella, tres mapas del mismo estudio
     # tendrian leyendas distintas y el contraste entre fases no se veria.
@@ -822,7 +822,7 @@ def _figuras(configuracion, base, resultado, rasters, puntos_xy, ruta_area,
     # --- Comparacion de las tres fases ---------------------------------------
     with graficos.figura(
         estilo,
-        titulo="Precipitacion total anual multianual por fase ENSO",
+        titulo="Precipitación total anual multianual por fase ENSO",
         filas=1, columnas=len(orden),
         alto_cm=max(estilo.alto_cm, 11.0),
     ) as (fig, ejes):
@@ -849,7 +849,7 @@ def _figuras(configuracion, base, resultado, rasters, puntos_xy, ruta_area,
         if imagen is not None:
             barra = fig.colorbar(imagen, ax=ejes.ravel().tolist(),
                                  fraction=0.03, pad=0.02)
-            barra.set_label("precipitacion anual (mm)",
+            barra.set_label("precipitación anual (mm)",
                             fontsize=estilo.tamano_fuente - 1)
             barra.ax.tick_params(labelsize=estilo.tamano_fuente - 2)
         fig.supxlabel(f"Este (m), {crs_figuras}",
@@ -870,7 +870,7 @@ def _figuras(configuracion, base, resultado, rasters, puntos_xy, ruta_area,
 
     with graficos.figura(
         estilo,
-        titulo="Cambio de la precipitacion anual respecto de la fase neutral",
+        titulo="Cambio de la precipitación anual respecto de la fase neutral",
         filas=1, columnas=len(diferencias),
         alto_cm=max(estilo.alto_cm, 11.0),
     ) as (fig, ejes):
