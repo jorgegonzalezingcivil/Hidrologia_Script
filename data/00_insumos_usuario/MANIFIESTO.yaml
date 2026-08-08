@@ -585,6 +585,40 @@ decisiones:
     fecha: "2026-08-08"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "repertorio de distribuciones y guarda de plausibilidad (M07)"
+    valor: >-
+      Trece distribuciones. Se añaden EV2-Max (Fréchet), GEV con forma fija y
+      Pareto generalizada. La Pareto se calcula pero NO puede adoptarse por
+      selección automática.
+    justificacion: >-
+      CLAUDE.md, sección 4, declara Hydrognomon reemplazado por el análisis en
+      Python, y el reemplazo debe ser al menos tan completo como lo reemplazado.
+      Comparado su repertorio para máximos, faltaban tres: EV2-Max (valor
+      extremo tipo II, cola pesada), GEV con la forma fijada regionalmente en
+      lugar de ajustada, y Pareto generalizada.
+      Las de MÍNIMOS de Hydrognomon (EV1-Min, GEV-Min) no se incluyen: no
+      describen una serie de máximos. Corresponden al M19, caudales de estiaje.
+      SIGNO DE LA FORMA DE LA GEV. Se adopta la convención de Hosking, que es la
+      de scipy: k negativo es cola pesada y k positivo cola acotada.
+      Hydrognomon y buena parte de la literatura griega usan el signo CONTRARIO.
+      Fijar el signo equivocado cambia por completo el cuantil de periodo alto:
+      medido sobre una serie de prueba, T100 pasa de 37 a más de 200 mm. Se
+      adopta -0,15, cola pesada, por ser lo habitual en precipitación; el valor
+      debe proceder de un análisis regional y el consultor debe justificarlo.
+      GUARDA DE PLAUSIBILIDAD, añadida por un fallo real. La Pareto generalizada,
+      ajustada con el umbral en el mínimo de la muestra, alcanza una
+      verosimilitud enorme con una densidad degenerada, un pico sobre el borde, y
+      GANÓ POR AIC en dos estaciones. Ese ajuste habría entrado al diseño como
+      válido. Un criterio de información compara verosimilitudes; no comprueba
+      que el resultado tenga sentido físico.
+      Se exige ahora que los cuantiles crezcan con el periodo de retorno y que el
+      cuantil de periodo alto supere el máximo observado, porque una crecida
+      centenaria no puede ser menor que la mayor de treinta años.
+      SELECCIÓN RESULTANTE sobre las 32 estaciones: Gumbel 14, LogNormal2 10,
+      Pearson III 3, Normal 2, Log-Pearson III 2, GEV 1.
+    fecha: "2026-08-08"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""

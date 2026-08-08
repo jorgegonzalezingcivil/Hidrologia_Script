@@ -282,6 +282,114 @@ class PruebaSeleccion(unittest.TestCase):
         self.assertIsNone(m07.seleccionar([], "aic"))
 
 
+
+@unittest.skipUnless(HAY_SCIPY, "scipy no está instalado")
+class PruebaRepertorioHydrognomon(unittest.TestCase):
+    """
+    CLAUDE.md, sección 4, declara Hydrognomon reemplazado por este análisis: el
+    reemplazo debe ser al menos tan completo como lo reemplazado para máximos.
+    """
+
+    def test_estan_las_de_maximos_de_hydrognomon(self) -> None:
+        for nombre in ("normal", "lognormal2", "lognormal3", "gumbel_max",
+                       "gev", "pearson3", "logpearson3", "exponencial",
+                       "gamma", "ev2_max", "gev_k_fijo", "pareto"):
+            self.assertIn(nombre, fr.DISTRIBUCIONES, nombre)
+
+    def test_frechet_ajusta_y_da_cola_mas_pesada_que_gumbel(self) -> None:
+        datos = _gumbel(n=120)
+        frechet = fr.ajustar(datos, "ev2_max", "maxima_verosimilitud")
+        self.assertTrue(frechet.valido)
+        self.assertGreater(fr.cuantiles(frechet, [500.0])[500.0], 0)
+
+    def test_la_forma_fija_de_la_gev_se_respeta(self) -> None:
+        datos = _gumbel(n=100)
+        previo = fr.FORMA_GEV_FIJA
+        try:
+            fr.FORMA_GEV_FIJA = -0.15
+            ajuste = fr.ajustar(datos, "gev_k_fijo", "maxima_verosimilitud")
+            self.assertAlmostEqual(ajuste.parametros[0], -0.15, places=6)
+        finally:
+            fr.FORMA_GEV_FIJA = previo
+
+    def test_el_signo_de_la_forma_cambia_el_cuantil_alto(self) -> None:
+        # Hydrognomon usa el signo contrario: fijarlo al revés cambia por
+        # completo el periodo de retorno alto.
+        datos = _gumbel(n=100)
+        previo = fr.FORMA_GEV_FIJA
+        try:
+            fr.FORMA_GEV_FIJA = -0.15
+            pesada = fr.cuantiles(
+                fr.ajustar(datos, "gev_k_fijo", "maxima_verosimilitud"),
+                [100.0])[100.0]
+            fr.FORMA_GEV_FIJA = 0.15
+            acotada = fr.cuantiles(
+                fr.ajustar(datos, "gev_k_fijo", "maxima_verosimilitud"),
+                [100.0])[100.0]
+        finally:
+            fr.FORMA_GEV_FIJA = previo
+        self.assertGreater(pesada, acotada)
+
+    def test_la_densidad_se_evalua_en_el_espacio_de_los_datos(self) -> None:
+        # Sin el jacobiano, la curva logarítmica no integraría uno y quedaría
+        # por debajo de las demás sin que eso signifique peor ajuste.
+        datos = _gumbel(n=100)
+        ajuste = fr.ajustar(datos, "lognormal2", "momentos")
+        malla = np.linspace(float(datos.min()), float(datos.max()), 400)
+        curva = fr.densidad(ajuste, malla)
+        area = float(np.trapezoid(curva, malla))
+        self.assertGreater(area, 0.5)
+        self.assertLess(area, 1.05)
+
+
+@unittest.skipUnless(HAY_SCIPY, "scipy no está instalado")
+class PruebaPlausibilidad(unittest.TestCase):
+    """
+    Un criterio de información compara verosimilitudes; no comprueba que el
+    resultado tenga sentido. La Pareto degenerada ganaba por AIC con un pico
+    sobre el borde.
+    """
+
+    def setUp(self) -> None:
+        self.datos = list(_gumbel(n=40))
+
+    def test_un_ajuste_razonable_pasa(self) -> None:
+        ajuste = fr.ajustar(self.datos, "gumbel_max", "momentos_l")
+        ajuste.cuantiles = fr.cuantiles(ajuste, [2.33, 25, 100, 500])
+        self.assertTrue(m07.es_plausible(ajuste, self.datos))
+
+    def test_un_cuantil_centenario_bajo_el_maximo_se_rechaza(self) -> None:
+        ajuste = fr.Ajuste("inventada", "momentos", parametros=(1.0,))
+        ajuste.cuantiles = {2.33: 10.0, 100.0: 20.0}
+        self.assertFalse(m07.es_plausible(ajuste, [10.0, 500.0]))
+
+    def test_cuantiles_no_monotonos_se_rechazan(self) -> None:
+        ajuste = fr.Ajuste("inventada", "momentos", parametros=(1.0,))
+        ajuste.cuantiles = {2.33: 100.0, 100.0: 50.0}
+        self.assertFalse(m07.es_plausible(ajuste, [10.0]))
+
+    def test_un_ajuste_fallido_no_es_plausible(self) -> None:
+        self.assertFalse(m07.es_plausible(fr.Ajuste("x", "y"), [1.0]))
+
+    def test_la_seleccion_respeta_las_excluidas(self) -> None:
+        ajustes = []
+        for distribucion in ("gumbel_max", "pareto"):
+            ajuste = fr.ajustar(self.datos, distribucion,
+                                "maxima_verosimilitud")
+            if ajuste.valido:
+                ajuste.bondad = fr.bondad_de_ajuste(ajuste, self.datos)
+                ajuste.cuantiles = fr.cuantiles(ajuste, [2.33, 100, 500])
+            ajustes.append(ajuste)
+        elegido = m07.seleccionar(ajustes, "aic", self.datos,
+                                  excluidas=["pareto"])
+        self.assertIsNotNone(elegido)
+        self.assertNotEqual(elegido.distribucion, "pareto")
+
+    def test_la_pareto_esta_excluida_en_la_configuracion(self) -> None:
+        excluidas = list(_CFG.obtener("frecuencia.excluidas_de_seleccion") or ())
+        self.assertIn("pareto", excluidas)
+
+
 class PruebaConfiguracion(unittest.TestCase):
     def test_los_periodos_de_retorno_son_los_declarados(self) -> None:
         periodos = list(_CFG.obtener("frecuencia.periodos_retorno"))

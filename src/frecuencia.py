@@ -49,7 +49,9 @@ __all__ = [
     "cuantiles",
     "bondad_de_ajuste",
     "grubbs_beck",
+    "densidad",
     "posicion_grafica",
+    "FORMA_GEV_FIJA",
     "ErrorFrecuencia",
 ]
 
@@ -71,9 +73,34 @@ DISTRIBUCIONES: dict[str, str] = {
     "exponencial": "expon",
     "weibull": "weibull_min",
     "gamma": "gamma",
+    # Añadidas para cubrir el repertorio de Hydrognomon, que CLAUDE.md, sección
+    # 4, declara reemplazado por este análisis: el reemplazo debe ser al menos
+    # tan completo como lo reemplazado.
+    #
+    # EV2-Max es el valor extremo tipo II, de cola pesada: en scipy es la
+    # Fréchet, que se expone como invweibull. Importa porque una serie con cola
+    # más pesada que la Gumbel queda mal descrita por ella justo en el periodo
+    # de retorno alto, que es el de diseño.
+    "ev2_max": "invweibull",
+    # GEV con el parámetro de forma FIJADO, no ajustado. Se usa cuando el valor
+    # procede de un análisis regional y no de la muestra propia, que con
+    # treinta años estima la forma con mucha incertidumbre.
+    "gev_k_fijo": "genextreme_k",
+    # Pareto generalizada. Su uso propio es series sobre umbral y no máximos
+    # anuales; se ofrece para contraste, como hace Hydrognomon.
+    "pareto": "genpareto",
 }
 
+# Las de MÍNIMOS de Hydrognomon (EV1-Min, EV3-Min como mínimo, GEV-Min) no se
+# incluyen: no describen una serie de máximos. Corresponden al M19, donde se
+# analizan caudales de estiaje.
+
 METODOS = ("momentos", "momentos_l", "maxima_verosimilitud")
+
+# Parámetro de forma de la GEV cuando se fija en lugar de ajustarse. Quien
+# orquesta lo sobrescribe con el valor declarado en config: no es una constante
+# universal sino una elección regional que el consultor debe justificar.
+FORMA_GEV_FIJA = 0.15
 
 
 @dataclass
@@ -267,6 +294,11 @@ def _ajustar_nucleo(nombre: str, x: np.ndarray, metodo: str) -> tuple[float, ...
         y = _log_positivo(x)
         return _ajustar_nucleo("pearson3", y, metodo)
 
+    if nombre == "genextreme_k":
+        # La forma se fija y solo se estiman ubicación y escala.
+        parametros = stats.genextreme.fit(x, f0=FORMA_GEV_FIJA)
+        return tuple(float(p) for p in parametros)
+
     if metodo == "momentos_l":
         return _ajuste_momentos_l(nombre, x)
 
@@ -276,7 +308,8 @@ def _ajustar_nucleo(nombre: str, x: np.ndarray, metodo: str) -> tuple[float, ...
     if metodo == "maxima_verosimilitud":
         distribucion = getattr(stats, nombre)
         with np.errstate(all="ignore"):
-            if nombre in ("expon", "weibull_min", "gamma"):
+            if nombre in ("expon", "weibull_min", "gamma", "genpareto",
+                          "invweibull"):
                 # El soporte empieza en el origen; fijarlo evita que el ajuste
                 # coloque el umbral por encima del mínimo observado y deje datos
                 # con verosimilitud nula.
@@ -352,6 +385,8 @@ def _congelada(distribucion: str, parametros: Sequence[float]):
     nombre = DISTRIBUCIONES[distribucion]
     if nombre in ("lognorm2", "lognorm3", "logpearson3"):
         return None
+    if nombre == "genextreme_k":
+        return stats.genextreme(*parametros)
     return getattr(stats, nombre)(*parametros)
 
 
@@ -558,6 +593,43 @@ def grubbs_beck(datos: Iterable[float], alfa: float = 0.10) -> dict[str, Any]:
         "atipicos_bajos": bajos,
         "cuantos": len(bajos),
     }
+
+
+def densidad(ajuste: Ajuste, x: Sequence[float]):
+    """
+    Función de densidad evaluada en los puntos dados.
+
+    La necesita la figura de histograma con todas las distribuciones
+    superpuestas, que es la que permite ver de un vistazo cuál describe la forma
+    de la muestra y no solo su cola. Las variantes logarítmicas incorporan el
+    jacobiano de la transformación: sin él, la curva no integraría uno sobre el
+    eje de los datos y quedaría por debajo de las demás sin que eso signifique
+    peor ajuste.
+    """
+    if not ajuste.valido:
+        return None
+    puntos = np.asarray(list(x), dtype=float)
+    nombre = DISTRIBUCIONES[ajuste.distribucion]
+    try:
+        if nombre in ("lognorm2", "logpearson3"):
+            validos = puntos > 0
+            salida = np.full(puntos.shape, np.nan)
+            base = stats.norm if nombre == "lognorm2" else stats.pearson3
+            salida[validos] = base(*ajuste.parametros).pdf(
+                np.log(puntos[validos])) / puntos[validos]
+            return salida
+        if nombre == "lognorm3":
+            umbral = ajuste.parametros[0]
+            desplazado = puntos - umbral
+            validos = desplazado > 0
+            salida = np.full(puntos.shape, np.nan)
+            salida[validos] = stats.norm(*ajuste.parametros[1:]).pdf(
+                np.log(desplazado[validos])) / desplazado[validos]
+            return salida
+        congelada = _congelada(ajuste.distribucion, ajuste.parametros)
+        return np.asarray(congelada.pdf(puntos), dtype=float)
+    except (ValueError, OverflowError, ZeroDivisionError):
+        return None
 
 
 def posicion_grafica(n: int, formula: str = "weibull") -> np.ndarray:

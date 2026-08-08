@@ -157,7 +157,10 @@ def mapa(descripcion: str, valor: Campo, **kw: Any) -> Campo:
 # Vocabularios cerrados
 # =============================================================================
 DISTRIBUCIONES = (
-    "normal", "lognormal2", "lognormal3", "gumbel_max", "gumbel_min", "gev",
+    "normal", "lognormal2", "lognormal3", "gumbel_max", "gumbel_min",
+            # Repertorio de Hydrognomon para máximos, que CLAUDE.md,
+            # sección 4, declara reemplazado por este análisis.
+            "ev2_max", "gev_k_fijo", "pareto", "gev",
     "pearson3", "logpearson3", "exponencial", "weibull", "gamma",
 )
 METODOS_AJUSTE = ("momentos", "momentos_l", "maxima_verosimilitud")
@@ -718,6 +721,14 @@ ESQUEMA: dict[str, Campo] = {
     "frecuencia.distribucion_adoptada": texto(
         "distribución forzada por el consultor",
         permite_nulo=True, opciones=DISTRIBUCIONES,
+    ),
+    "frecuencia.excluidas_de_seleccion": lista(
+        "distribuciones calculadas para contraste pero no adoptables",
+        texto("distribución", no_vacio=True), no_vacio=False,
+    ),
+    "frecuencia.forma_gev_fija": numero(
+        "parámetro de forma de la GEV cuando se fija (convención de Hosking)",
+        minimo=-1.0, maximo=1.0,
     ),
     "frecuencia.min_dias_mes": entero(
         "días mínimos que debe tener cada mes para que el año aporte su máximo",

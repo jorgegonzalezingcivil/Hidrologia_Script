@@ -606,6 +606,41 @@ frecuencia:
     - exponencial
     - weibull
     - gamma
+    # Anadidas para cubrir el repertorio de Hydrognomon, que CLAUDE.md, seccion
+    # 4, declara reemplazado por este analisis: el reemplazo debe ser al menos
+    # tan completo como lo reemplazado.
+    - ev2_max        # valor extremo tipo II (Frechet), cola pesada
+    - gev_k_fijo     # GEV con la forma fijada, no ajustada
+    - pareto         # Pareto generalizada, para contraste
+  # Las de MINIMOS de Hydrognomon (EV1-Min, GEV-Min) no se incluyen: no
+  # describen una serie de maximos. Corresponden al M19, caudales de estiaje.
+
+  # Distribuciones que se CALCULAN para contraste pero NO pueden adoptarse por
+  # seleccion automatica. La Pareto generalizada es el caso: su uso propio son
+  # las series sobre umbral, no los maximos anuales, y ajustada con el umbral en
+  # el minimo de la muestra su verosimilitud se dispara sin limite. Medido: gano
+  # por AIC en dos estaciones con una densidad degenerada, un pico sobre el
+  # borde, que habria entrado al diseno como si fuera un ajuste valido.
+  excluidas_de_seleccion:
+    - pareto
+
+  # Forma de la GEV cuando se fija en lugar de ajustarse, en la convencion de
+  # Hosking, que es la misma de scipy:
+  #
+  #     k < 0   cola PESADA hacia arriba (tipo Frechet, EV2)
+  #     k = 0   Gumbel
+  #     k > 0   cola ACOTADA por arriba (tipo Weibull, EV3)
+  #
+  # ATENCION: Hydrognomon y buena parte de la literatura griega usan el signo
+  # CONTRARIO, de modo que su "k = 0,15" corresponde aqui a -0,15 y significa
+  # cola pesada. Fijar el signo equivocado cambia por completo el cuantil de
+  # periodo alto: medido sobre una serie de prueba, T100 pasa de 37 a mas de 200
+  # mm segun el signo.
+  #
+  # El valor no es universal: debe proceder de un analisis regional y el
+  # consultor debe justificarlo. Se adopta -0,15, cola pesada, por ser lo
+  # habitual en precipitacion.
+  forma_gev_fija: -0.15
   ajuste: [momentos, momentos_l, maxima_verosimilitud]
   pruebas: [ks, anderson_darling, chi2]
   criterios_seleccion: [aic, bic]

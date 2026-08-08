@@ -235,8 +235,39 @@ def analizar_estacion(
     return ajustes, fr.grubbs_beck(valores)
 
 
+def es_plausible(ajuste: fr.Ajuste, observados: Sequence[float]) -> bool:
+    """
+    Descarta ajustes que el criterio de información premiaría por error.
+
+    Un criterio de información compara verosimilitudes y no comprueba que el
+    resultado tenga sentido físico. Medido en este estudio: la Pareto
+    generalizada, ajustada con el umbral en el mínimo de la muestra, alcanza una
+    verosimilitud enorme con una densidad degenerada (un pico sobre el borde) y
+    gana por AIC en dos estaciones. Ese ajuste habría entrado al diseño como
+    válido.
+
+    Dos comprobaciones, ambas necesarias:
+
+      - los cuantiles deben crecer con el periodo de retorno
+      - el cuantil de periodo alto debe superar el máximo observado, porque una
+        crecida centenaria no puede ser menor que la mayor de treinta años
+    """
+    if not ajuste.valido or not ajuste.cuantiles:
+        return False
+    periodos = sorted(ajuste.cuantiles)
+    valores = [ajuste.cuantiles[p] for p in periodos]
+    if valores != sorted(valores):
+        return False
+    maximo_observado = max(observados)
+    if valores[-1] < maximo_observado:
+        return False
+    return True
+
+
 def seleccionar(
     ajustes: Sequence[fr.Ajuste], criterio: str = "aic",
+    observados: Sequence[float] | None = None,
+    excluidas: Sequence[str] = (),
 ) -> fr.Ajuste | None:
     """
     Mejor ajuste por el criterio de información pedido.
@@ -244,10 +275,18 @@ def seleccionar(
     AIC y BIC penalizan el número de parámetros, de modo que una distribución
     de tres no gana solo por tener más grados de libertad. El módulo propone;
     la adopción es del consultor y se declara en config.
+
+    Se excluyen las distribuciones declaradas como no adoptables y las que no
+    superan la comprobación de plausibilidad: un criterio de información compara
+    verosimilitudes, no comprueba que el resultado tenga sentido.
     """
     clave = criterio.strip().lower()
+    fuera = {d.strip().lower() for d in excluidas}
     candidatos = [a for a in ajustes
-                  if a.valido and isinstance(a.bondad.get(clave), (int, float))]
+                  if a.valido and a.distribucion.lower() not in fuera
+                  and isinstance(a.bondad.get(clave), (int, float))]
+    if observados is not None:
+        candidatos = [a for a in candidatos if es_plausible(a, observados)]
     if not candidatos:
         return None
     return min(candidatos, key=lambda a: a.bondad[clave])
@@ -282,6 +321,11 @@ def ejecutar(
     metodos = list(configuracion.obtener("frecuencia.ajuste"))
     criterios = list(configuracion.obtener("frecuencia.criterios_seleccion"))
     adoptada = configuracion.obtener("frecuencia.distribucion_adoptada")
+    excluidas = list(
+        configuracion.obtener("frecuencia.excluidas_de_seleccion") or ())
+    # La forma fija de la GEV es una eleccion regional, no una constante: se
+    # inyecta desde config en lugar de quedar escrita en el motor.
+    fr.FORMA_GEV_FIJA = float(configuracion.obtener("frecuencia.forma_gev_fija"))
 
     ventana_adoptada = configuracion.obtener("sensibilidad_series.ventana_adoptada")
     if ventana_adoptada is None:
@@ -380,12 +424,13 @@ def ejecutar(
                 fila = {"codigo": codigo, **ajuste.como_dict()}
                 resultado.ajustes.append(fila)
 
-            mejor = seleccionar(ajustes, criterio)
+            observados = [maximos[a] for a in anios]
+            mejor = seleccionar(ajustes, criterio, observados, excluidas)
             if adoptada:
                 forzados = [a for a in ajustes
                             if a.valido and a.distribucion == adoptada]
                 if forzados:
-                    mejor = seleccionar(forzados, criterio)
+                    mejor = seleccionar(forzados, criterio, observados)
             if mejor is None:
                 continue
             resultado.adoptadas[codigo] = {
@@ -699,7 +744,92 @@ def _figuras(configuracion, base, resultado, maximos_por_estacion, periodos,
                                          estilo):
                 resultado.productos.append(rutas.relativa(ruta, base))
 
+    _figura_histograma(graficos, estilo, directorio, resultado,
+                       maximos_por_estacion, configuracion, base)
     logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
+
+
+def _figura_histograma(graficos, estilo, directorio, resultado,
+                       maximos_por_estacion, configuracion, base) -> None:
+    """
+    Histograma de la muestra con TODAS las densidades superpuestas.
+
+    Reproduce el Grafico 5-43 del informe de referencia, que es una captura de
+    Hydrognomon. Su utilidad es distinta de la del papel de probabilidad: aquel
+    juzga la cola, que es donde vive el periodo de retorno, y este juzga la
+    FORMA de la distribucion frente a la del dato. Una distribucion puede seguir
+    bien la cola y describir mal el cuerpo, y solo esta figura lo delata.
+
+    La adoptada se resalta, de modo que coincida con la que el papel de
+    probabilidad dibuja en rojo.
+    """
+    distribuciones = list(configuracion.obtener("frecuencia.distribuciones"))
+    metodos = list(configuracion.obtener("frecuencia.ajuste"))
+    codigos = sorted(maximos_por_estacion)
+    if not codigos:
+        return
+    columnas = 3
+    filas = (len(codigos) + columnas - 1) // columnas
+    with graficos.figura(
+        estilo,
+        filas=filas, columnas=columnas,
+        alto_cm=max(estilo.alto_cm, 5.0 * filas),
+    ) as (fig, ejes):
+        etiquetas: dict[str, str] = {}
+        for indice, codigo in enumerate(codigos):
+            ax = ejes[indice // columnas][indice % columnas]
+            valores = np.array(sorted(maximos_por_estacion[codigo].values()))
+            ax.hist(valores, bins=max(6, int(round(np.sqrt(valores.size)))),
+                    density=True, color=graficos.GRIS_CONTEXTO, alpha=0.35,
+                    edgecolor="white", linewidth=0.4, zorder=1)
+            malla = np.linspace(valores.min() * 0.6, valores.max() * 1.5, 300)
+
+            adoptada = resultado.adoptadas.get(codigo)
+            for orden, distribucion in enumerate(distribuciones):
+                metodo = (adoptada["metodo"] if adoptada else metodos[0])
+                ajuste = fr.ajustar(list(valores), distribucion, metodo)
+                if not ajuste.valido:
+                    ajuste = fr.ajustar(list(valores), distribucion,
+                                        "maxima_verosimilitud")
+                curva = fr.densidad(ajuste, malla)
+                if curva is None or not np.any(np.isfinite(curva)):
+                    continue
+                es_adoptada = bool(adoptada
+                                   and distribucion == adoptada["distribucion"])
+                color = "#c00000" if es_adoptada else estilo.color(orden)
+                ax.plot(malla, curva, color=color,
+                        linewidth=2.0 if es_adoptada else 0.7,
+                        alpha=1.0 if es_adoptada else 0.55,
+                        zorder=5 if es_adoptada else 2)
+                etiquetas.setdefault(distribucion, color)
+            titulo = codigo + (f"  {adoptada['distribucion']}"
+                               if adoptada else "")
+            ax.set_title(titulo, fontsize=estilo.tamano_fuente - 2,
+                         loc="left", color="#333333")
+            ax.tick_params(labelsize=estilo.tamano_fuente - 3)
+            ax.set_yticks([])
+            for lado in ("top", "right", "left"):
+                ax.spines[lado].set_visible(False)
+        for sobrante in range(len(codigos), filas * columnas):
+            ejes[sobrante // columnas][sobrante % columnas].axis("off")
+
+        from matplotlib.lines import Line2D
+        manijas = [Line2D([0], [0], color=c, linewidth=1.4, label=d)
+                   for d, c in etiquetas.items()]
+        manijas.append(Line2D([0], [0], color="#c00000", linewidth=2.4,
+                              label="adoptada por el criterio"))
+        fig.legend(handles=manijas, loc="lower center", ncol=5,
+                   fontsize=estilo.tamano_fuente - 2, frameon=False,
+                   bbox_to_anchor=(0.5, -0.015))
+        fig.supxlabel("Pmax 24 h (mm)", fontsize=estilo.tamano_fuente)
+        fig.tight_layout()
+        # El titulo se pone DESPUES de ajustar: puesto antes, tight_layout no
+        # reserva su espacio y se solapa con la primera fila de paneles.
+        fig.suptitle("Histograma de Pmax 24 h y funciones de densidad ajustadas",
+                     fontsize=estilo.tamano_fuente + 2, y=1.005)
+        for ruta in graficos.guardar(fig, directorio / "M07_histograma_pdf",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
 
 
 # =============================================================================
