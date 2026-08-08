@@ -108,6 +108,7 @@ ETIQUETA_DIARIA = "PTPM_CON"
 ORIGEN_MENSUAL = "mensual_ideam"
 ORIGEN_AGREGADO = "agregado_diaria"
 ORIGEN_SINTETICO = "complementado"
+ORIGEN_CLIMATOLOGIA = "climatologia_propia"
 
 # El Catalogo Nacional de Estaciones publica la ubicacion en MAGNA-SIRGAS
 # geografico, no en WGS84. Se declara en lugar de asumirlo, igual que en el M04b.
@@ -137,6 +138,9 @@ class ResultadoM05:
     meses_mensual: int = 0
     meses_agregados: int = 0
     meses_completados: int = 0
+    registros_excluidos: int = 0
+    correcciones: list[dict[str, Any]] = field(default_factory=list)
+    meses_climatologia: int = 0
     discrepancias: list[dict[str, Any]] = field(default_factory=list)
     anomalos: list[dict[str, Any]] = field(default_factory=list)
     consistencia: list[dict[str, Any]] = field(default_factory=list)
@@ -550,6 +554,73 @@ def estado_por_estacion(
     return filas
 
 
+def corregir_por_doble_masa(
+    serie: SerieMensual,
+    claves_comunes: Sequence[tuple[int, int]],
+    indice_quiebre: int | None,
+    razon: float,
+) -> int:
+    """
+    Homogeneiza el tramo anterior al quiebre multiplicandolo por la razon.
+
+    Es el metodo clasico: si despues del quiebre la estacion registra en otra
+    escala, se lleva el tramo antiguo a esa misma escala para que toda la serie
+    sea comparable. Se corrige el tramo ANTIGUO y no el reciente porque el
+    reciente refleja las condiciones actuales de la estacion.
+
+    La correccion se aplica sobre los periodos anteriores al quiebre EN FECHA,
+    no sobre el indice de la curva: la curva solo acumula periodos comunes con
+    el patron, y usar su indice desplazaria el corte.
+    """
+    if not claves_comunes or indice_quiebre is None:
+        return 0
+    if indice_quiebre >= len(claves_comunes):
+        return 0
+    corte = claves_comunes[indice_quiebre]
+    modificados = 0
+    for clave in list(serie.valores):
+        if clave < corte:
+            serie.valores[clave] = serie.valores[clave] * razon
+            modificados += 1
+    return modificados
+
+
+def climatologia_mensual(
+    columna: np.ndarray, claves: Sequence[tuple[int, int]],
+) -> dict[int, float]:
+    """Media de cada mes calendario con el dato disponible de la propia serie."""
+    acumulado: dict[int, list[float]] = {}
+    for indice, (_, mes) in enumerate(claves):
+        valor = columna[indice]
+        if np.isfinite(valor):
+            acumulado.setdefault(mes, []).append(float(valor))
+    return {mes: float(np.mean(v)) for mes, v in acumulado.items() if v}
+
+
+def rellenar_con_climatologia(
+    datos: np.ndarray, claves: Sequence[tuple[int, int]],
+) -> tuple[np.ndarray, int]:
+    """
+    Completa lo que las vecinas no pudieron, con la media mensual propia.
+
+    No introduce informacion de otra estacion ni supone un regimen que no se ha
+    verificado, y deja la serie continua. Aplana la variabilidad mas que
+    cualquier metodo por vecinas, porque sustituye el hueco por el valor central
+    de su mes: por eso el origen se marca aparte y el M07 debe poder medirlo.
+    """
+    salida = np.array(datos, dtype=float, copy=True)
+    rellenados = 0
+    for columna in range(datos.shape[1]):
+        medias = climatologia_mensual(datos[:, columna], claves)
+        if not medias:
+            continue
+        for fila, (_, mes) in enumerate(claves):
+            if not np.isfinite(salida[fila, columna]) and mes in medias:
+                salida[fila, columna] = medias[mes]
+                rellenados += 1
+    return salida, rellenados
+
+
 def _matriz_numpy(
     codigos: Sequence[str],
     matriz: dict[str, dict[tuple[int, int], float]],
@@ -879,7 +950,8 @@ def estaciones_admitidas(
 
 def leer_precipitacion(
     ruta: Path, delimitador: str, ventana: tuple[int, int],
-) -> tuple[dict[str, dict], dict[str, dict], int]:
+    excluidos: Sequence[str] = (),
+) -> tuple[dict[str, dict], dict[str, dict], int, int]:
     """
     Recorre la serie consolidada y separa mensual publicada de diaria.
 
@@ -889,9 +961,13 @@ def leer_precipitacion(
         raise ErrorRutas(
             f"no se encuentra la serie consolidada en {ruta}. Ejecutar el M04."
         )
+    # El Calificador es el juicio del IDEAM sobre su propio dato, y
+    # perfiles_ideam.yaml declara que 'DATO RECHAZADO' se excluye del analisis.
+    # Un registro puede traer varias marcas separadas por barra.
+    marcas_excluidas = {m.strip().upper() for m in excluidos if m}
     mensual: dict[str, dict[tuple[int, int], float]] = {}
     diaria: dict[str, dict[tuple[int, int], list[float]]] = {}
-    leidos = 0
+    leidos = excluidos_total = 0
     with ruta.open(encoding="utf-8-sig", newline="") as manejador:
         for fila in csv.DictReader(manejador, delimiter=delimitador):
             etiqueta = fila.get("etiqueta", "")
@@ -907,6 +983,12 @@ def leer_precipitacion(
                 continue
             if not (ventana[0] <= anio <= ventana[1]):
                 continue
+            if marcas_excluidas:
+                marcas = {m.strip().upper()
+                          for m in (fila.get("calificador") or "").split("|")}
+                if marcas & marcas_excluidas:
+                    excluidos_total += 1
+                    continue
             leidos += 1
             codigo = fila.get("codigo", "").strip()
             if etiqueta == ETIQUETA_MENSUAL:
@@ -914,7 +996,7 @@ def leer_precipitacion(
             else:
                 diaria.setdefault(codigo, {}).setdefault(
                     (anio, mes), []).append(valor)
-    return mensual, diaria, leidos
+    return mensual, diaria, leidos, excluidos_total
 
 
 # =============================================================================
@@ -982,8 +1064,20 @@ def ejecutar(
 
     # --- Etapa 0 -------------------------------------------------------------
     with registro.bloque(logger, "Etapa 0: construccion de la serie mensual"):
-        mensual, diaria, leidos = leer_precipitacion(
-            ruta_serie, delimitador, limites)
+        excluidos_cal = list(
+            configuracion.obtener("anomalos.calificadores_excluidos") or ())
+        mensual, diaria, leidos, descartados_cal = leer_precipitacion(
+            ruta_serie, delimitador, limites, excluidos_cal)
+        if descartados_cal:
+            resultado.registros_excluidos = descartados_cal
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "calificador.excluidos",
+                f"{descartados_cal:,} registro(s) excluidos por Calificador "
+                f"{excluidos_cal}. Es el juicio del IDEAM sobre su propio dato, "
+                "y perfiles_ideam.yaml declara ese efecto. Los valores que el "
+                "IQR senala NO se eliminan: son la cola natural de una "
+                "distribucion asimetrica, no errores.",
+            ))
         codigos = sorted(set(mensual) | set(diaria))
         if admitidas:
             codigos = [c for c in codigos if c in admitidas]
@@ -1094,8 +1188,11 @@ def ejecutar(
                 patron = patron_de_vecinas(
                     [v["codigo"] for v in vecinas], matriz, claves)
                 propia = [matriz[codigo].get(c, np.nan) for c in claves]
+                comunes = [k for k, a, b in zip(claves, propia, patron)
+                           if np.isfinite(a) and np.isfinite(b)]
                 acum_e, acum_p = est.curva_doble_masa(propia, patron)
                 fila["doble_masa"] = est.quiebre_doble_masa(acum_e, acum_p)
+                fila["claves_comunes"] = comunes
             else:
                 fila["doble_masa"] = {"hay_quiebre": False,
                                       "motivo": "sin vecinas correlacionadas"}
@@ -1157,6 +1254,53 @@ def ejecutar(
                 "observador. La correccion exige criterio del consultor y queda "
                 "sin aplicar.",
             ))
+        if bool(configuracion.obtener("consistencia.corregir_doble_masa")):
+            razon_maxima = float(
+                configuracion.obtener("consistencia.razon_maxima_correccion"))
+            sospechosas = []
+            for fila in resultado.consistencia:
+                doble = fila.get("doble_masa") or {}
+                if not doble.get("hay_quiebre"):
+                    continue
+                razon = doble.get("razon_pendientes")
+                if not razon or not np.isfinite(razon) or razon <= 0:
+                    continue
+                if max(razon, 1.0 / razon) > razon_maxima:
+                    sospechosas.append((fila["codigo"], round(razon, 3)))
+                    continue
+                modificados = corregir_por_doble_masa(
+                    series[fila["codigo"]], fila.get("claves_comunes") or (),
+                    doble.get("indice"), razon)
+                if modificados:
+                    comunes = fila.get("claves_comunes") or ()
+                    indice = doble.get("indice")
+                    resultado.correcciones.append({
+                        "codigo": fila["codigo"],
+                        "razon_pendientes": round(razon, 4),
+                        "valores_corregidos": modificados,
+                        "anio_quiebre": (comunes[indice][0]
+                                         if comunes and indice is not None
+                                         and indice < len(comunes) else None),
+                    })
+            if resultado.correcciones:
+                matriz = {c: dict(s.valores) for c, s in series.items()}
+                resultado.hallazgos.append(Hallazgo(
+                    INFORMATIVO, "consistencia.corregidas",
+                    f"{len(resultado.correcciones)} estacion(es) homogeneizadas "
+                    "multiplicando su tramo anterior al quiebre por la razon de "
+                    "pendientes. Se corrige el tramo ANTIGUO porque el reciente "
+                    "refleja las condiciones actuales. El factor aplicado se "
+                    "publica en M05_correcciones.csv.",
+                ))
+            if sospechosas:
+                resultado.hallazgos.append(Hallazgo(
+                    ADVERTENCIA, "consistencia.correccion_sospechosa",
+                    f"{len(sospechosas)} estacion(es) con razon de pendientes "
+                    f"fuera de {razon_maxima}: {sospechosas}. NO se corrigieron. "
+                    "Un factor asi no es deriva de instrumento: revisar si el "
+                    "codigo agrupa dos estaciones distintas.",
+                ))
+
         logger.info("%d estacion(es) evaluadas; %d con quiebre de doble masa",
                     len(resultado.consistencia), len(con_quiebre))
 
@@ -1230,6 +1374,21 @@ def ejecutar(
                 + (f" (menor error: {resultado.metodo_recomendado})."
                    if resultado.metodo_recomendado else "."),
             ))
+
+        if (completada is not None and bool(configuracion.obtener(
+                "complemento.rellenar_residual_con_climatologia"))):
+            completada, por_clima = rellenar_con_climatologia(completada, claves)
+            resultado.meses_climatologia = por_clima
+            if por_clima:
+                resultado.hallazgos.append(Hallazgo(
+                    INFORMATIVO, "complemento.climatologia",
+                    f"{por_clima:,} mes(es) completados con la media del mismo "
+                    "mes calendario de la PROPIA estacion, tras agotar los "
+                    "metodos por vecinas. No introduce informacion ajena, pero "
+                    "aplana la variabilidad mas que cualquier metodo por "
+                    "vecinas: el M07 y el M05b deben medir cuanto de la serie "
+                    "llega por esta via.",
+                ))
 
         aisladas = [d["codigo"] for d in resultado.descartes]
         resultado.estado = estado_por_estacion(
@@ -1375,6 +1534,7 @@ def _escribir_productos(configuracion, base, resultado, series, orden, claves,
 
     for nombre, contenido in (
         ("M05_estado_estaciones.csv", resultado.estado),
+        ("M05_correcciones.csv", resultado.correcciones),
         ("M05_consistencia.csv", list(_aplanar_consistencia(resultado.consistencia))),
         ("M05_complemento.csv", resultado.complemento),
         ("M05_anomalos.csv", resultado.anomalos),
@@ -1651,6 +1811,9 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "metodo_recomendado": resultado.metodo_recomendado,
         "correlaciones": resultado.correlaciones,
         "estado_estaciones": resultado.estado,
+        "registros_excluidos": resultado.registros_excluidos,
+        "correcciones": resultado.correcciones,
+        "meses_climatologia": resultado.meses_climatologia,
         "descartes": resultado.descartes,
         "productos": resultado.productos,
         "resumen": conteo,

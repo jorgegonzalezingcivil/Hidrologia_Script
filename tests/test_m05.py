@@ -264,5 +264,94 @@ class PruebaDistribucionCorrelaciones(unittest.TestCase):
             m05.distribucion_correlaciones({}, self.claves)["parejas"], 0)
 
 
+
+@unittest.skipUnless(HAY_NUMPY, "numpy no está instalado")
+class PruebaCorreccionDobleMasa(unittest.TestCase):
+    """
+    Se corrige el tramo ANTIGUO, no el reciente.
+
+    El reciente refleja las condiciones actuales de la estación, de modo que es
+    la referencia a la que hay que llevar el pasado.
+    """
+
+    def setUp(self) -> None:
+        self.serie = m05.SerieMensual("X")
+        for anio in range(2000, 2011):
+            for mes in range(1, 13):
+                self.serie.fijar(anio, mes, 100.0, m05.ORIGEN_MENSUAL)
+        self.comunes = sorted(self.serie.valores)
+
+    def test_corrige_solo_antes_del_quiebre(self) -> None:
+        indice = self.comunes.index((2005, 1))
+        modificados = m05.corregir_por_doble_masa(
+            self.serie, self.comunes, indice, 1.5)
+        self.assertEqual(modificados, indice)
+        self.assertAlmostEqual(self.serie.valores[(2004, 12)], 150.0)
+        self.assertAlmostEqual(self.serie.valores[(2005, 1)], 100.0)
+
+    def test_sin_quiebre_no_toca_nada(self) -> None:
+        self.assertEqual(
+            m05.corregir_por_doble_masa(self.serie, self.comunes, None, 1.5), 0)
+        self.assertAlmostEqual(self.serie.valores[(2000, 1)], 100.0)
+
+    def test_indice_fuera_de_rango_no_revienta(self) -> None:
+        self.assertEqual(
+            m05.corregir_por_doble_masa(self.serie, self.comunes, 9999, 1.5), 0)
+
+    def test_sin_periodos_comunes_no_corrige(self) -> None:
+        self.assertEqual(m05.corregir_por_doble_masa(self.serie, [], 0, 1.5), 0)
+
+
+@unittest.skipUnless(HAY_NUMPY, "numpy no está instalado")
+class PruebaClimatologia(unittest.TestCase):
+    """El último recurso: la media del mismo mes de la propia estación."""
+
+    def setUp(self) -> None:
+        self.claves = [(2000 + a, m) for a in range(5) for m in range(1, 13)]
+        self.datos = np.full((len(self.claves), 1), np.nan)
+        for indice, (_, mes) in enumerate(self.claves):
+            self.datos[indice, 0] = 10.0 * mes
+        self.datos[13, 0] = np.nan  # febrero de 2001
+
+    def test_rellena_con_la_media_de_su_mes(self) -> None:
+        salida, cuantos = m05.rellenar_con_climatologia(self.datos, self.claves)
+        self.assertEqual(cuantos, 1)
+        self.assertAlmostEqual(salida[13, 0], 20.0)
+
+    def test_no_altera_el_dato_observado(self) -> None:
+        salida, _ = m05.rellenar_con_climatologia(self.datos, self.claves)
+        presentes = np.isfinite(self.datos)
+        self.assertTrue(np.allclose(salida[presentes], self.datos[presentes]))
+
+    def test_no_mezcla_meses(self) -> None:
+        # Enero no puede rellenarse con la media de julio.
+        medias = m05.climatologia_mensual(self.datos[:, 0], self.claves)
+        self.assertAlmostEqual(medias[1], 10.0)
+        self.assertAlmostEqual(medias[7], 70.0)
+
+    def test_una_columna_sin_dato_no_revienta(self) -> None:
+        vacia = np.full((len(self.claves), 1), np.nan)
+        salida, cuantos = m05.rellenar_con_climatologia(vacia, self.claves)
+        self.assertEqual(cuantos, 0)
+        self.assertTrue(np.isnan(salida).all())
+
+
+@unittest.skipUnless(HAY_NUMPY, "numpy no está instalado")
+class PruebaConfiguracionAdoptada(unittest.TestCase):
+    def test_el_calificador_excluido_esta_declarado(self) -> None:
+        excluidos = list(_CFG.obtener("anomalos.calificadores_excluidos") or ())
+        self.assertIn("DATO RECHAZADO", excluidos)
+
+    def test_los_anomalos_se_marcan_y_no_se_eliminan(self) -> None:
+        # Eliminarlos sustituiría meses húmedos reales por estimaciones
+        # suavizadas y sesgaría la serie a la baja.
+        self.assertEqual(_CFG.obtener("anomalos.tratamiento"), "marcar")
+
+    def test_la_correccion_tiene_limite_declarado(self) -> None:
+        razon = float(_CFG.obtener("consistencia.razon_maxima_correccion"))
+        self.assertGreater(razon, 1.0)
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

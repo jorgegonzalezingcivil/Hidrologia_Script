@@ -584,6 +584,10 @@ ESQUEMA: dict[str, Campo] = {
         "tratamiento del dato anómalo",
         opciones=("marcar", "drop", "cap", "imputar"),
     ),
+    "anomalos.calificadores_excluidos": lista(
+        "calificadores del IDEAM cuyo registro se excluye",
+        texto("calificador", no_vacio=True), no_vacio=False,
+    ),
     "anomalos.aplicar_a_serie_maximos": booleano(
         "aplicar el filtro de anómalos a la serie de máximos",
     ),
@@ -607,6 +611,13 @@ ESQUEMA: dict[str, Campo] = {
     "consistencia.n_estaciones_vecinas": entero(
         "número de estaciones vecinas", minimo=1, maximo=50,
     ),
+    "consistencia.corregir_doble_masa": booleano(
+        "homogeneizar por razón de pendientes las series con quiebre",
+    ),
+    "consistencia.razon_maxima_correccion": numero(
+        "razón de pendientes por encima de la cual la corrección es sospechosa",
+        minimo=1.0, maximo=10.0,
+    ),
     "consistencia.descartar_bajo_umbral": booleano(
         "descartar estaciones bajo el umbral de correlación",
     ),
@@ -628,6 +639,9 @@ ESQUEMA: dict[str, Campo] = {
     "complemento.max_huecos_residual_pct": numero(
         "huecos admitidos por estación tras el complemento",
         minimo=0.0, maximo=100.0,
+    ),
+    "complemento.rellenar_residual_con_climatologia": booleano(
+        "completar con la media mensual propia lo que las vecinas no rellenan",
     ),
     "complemento.max_porcentaje_sintetico": numero(
         "porcentaje máximo de dato sintético antes de advertir",

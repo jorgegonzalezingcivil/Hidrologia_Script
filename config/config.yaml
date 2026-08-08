@@ -449,6 +449,20 @@ anomalos:
   k_sigma: 3.0
   zscore_umbral: 3.0
   tratamiento: "marcar"          # marcar | drop | cap | imputar
+  # DECISION DEL CONSULTOR, 2026-08-07. Registrada en MANIFIESTO.yaml.
+  #
+  # Los valores que senala el IQR NO se eliminan. Medido sobre los 560 marcados:
+  # su exceso mediano sobre el limite es 1,14 veces y su magnitud mediana 178
+  # mm/mes, con el 62% por debajo de 200 mm. Son meses humedos reales, no
+  # errores: el IQR marca la cola superior por construccion, porque la
+  # precipitacion mensual es asimetrica a la derecha. Eliminarlos y rellenarlos
+  # sustituiria extremos reales por estimaciones suavizadas y sesgaria la serie
+  # a la baja, justo donde el M07 necesita fidelidad.
+  #
+  # La eliminacion se hace por el Calificador del IDEAM, que es su juicio sobre
+  # su propio dato. Los efectos estan declarados en perfiles_ideam.yaml y este
+  # parametro dice cuales se honran excluyendo el registro.
+  calificadores_excluidos: ["DATO RECHAZADO"]
   aplicar_a_serie_maximos: false # NUNCA true: truncaría el dato de diseño
 
 consistencia:
@@ -474,6 +488,20 @@ consistencia:
   desnivel_maximo_m: 1000.0
   n_estaciones_vecinas: 5
   descartar_bajo_umbral: true
+  # DECISION DEL CONSULTOR, 2026-08-07. Registrada en MANIFIESTO.yaml.
+  #
+  # Las estaciones con quiebre de doble masa se CORRIGEN, no se descartan. El
+  # tramo anterior al quiebre se multiplica por la razon entre pendientes para
+  # homogeneizarlo con el reciente, que es el metodo clasico. Descartarlas
+  # dejaria 27 estaciones de 42 y adelgazaria la cobertura justo donde la red ya
+  # es escasa, perdiendo ademas la longitud de serie que costo el umbral de 30
+  # anios.
+  corregir_doble_masa: true
+  # Razon de pendientes por encima de la cual la correccion se reporta como
+  # sospechosa en lugar de aplicarse en silencio. Un factor de 1,5 significa que
+  # la estacion habria cambiado su registro en un 50%: eso ya no es deriva de
+  # instrumento sino, probablemente, otra estacion.
+  razon_maxima_correccion: 1.5
 
 complemento:
   metodos_evaluados: [regresion_vecinas, razon_normal, idw, knn, mice]
@@ -493,6 +521,18 @@ complemento:
   # comparable con otra calculada sobre el 99%, y la isoyeta del M06 las trata
   # igual salvo que alguien lo advierta.
   max_huecos_residual_pct: 10.0
+  # DECISION DEL CONSULTOR, 2026-08-07. Registrada en MANIFIESTO.yaml.
+  #
+  # Los huecos que ningun metodo por vecinas puede rellenar (estaciones sin
+  # vecina admisible) se completan con la media del mismo mes calendario de la
+  # PROPIA estacion. No introduce informacion de otra estacion ni supone un
+  # regimen que no se ha verificado, y deja la serie continua.
+  #
+  # ADVERTENCIA: aplana la variabilidad mas que cualquier metodo por vecinas,
+  # porque sustituye el hueco por el valor central de su mes. El origen queda
+  # marcado aparte para que el M07 y el M05b puedan medir cuanto de la serie
+  # llega por esta via.
+  rellenar_residual_con_climatologia: true
 
 # -----------------------------------------------------------------------------
 # M05b - ENSO

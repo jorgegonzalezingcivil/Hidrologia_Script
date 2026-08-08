@@ -393,6 +393,49 @@ decisiones:
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "qué se elimina, qué se corrige y qué se completa (M05)"
+    valor: >-
+      Eliminar solo por Calificador DATO RECHAZADO. Corregir por razón de
+      pendientes las series con quiebre de doble masa. Completar con
+      climatología propia lo que las vecinas no alcanzan.
+    justificacion: >-
+      Decisión del consultor. Tres criterios encadenados que dejan la serie
+      continua sin destruir la información que la sustenta.
+      NO SE ELIMINA POR IQR. Medido sobre los 560 valores señalados: su exceso
+      mediano sobre el límite es 1,14 veces y su magnitud mediana 178 mm/mes,
+      con el 62% por debajo de 200 mm. Son meses húmedos reales, no errores: el
+      rango intercuartílico marca la cola superior por construcción, porque la
+      precipitación mensual es asimétrica a la derecha. Eliminarlos y
+      rellenarlos sustituiría extremos reales por estimaciones suavizadas y
+      sesgaría la serie a la baja, justo donde el M07 necesita fidelidad. Se
+      marcan y se conservan.
+      SÍ SE ELIMINA POR CALIFICADOR. perfiles_ideam.yaml declara que DATO
+      RECHAZADO se excluye del análisis, y el módulo lo incumplía: ignoraba el
+      Calificador por completo. Son 1.184 registros en la ventana. Es el juicio
+      del IDEAM sobre su propio dato, y por eso es mejor criterio que una regla
+      estadística aplicada a una distribución asimétrica.
+      SE CORRIGE, NO SE DESCARTA. Trece estaciones con quiebre de doble masa se
+      homogeneizaron multiplicando su tramo ANTERIOR al quiebre por la razón de
+      pendientes; se corrige el antiguo porque el reciente refleja las
+      condiciones actuales de la estación. Descartarlas habría dejado 27 de 42 y
+      adelgazado la cobertura justo donde la red ya es escasa, perdiendo además
+      la longitud de serie que costó el umbral de 30 años.
+      DOS NO SE CORRIGIERON: 21201580 (razón 0,523) y 21201600 (0,609), fuera
+      del límite declarado de 1,5. Un factor así no es deriva de instrumento;
+      debe revisarse si el código agrupa dos estaciones distintas.
+      SE COMPLETA HASTA CERO HUECOS. Tras el relleno por vecinas quedaban
+      estaciones sin completar por falta de vecina admisible. Se completan con la
+      media del mismo mes calendario de la PROPIA estación: no introduce
+      información ajena ni supone un régimen no verificado.
+      COMPOSICIÓN FINAL de la serie: 85,8% observado, 10,2% por vecinas, 3,9%
+      por climatología propia. Cero huecos.
+      ADVERTENCIA para el M07 y el M05b: el 14,1% de la serie es sintético y más
+      plano que lo observado, y la fracción climatológica lo es aún más, porque
+      sustituye el hueco por el valor central de su mes. El origen viaja en
+      precipitacion_mensual_origen.csv y debe reportarse por estación.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""
