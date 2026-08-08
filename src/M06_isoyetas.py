@@ -459,6 +459,7 @@ def ejecutar(
     raiz: Path | None = None,
     ruta_config: Path | None = None,
     ruta_json: Path | None = None,
+    con_graficas: bool = True,
     consola: bool = True,
 ) -> tuple[int, list[Hallazgo]]:
     """Interpola por fase, recorta, traza curvas y valida."""
@@ -487,6 +488,8 @@ def ejecutar(
     minimo_estaciones = int(configuracion.obtener("isoyetas.minimo_estaciones"))
     solo_completos = bool(
         configuracion.obtener("isoyetas.solo_totales_completos"))
+    crs_figuras_efectivo = (configuracion.obtener("graficos.crs_figuras")
+                            or configuracion.obtener("punto_descarga.crs"))
 
     totales = rutas.directorio("procesado_enso", base) / \
         "precipitacion_por_fase.csv"
@@ -556,6 +559,8 @@ def ejecutar(
     temporal = rutas.directorio("sig_temp", base, crear=True)
 
     extension, _ = _extension_de_area(ruta_area, resolucion * 10)
+    rasters_por_fase: dict[str, Path] = {}
+    puntos_por_fase: dict[str, list] = {}
 
     for fase in sorted(por_fase):
         with registro.bloque(logger, f"Fase {fase}"):
@@ -602,6 +607,8 @@ def ejecutar(
             raster = directorio_raster / f"isoyetas_{fase}.tif"
             _recortar_a_area(crudo, ruta_area, raster)
             resultado.productos.append(rutas.relativa(raster, base))
+            rasters_por_fase[fase] = raster
+            puntos_por_fase[fase] = [(x, y) for x, y, _, _ in muestras]
 
             curvas = directorio_curvas / f"isoyetas_{fase}.shp"
             _generar_curvas(raster, curvas, intervalo, crs_calculo)
@@ -635,11 +642,269 @@ def ejecutar(
                 validacion.get("rmse_mm", "?"),
                 validacion.get("rmse_relativo_pct", "?"))
 
+    if rasters_por_fase and con_graficas:
+        with registro.bloque(logger, "Figuras"):
+            puntos_xy = {
+                fase: _puntos_estaciones(puntos, crs_figuras_efectivo,
+                                         crs_calculo)
+                for fase, puntos in puntos_por_fase.items()
+            }
+            _figuras(configuracion, base, resultado, rasters_por_fase,
+                     puntos_xy, ruta_area, crs_calculo, temporal, logger)
+
     resultado.hallazgos.extend(_resumir(resultado, configuracion))
     codigo = (SALIDA_BLOQUEANTE
               if any(h.severidad == BLOQUEANTE for h in resultado.hallazgos)
               else SALIDA_CORRECTA)
     return _cerrar(logger, resultado, base, ruta_json, inicio, codigo)
+
+
+# =============================================================================
+# Figuras
+# =============================================================================
+def _leer_raster(ruta, nodata=-9999.0):
+    """
+    Devuelve el arreglo del raster y su extension en coordenadas del mapa.
+
+    El nodata se convierte en nan para que matplotlib lo deje transparente y el
+    recorte al area de influencia se vea como tal.
+    """
+    from osgeo import gdal
+    import numpy as np
+
+    conjunto = gdal.Open(str(ruta))
+    if conjunto is None:
+        return None, None
+    banda = conjunto.GetRasterBand(1)
+    datos = banda.ReadAsArray().astype("float64")
+    propio = banda.GetNoDataValue()
+    for valor in (propio, nodata):
+        if valor is not None:
+            datos[datos == valor] = np.nan
+    gt = conjunto.GetGeoTransform()
+    izquierda = gt[0]
+    arriba = gt[3]
+    derecha = izquierda + gt[1] * conjunto.RasterXSize
+    abajo = arriba + gt[5] * conjunto.RasterYSize
+    return datos, (izquierda, derecha, abajo, arriba)
+
+
+def _reproyectar_raster(origen, destino, crs_destino):
+    """Lleva el raster al sistema en que se rotulan las figuras."""
+    import processing
+    processing.run("gdal:warpreproject", {
+        "INPUT": str(origen),
+        "TARGET_CRS": crs_destino,
+        "RESAMPLING": 1,
+        "NODATA": -9999,
+        "DATA_TYPE": 0,
+        "OUTPUT": str(destino),
+    })
+    return destino if destino.is_file() else origen
+
+
+def _contorno_area(ruta_area, crs_destino):
+    """Anillos del area de influencia, en el sistema de la figura."""
+    from qgis.core import (
+        QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject,
+        QgsVectorLayer, QgsWkbTypes,
+    )
+    capa = QgsVectorLayer(str(ruta_area), "area", "ogr")
+    if not capa.isValid():
+        return []
+    conversor = QgsCoordinateTransform(
+        capa.crs(), QgsCoordinateReferenceSystem(crs_destino),
+        QgsProject.instance().transformContext())
+    anillos = []
+    for entidad in capa.getFeatures():
+        geometria = entidad.geometry()
+        geometria.transform(conversor)
+        if QgsWkbTypes.isMultiType(geometria.wkbType()):
+            partes = geometria.asMultiPolygon()
+        else:
+            partes = [geometria.asPolygon()]
+        for parte in partes:
+            for anillo in parte:
+                anillos.append([(punto.x(), punto.y()) for punto in anillo])
+    return anillos
+
+
+def _puntos_estaciones(muestras_por_fase, crs_destino, crs_calculo):
+    """Ubicacion de las estaciones en el sistema de la figura."""
+    from qgis.core import (
+        QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsPointXY,
+        QgsProject,
+    )
+    conversor = QgsCoordinateTransform(
+        QgsCoordinateReferenceSystem(crs_calculo),
+        QgsCoordinateReferenceSystem(crs_destino),
+        QgsProject.instance().transformContext())
+    salida = []
+    for x, y in muestras_por_fase:
+        punto = conversor.transform(QgsPointXY(x, y))
+        salida.append((punto.x(), punto.y()))
+    return salida
+
+
+def _figuras(configuracion, base, resultado, rasters, puntos_xy, ruta_area,
+             crs_calculo, temporal, logger) -> None:
+    """
+    Emite las figuras de isoyetas para el informe.
+
+    El Python de QGIS 4.2.0 trae matplotlib, de modo que se usa el mismo modulo
+    de estilo que el resto del estudio y las figuras comparten aspecto vengan
+    del entorno que vengan. Si faltara, el modulo lo reporta y sigue: las
+    figuras son producto secundario frente al raster y las curvas.
+    """
+    try:
+        import graficos
+        import numpy as np
+    except ImportError as exc:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "graficos.ausente",
+            f"no se pudieron generar las figuras: {exc}. El raster y las curvas "
+            "si se escribieron.",
+        ))
+        return
+
+    estilo = graficos.Estilo.desde_config(configuracion)
+    directorio = rutas.resolver(configuracion.obtener("graficos.directorio"), base)
+    crs_figuras = (configuracion.obtener("graficos.crs_figuras")
+                   or configuracion.obtener("punto_descarga.crs"))
+    intervalo = float(configuracion.obtener("isoyetas.intervalo_mm"))
+
+    campos = {}
+    for fase, ruta in rasters.items():
+        reproyectado = _reproyectar_raster(
+            ruta, temporal / f"fig_{fase}.tif", crs_figuras)
+        datos, extension = _leer_raster(reproyectado)
+        if datos is not None:
+            campos[fase] = (datos, extension)
+    if not campos:
+        return
+
+    anillos = _contorno_area(ruta_area, crs_figuras)
+    orden = [f for f in ("nino", "neutral", "nina") if f in campos]
+    titulo_de = {"nino": "El Nino", "nina": "La Nina", "neutral": "Neutral"}
+
+    # Escala comun a las tres fases: sin ella, tres mapas del mismo estudio
+    # tendrian leyendas distintas y el contraste entre fases no se veria.
+    todos = np.concatenate([d[np.isfinite(d)].ravel() for d, _ in campos.values()])
+    minimo = float(np.floor(np.nanpercentile(todos, 1) / intervalo) * intervalo)
+    maximo = float(np.ceil(np.nanpercentile(todos, 99) / intervalo) * intervalo)
+    niveles = np.arange(minimo, maximo + intervalo, intervalo)
+
+    # Limites tomados del area y no de la extension del raster: el raster se
+    # interpola sobre un rectangulo holgado, y dejar que el eje se ajuste a el
+    # deja el mapa nadando en blanco.
+    if anillos:
+        equis = [x for anillo in anillos for x, _ in anillo]
+        yes = [y for anillo in anillos for _, y in anillo]
+        margen = 0.03 * max(max(equis) - min(equis), max(yes) - min(yes))
+        limites = (min(equis) - margen, max(equis) + margen,
+                   min(yes) - margen, max(yes) + margen)
+    else:
+        limites = None
+
+    def _fondo(ax):
+        for anillo in anillos:
+            ax.plot([x for x, _ in anillo], [y for _, y in anillo],
+                    color=graficos.GRIS_CONTEXTO, linewidth=0.9, zorder=4)
+        if limites is not None:
+            ax.set_xlim(limites[0], limites[1])
+            ax.set_ylim(limites[2], limites[3])
+        # 'box' ajusta la caja del eje y no el rango de datos: con 'datalim' el
+        # eje se estira para cumplir la proporcion y el mapa queda diminuto.
+        ax.set_aspect("equal", adjustable="box")
+        graficos.rotular_en_miles(ax, maximo_marcas=4)
+        ax.tick_params(labelsize=estilo.tamano_fuente - 3)
+
+    # --- Comparacion de las tres fases ---------------------------------------
+    with graficos.figura(
+        estilo,
+        titulo="Precipitacion total anual multianual por fase ENSO",
+        filas=1, columnas=len(orden),
+        alto_cm=max(estilo.alto_cm, 11.0),
+    ) as (fig, ejes):
+        imagen = None
+        for indice, fase in enumerate(orden):
+            ax = ejes[0][indice]
+            datos, extension = campos[fase]
+            imagen = ax.imshow(datos, extent=extension, origin="upper",
+                               cmap="YlGnBu", vmin=minimo, vmax=maximo,
+                               zorder=1)
+            ax.contour(datos, levels=niveles, extent=extension, origin="upper",
+                       colors="#333333", linewidths=0.4, zorder=3)
+            if puntos_xy.get(fase):
+                ax.scatter([x for x, _ in puntos_xy[fase]],
+                           [y for _, y in puntos_xy[fase]],
+                           s=7.0, color="#c00000", edgecolor="white",
+                           linewidth=0.3, zorder=5)
+            _fondo(ax)
+            ax.set_title(titulo_de.get(fase, fase),
+                         fontsize=estilo.tamano_fuente, loc="left",
+                         color="#333333")
+            if indice:
+                ax.set_yticklabels([])
+        if imagen is not None:
+            barra = fig.colorbar(imagen, ax=ejes.ravel().tolist(),
+                                 fraction=0.03, pad=0.02)
+            barra.set_label("precipitacion anual (mm)",
+                            fontsize=estilo.tamano_fuente - 1)
+            barra.ax.tick_params(labelsize=estilo.tamano_fuente - 2)
+        fig.supxlabel(f"Este (m), {crs_figuras}",
+                      fontsize=estilo.tamano_fuente - 1)
+        for ruta in graficos.guardar(fig, directorio / "M06_isoyetas", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+    # --- Diferencia respecto de la fase neutral ------------------------------
+    if "neutral" not in campos:
+        logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
+        return
+    base_datos, base_ext = campos["neutral"]
+    diferencias = [f for f in ("nino", "nina")
+                   if f in campos and campos[f][0].shape == base_datos.shape]
+    if not diferencias:
+        logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
+        return
+
+    with graficos.figura(
+        estilo,
+        titulo="Cambio de la precipitacion anual respecto de la fase neutral",
+        filas=1, columnas=len(diferencias),
+        alto_cm=max(estilo.alto_cm, 11.0),
+    ) as (fig, ejes):
+        with np.errstate(invalid="ignore", divide="ignore"):
+            campos_pct = {f: 100.0 * (campos[f][0] - base_datos) / base_datos
+                          for f in diferencias}
+        tope = float(np.nanpercentile(
+            np.abs(np.concatenate([c[np.isfinite(c)].ravel()
+                                   for c in campos_pct.values()])), 98))
+        tope = max(5.0, round(tope))
+        imagen = None
+        for indice, fase in enumerate(diferencias):
+            ax = ejes[0][indice]
+            imagen = ax.imshow(campos_pct[fase], extent=base_ext,
+                               origin="upper", cmap="RdBu", vmin=-tope,
+                               vmax=tope, zorder=1)
+            _fondo(ax)
+            ax.set_title(f"{titulo_de.get(fase, fase)} frente a neutral",
+                         fontsize=estilo.tamano_fuente, loc="left",
+                         color="#333333")
+            if indice:
+                ax.set_yticklabels([])
+        if imagen is not None:
+            barra = fig.colorbar(imagen, ax=ejes.ravel().tolist(),
+                                 fraction=0.03, pad=0.02)
+            barra.set_label("cambio (%)", fontsize=estilo.tamano_fuente - 1)
+            barra.ax.tick_params(labelsize=estilo.tamano_fuente - 2)
+        fig.supxlabel(f"Este (m), {crs_figuras}",
+                      fontsize=estilo.tamano_fuente - 1)
+        for ruta in graficos.guardar(fig, directorio / "M06_contraste_fases",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+    logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
 
 
 def _resumir(resultado, configuracion) -> list[Hallazgo]:
@@ -770,6 +1035,8 @@ def _analizar_argumentos(argv=None):
     )
     analizador.add_argument("--raiz", type=Path, default=None)
     analizador.add_argument("--config", type=Path, default=None)
+    analizador.add_argument("--sin-graficas", action="store_true",
+                            dest="sin_graficas")
     analizador.add_argument("--json", type=Path, default=None, dest="json_salida")
     analizador.add_argument("--silencioso", action="store_true")
     return analizador.parse_args(argv)
@@ -782,6 +1049,7 @@ def main(argv=None) -> int:
         codigo, _ = ejecutar(
             raiz=argumentos.raiz, ruta_config=argumentos.config,
             ruta_json=argumentos.json_salida,
+            con_graficas=not argumentos.sin_graficas,
             consola=not argumentos.silencioso,
         )
         return codigo

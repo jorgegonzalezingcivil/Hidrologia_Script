@@ -17,6 +17,12 @@ dueño. Se resuelve aquí, con el mismo criterio que separa src/comun de src/sig
 Este archivo NO puede importarse desde src/comun. El Python de QGIS comparte ese
 paquete y no tiene por qué disponer de matplotlib.
 
+Un módulo SIG SÍ puede importarlo cuando su intérprete lo provea: el de QGIS
+4.2.0 trae matplotlib 3.10.9. Eso es deseable, porque es lo que hace que las
+figuras del estudio compartan un solo aspecto vengan del entorno que vengan. La
+importación debe hacerse dentro de la función y degradar con una advertencia si
+falta, para que la ausencia de matplotlib no impida producir el resto.
+
 Qué resuelve. Un único punto de estilo. Si cada módulo llamara a matplotlib por
 su cuenta, las figuras del informe saldrían con tipografías, tamaños y colores
 distintos, y esa inconsistencia es visible en un entregable de consultoría. Aquí
@@ -51,7 +57,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Polygon as ParchePoligono  # noqa: E402
-from matplotlib.ticker import FuncFormatter  # noqa: E402
+from matplotlib.ticker import FuncFormatter, MaxNLocator  # noqa: E402
 
 __all__ = [
     "Estilo",
@@ -178,7 +184,7 @@ def transformador(crs_origen: str, crs_destino: str):
     return lambda x, y: conversor.transform(x, y)
 
 
-def rotular_en_miles(ax: Any, decimales: int = 0) -> None:
+def rotular_en_miles(ax: Any, decimales: int = 0, maximo_marcas: int = 0) -> None:
     """
     Separador de miles en ambos ejes.
 
@@ -190,6 +196,11 @@ def rotular_en_miles(ax: Any, decimales: int = 0) -> None:
 
     ax.xaxis.set_major_formatter(FuncFormatter(como_miles))
     ax.yaxis.set_major_formatter(FuncFormatter(como_miles))
+    if maximo_marcas:
+        # Una coordenada plana ocupa siete cifras: en un panel estrecho, las
+        # marcas se solapan y el rotulo deja de leerse.
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=maximo_marcas))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=maximo_marcas))
 
 
 def barras_de_rango(
