@@ -550,6 +550,41 @@ decisiones:
     fecha: "2026-08-08"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "alcance y completitud de la serie de Pmáx 24 h (M07)"
+    valor: >-
+      Solo las 32 estaciones que conservó el M05. Un año aporta su máximo si
+      ningún mes baja de 25 días (frecuencia.min_dias_mes).
+    justificacion: >-
+      ALCANCE. Decisión del consultor: criterio único en todo el estudio, de modo
+      que una estación descartada lo esté para todo. Se midió la alternativa: 7
+      estaciones más tienen 33 a 44 años de serie diaria y el M05 las descartó
+      por correlación MENSUAL, cuyo fin era poder verificar y complementar; la
+      serie diaria no se complementa nunca. Tres de ellas están a 490, 567 y 765
+      m y habrían restaurado el rango altitudinal.
+      CONSECUENCIA a atender en el M08: la red de máximos hereda el rango
+      1850-3378 m, de modo que las isoyetas de Pmáx por periodo de retorno
+      extrapolan por debajo de esa cota igual que las del M06.
+      COMPLETITUD estacional y no anual. Un año con 340 días puede tener abril
+      entero vacío, y abril es temporada húmeda en la sabana: su máximo sería el
+      de un año seco y entraría indistinguible de los demás. Exigir un mínimo
+      por mes lo impide.
+      EXCLUSIONES por Calificador, no por estadística: 155 registros ACUMULADO y
+      569 DATO RECHAZADO. ACUMULADO es el crítico que señala CLAUDE.md, sección
+      7: agrupa varios días y se leería como un máximo de 24 horas que nunca
+      ocurrió.
+      NO se aplica IQR, que la sección 7 prohíbe de forma expresa. Sí se corre
+      Grubbs-Beck del Bulletin 17C, que busca atípicos BAJOS, y solo se reporta.
+      RESULTADO: 32 estaciones, 986 años-estación, longitud mediana 32 años.
+      Distribuciones seleccionadas por AIC: Gumbel 16, LogNormal2 10, Pearson III
+      3, Normal 2, Log-Pearson III 1. Cuantiles medianos: 39,7 mm en T2.33 y
+      75,2 mm en T100.
+      ADVERTENCIA que debe declararse en el informe: se piden cuantiles hasta 500
+      años sobre series de 32 años de mediana. Extrapolar más allá del doble de
+      la muestra produce un cuantil cuya incertidumbre supera lo que sugiere su
+      cifra.
+    fecha: "2026-08-08"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""

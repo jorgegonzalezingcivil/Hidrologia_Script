@@ -719,6 +719,17 @@ ESQUEMA: dict[str, Campo] = {
         "distribución forzada por el consultor",
         permite_nulo=True, opciones=DISTRIBUCIONES,
     ),
+    "frecuencia.min_dias_mes": entero(
+        "días mínimos que debe tener cada mes para que el año aporte su máximo",
+        minimo=1, maximo=31,
+    ),
+    "frecuencia.posicion_grafica": texto(
+        "fórmula de posición gráfica",
+        opciones=("weibull", "gringorten", "cunnane", "hazen"),
+    ),
+    "frecuencia.usar_estaciones_del_m05": booleano(
+        "restringir el análisis a las estaciones que conservó el M05",
+    ),
     "frecuencia.outliers_altos_bajos": texto(
         "tratamiento de outliers altos y bajos",
         opciones=("bulletin17c", "ninguno"),

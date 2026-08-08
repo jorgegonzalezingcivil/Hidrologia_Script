@@ -611,6 +611,22 @@ frecuencia:
   criterios_seleccion: [aic, bic]
   distribucion_adoptada: null    # null = automática por criterio; o forzar una
   outliers_altos_bajos: "bulletin17c"
+  # DECISION DEL CONSULTOR, 2026-08-08. Registrada en MANIFIESTO.yaml.
+  #
+  # Un anio aporta su maximo solo si NINGUN mes baja de este numero de dias. Es
+  # un criterio estacional, y no un total anual, a proposito: un anio con 340
+  # dias puede tener abril entero vacio, y abril es temporada humeda en la
+  # sabana. Su maximo anual seria en realidad el maximo de un anio seco, y
+  # entraria al analisis de frecuencia indistinguible de los demas.
+  min_dias_mes: 25
+  # Posicion grafica para el papel de probabilidad. Weibull es la insesgada de
+  # la frecuencia y la habitual en hidrologia colombiana.
+  posicion_grafica: "weibull"
+  # Alcance: las estaciones que conservo el M05. Criterio unico en todo el
+  # estudio. CONSECUENCIA a atender en el M08: la red de maximos hereda el rango
+  # 1850-3378 m, de modo que las isoyetas de Pmax por periodo de retorno
+  # extrapolan por debajo de esa cota igual que las del M06.
+  usar_estaciones_del_m05: true
 
 # -----------------------------------------------------------------------------
 # M11 - ZONIFICACIÓN PLUVIOMÉTRICA
