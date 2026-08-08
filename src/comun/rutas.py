@@ -73,6 +73,7 @@ SUBDIRECTORIOS: dict[str, str] = {
     "procesado": "data/02_procesado",
     "procesado_series": "data/02_procesado/series",
     "procesado_estaciones": "data/02_procesado/estaciones",
+    "procesado_enso": "data/02_procesado/enso",
     "procesado_frecuencia": "data/02_procesado/frecuencia",
     "procesado_tormenta": "data/02_procesado/tormenta",
     "sig": "data/03_SIG",

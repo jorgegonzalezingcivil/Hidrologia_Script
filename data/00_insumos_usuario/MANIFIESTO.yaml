@@ -469,6 +469,39 @@ decisiones:
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "clasificación ENSO mensual y agregación por fase (M05b)"
+    valor: >-
+      Clasificación MENSUAL por el mes central de cada temporada del ONI, con la
+      definición oficial de episodio (umbral 0,5 C sostenido cinco temporadas
+      consecutivas). El total anual de cada fase se obtiene sumando las doce
+      medias mensuales.
+    justificacion: >-
+      La rutina heredada ENSOONI.py asignaba una etiqueta por año calendario. Con
+      ese criterio el Niño de 1997-98, que va de mayo de 1997 a abril de 1998,
+      queda partido en dos y los meses de cada año reciben una etiqueta
+      promediada que no corresponde a ninguno. El índice publica temporadas de
+      tres meses y el mes central de cada una permite etiquetar mes a mes, que es
+      lo que la agregación por fase necesita.
+      Se exige además que el umbral se sostenga cinco temporadas consecutivas,
+      que es la definición de la NOAA. Medido sobre las 918 temporadas del
+      índice, exigirlo cambia la fase de 34 frente a aplicar el umbral suelto:
+      sin ese control cualquier oscilación breve entraría como episodio.
+      EL TOTAL POR FASE se obtiene sumando las doce medias mensuales y no
+      promediando totales anuales. Muy pocos años caen ENTEROS dentro de una
+      fase, porque los episodios empiezan y terminan a mitad de año, de modo que
+      promediar totales anuales descartaría casi toda la muestra.
+      RESULTADO medido sobre las 32 estaciones: bajo Niño la precipitación anual
+      baja en las 32, con mediana de -16,9% y rango de -2,4% a -23,4%; bajo Niña
+      sube en 28 de 32, con mediana de +14,6%. Es la teleconexión conocida de los
+      Andes colombianos y las magnitudes son coherentes con la literatura.
+      Cuatro estaciones bajan también bajo Niña, lo que merece revisión al
+      interpretar sus isoyetas.
+      El ENSO NO elimina estaciones ni registros (CLAUDE.md, sección 6). El
+      esquema lo verifica con un invariante que eleva a BLOQUEANTE activar
+      enso.elimina_registros.
+    fecha: "2026-08-08"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""
