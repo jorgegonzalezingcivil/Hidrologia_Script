@@ -399,8 +399,44 @@ sensibilidad_series:
   # heredar este.
   completitud_anual_minima: 0.80
   anios_max_suspension: 5
-  umbral_adoptado_anios: null    # lo define el consultor tras revisar la matriz
-  ventana_adoptada: null
+  # --- DECISIÓN DEL CONSULTOR, adoptada el 2026-08-07 tras revisar la matriz ---
+  # Registrada en MANIFIESTO.yaml con su justificación completa.
+  #
+  # Umbral general. 30 años en la ventana 1980-2026 conserva 42 estaciones de
+  # precipitación, 41 de ellas dentro de la cuenca. Cuesta solo tres frente a 25
+  # años, de modo que la exigencia es casi gratuita en conteo, y coincide con el
+  # periodo climatológico normal de la OMM, lo que lo hace sustentable ante
+  # interventoría sin argumento adicional.
+  umbral_adoptado_anios: 30
+
+  # Ventana. 47 años. Conserva más estaciones en todos los umbrales que las
+  # ventanas de 1990 y 2000, y cubre varios ciclos ENSO completos, que el M05b
+  # necesita para clasificar por fase. Con periodos de retorno de hasta 500 años
+  # la serie más larga es siempre preferible. El nulo final es el año del estudio.
+  ventana_adoptada: [1980, null]
+
+  # Sobre qué se mide el umbral:
+  #   utiles  todos los años que alcanzan la completitud, aunque haya huecos
+  #   racha   solo los años útiles consecutivos
+  #
+  # Se adopta 'utiles' porque el M05 existe para complementar precisamente esos
+  # huecos: exigir continuidad ANTES de intentar el relleno descarta estaciones
+  # que el complemento podría reparar. La continuidad se sigue reportando en
+  # columna aparte, y con 'racha' el umbral de 20 años dejaría 24 estaciones en
+  # lugar de 48.
+  criterio_umbral: "utiles"
+
+  # Excepciones por variable. El umbral general no sirve para todas: la
+  # disponibilidad de cada una es distinta y aplicar 30 años a todas dejaría sin
+  # dato a las más escasas. Una variable no listada usa el umbral general.
+  umbrales_por_variable:
+    # Con 30 años quedan 11 estaciones, escasas para sostener el gradiente
+    # altitudinal con que el M18a calcula la evapotranspiración. Con 20 quedan 18.
+    temperatura: 20
+    # Con 20 años quedan CERO. Es el límite superior posible: por encima se
+    # desactivarían el balance de Budyko del M18 y la evapotranspiración del
+    # M18a. Con 15 quedan 4 estaciones, que es lo que hay.
+    evaporacion: 15
 
 # -----------------------------------------------------------------------------
 # M05 - PROCESAMIENTO DE PRECIPITACIÓN MENSUAL

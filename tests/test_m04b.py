@@ -320,6 +320,89 @@ class PruebaVerificacionContraM04(unittest.TestCase):
         self.assertEqual(hallazgos[0].severidad, ADVERTENCIA)
 
 
+
+class PruebaUmbralPorVariable(unittest.TestCase):
+    """
+    Un umbral único no sirve para todas las variables.
+
+    Medido en este estudio: 30 años dejan 42 estaciones de precipitación y CERO
+    de evaporación. Sin excepciones por variable, la decisión habría desactivado
+    el balance del M18 sin decirlo.
+    """
+
+    EXCEPCIONES = {"temperatura": 20, "evaporacion": 15}
+
+    def test_una_variable_sin_excepcion_usa_el_general(self) -> None:
+        self.assertEqual(
+            m04b.umbral_de_variable("precipitacion", 30, self.EXCEPCIONES), 30)
+
+    def test_la_excepcion_manda(self) -> None:
+        self.assertEqual(
+            m04b.umbral_de_variable("evaporacion", 30, self.EXCEPCIONES), 15)
+
+    def test_sin_excepciones_declaradas(self) -> None:
+        self.assertEqual(m04b.umbral_de_variable("caudal", 30, None), 30)
+        self.assertEqual(m04b.umbral_de_variable("caudal", 30, {}), 30)
+
+    def test_una_excepcion_nula_no_anula_el_general(self) -> None:
+        self.assertEqual(
+            m04b.umbral_de_variable("caudal", 30, {"caudal": None}), 30)
+
+    def test_sin_umbral_general_no_hay_umbral(self) -> None:
+        self.assertIsNone(m04b.umbral_de_variable("precipitacion", None, {}))
+
+    def test_la_excepcion_rige_aunque_no_haya_general(self) -> None:
+        self.assertEqual(
+            m04b.umbral_de_variable("evaporacion", None, self.EXCEPCIONES), 15)
+
+
+class PruebaCriterioDelUmbral(unittest.TestCase):
+    def test_utiles_es_el_predeterminado(self) -> None:
+        self.assertEqual(m04b.columna_de_criterio("utiles", "1980-2026"),
+                         "utiles_1980-2026")
+        self.assertEqual(m04b.columna_de_criterio("", "1980-2026"),
+                         "utiles_1980-2026")
+
+    def test_racha_selecciona_la_otra_columna(self) -> None:
+        self.assertEqual(m04b.columna_de_criterio("racha", "1980-2026"),
+                         "racha_1980-2026")
+
+    def test_no_distingue_mayusculas(self) -> None:
+        self.assertEqual(m04b.columna_de_criterio(" RACHA ", "1990-2026"),
+                         "racha_1990-2026")
+
+
+class PruebaDecisionAdoptada(unittest.TestCase):
+    """La decisión declarada debe estar respaldada por la matriz."""
+
+    def test_el_umbral_general_figura_entre_los_evaluados(self) -> None:
+        adoptado = _CFG.obtener("sensibilidad_series.umbral_adoptado_anios")
+        if adoptado is None:
+            self.skipTest("umbral sin adoptar")
+        self.assertIn(
+            adoptado, list(_CFG.obtener("sensibilidad_series.umbrales_anios")))
+
+    def test_las_excepciones_figuran_entre_los_evaluados(self) -> None:
+        umbrales = list(_CFG.obtener("sensibilidad_series.umbrales_anios"))
+        excepciones = _CFG.obtener(
+            "sensibilidad_series.umbrales_por_variable") or {}
+        for variable, valor in dict(excepciones).items():
+            self.assertIn(valor, umbrales, variable)
+
+    def test_la_ventana_adoptada_figura_entre_las_evaluadas(self) -> None:
+        adoptada = _CFG.obtener("sensibilidad_series.ventana_adoptada")
+        if adoptada is None:
+            self.skipTest("ventana sin adoptar")
+        anio = int(_CFG.obtener("proyecto.anio_estudio"))
+        evaluadas = {m04b.etiqueta_de_ventana(v, anio)
+                     for v in _CFG.obtener("sensibilidad_series.ventanas")}
+        self.assertIn(m04b.etiqueta_de_ventana(adoptada, anio), evaluadas)
+
+    def test_el_criterio_es_uno_de_los_dos_admitidos(self) -> None:
+        self.assertIn(_CFG.obtener("sensibilidad_series.criterio_umbral"),
+                      ("utiles", "racha"))
+
+
 class PruebaConfiguracionReal(unittest.TestCase):
     def test_los_parametros_declarados_existen(self) -> None:
         umbrales = list(_CFG.obtener("sensibilidad_series.umbrales_anios"))

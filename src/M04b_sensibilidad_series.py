@@ -221,6 +221,36 @@ def etiqueta_de_ventana(ventana: Sequence[Any], anio_estudio: int) -> str:
     return f"{inicio}-{fin}"
 
 
+def umbral_de_variable(
+    variable: str, general: int | None, excepciones: dict | None,
+) -> int | None:
+    """
+    Umbral que rige a una variable, atendiendo a las excepciones declaradas.
+
+    El umbral general no sirve para todas: la disponibilidad de cada variable es
+    distinta. Medido en este estudio, 30 años dejan 42 estaciones de
+    precipitación y CERO de evaporación, de modo que un umbral único habría
+    desactivado el balance del M18 sin decirlo.
+    """
+    if excepciones and variable in excepciones:
+        valor = excepciones[variable]
+        if valor is not None:
+            return int(valor)
+    return None if general is None else int(general)
+
+
+def columna_de_criterio(criterio: str, ventana: str) -> str:
+    """
+    Columna del resumen sobre la que se compara el umbral.
+
+    'utiles' cuenta todos los años que alcanzan la completitud; 'racha' exige
+    que sean consecutivos. La diferencia no es menor: con 20 años, 'racha' deja
+    24 estaciones de precipitación donde 'utiles' deja 48.
+    """
+    prefijo = "racha" if str(criterio).strip().lower() == "racha" else "utiles"
+    return f"{prefijo}_{ventana}"
+
+
 def mapa_etiqueta_variable(series_por_variable: dict) -> dict[str, str]:
     """Invierte la declaración de config para saber a qué variable sirve cada
     etiqueta."""
@@ -530,6 +560,7 @@ def escribir_reporte_markdown(
     umbrales: Sequence[int],
     minimo: float,
     anio_estudio: int,
+    decision: Sequence[str] | None = None,
 ) -> None:
     """
     Informe en Markdown, en la línea de las rutinas heredadas.
@@ -548,10 +579,12 @@ def escribir_reporte_markdown(
         f"* Estaciones: {resultado.estaciones:,} "
         f"({resultado.estaciones_del_m03:,} seleccionadas por el M03)",
         "",
-        "Este informe NO adopta ningún umbral. Presenta el costo en cobertura de",
-        "cada elección para que el consultor la fije en config.yaml, en",
-        "`sensibilidad_series.umbral_adoptado_anios` y `ventana_adoptada`.",
+        "Este módulo no decide: mide. La matriz presenta el costo en cobertura",
+        "de cada elección, y la decisión la toma el consultor declarándola en",
+        "config.yaml. Si ya está declarada, aparece más abajo con lo que",
+        "implica, pero el descarte efectivo corresponde al M05.",
         "",
+    ] + (decision or []) + [
         "## Matriz de sensibilidad",
         "",
         "Estaciones que alcanzan cada umbral, contadas una sola vez aunque",
@@ -649,8 +682,11 @@ def _figuras(configuracion, base, resultado, acumulado, ventanas, umbrales,
     # rotulan en el mismo sistema en que el consultor dio el punto.
     crs_figuras = (configuracion.obtener("graficos.crs_figuras")
                    or configuracion.obtener("punto_descarga.crs"))
+    adoptado = configuracion.obtener("sensibilidad_series.umbral_adoptado_anios")
+    excepciones = dict(
+        configuracion.obtener("sensibilidad_series.umbrales_por_variable") or {})
     _figura_sensibilidad(graficos, estilo, directorio, resultado, ventanas,
-                         umbrales, base, nombres)
+                         umbrales, base, nombres, adoptado, excepciones)
     _figura_completitud(graficos, estilo, directorio, acumulado, minimo,
                         resultado, base)
     _figura_cobertura(graficos, estilo, directorio, resultado, base,
@@ -662,7 +698,8 @@ def _figuras(configuracion, base, resultado, acumulado, ventanas, umbrales,
 
 
 def _figura_sensibilidad(graficos, estilo, directorio, resultado, ventanas,
-                         umbrales, base, nombres=None) -> None:
+                         umbrales, base, nombres=None, adoptado=None,
+                         excepciones=None) -> None:
     """Estaciones que sobreviven a cada umbral, por variable y ventana."""
     variables = sorted({c["variable"] for c in resultado.matriz})
     if not variables:
@@ -695,6 +732,16 @@ def _figura_sensibilidad(graficos, estilo, directorio, resultado, ventanas,
             ax.set_title((nombres or {}).get(variable, variable),
                          fontsize=estilo.tamano_fuente, loc="left",
                          color="#333333")
+            # El umbral adoptado se marca sobre la curva: la figura debe mostrar
+            # a la vez la evidencia y la decisión tomada sobre ella.
+            propio = umbral_de_variable(variable, adoptado, excepciones)
+            if propio is not None:
+                ax.axvline(propio, color="#c00000", linestyle=":", linewidth=1.2,
+                           zorder=1)
+                ax.annotate(f"adoptado: {propio}", xy=(propio, 1),
+                            xycoords=("data", "axes fraction"),
+                            xytext=(4, -9), textcoords="offset points",
+                            fontsize=estilo.tamano_fuente - 2, color="#c00000")
             ax.set_ylabel("estaciones", fontsize=estilo.tamano_fuente)
             ax.set_xticks(list(umbrales))
             ax.grid(True, color=graficos.GRIS_CONTEXTO, linewidth=0.4, alpha=0.5)
@@ -1097,11 +1144,45 @@ def _escribir_productos(configuracion, base, resultado, ventanas, umbrales,
 
     informe = directorio / "M04b_sensibilidad.md"
     escribir_reporte_markdown(
-        informe, resultado, ventanas, umbrales, minimo, anio_estudio)
+        informe, resultado, ventanas, umbrales, minimo, anio_estudio,
+        decision=_lineas_decision(configuracion, anio_estudio))
     resultado.productos.append(rutas.relativa(informe, base))
 
     logger.info("Detalle de %d fila(s) y matriz de %d celda(s)",
                 len(resultado.filas), len(resultado.matriz))
+
+
+def _lineas_decision(configuracion, anio_estudio) -> list[str]:
+    """Bloque del informe que declara la decisión vigente en config.yaml."""
+    adoptado = configuracion.obtener("sensibilidad_series.umbral_adoptado_anios")
+    ventana = configuracion.obtener("sensibilidad_series.ventana_adoptada")
+    if adoptado is None or ventana is None:
+        return ["**Decisión pendiente.** Umbral y ventana siguen sin declarar.",
+                ""]
+    criterio = configuracion.obtener("sensibilidad_series.criterio_umbral")
+    excepciones = dict(
+        configuracion.obtener("sensibilidad_series.umbrales_por_variable") or {})
+    lineas = [
+        "## Decisión adoptada",
+        "",
+        f"* Umbral general: **{adoptado} años**",
+        f"* Ventana: **{etiqueta_de_ventana(ventana, anio_estudio)}**",
+        "* Criterio: **"
+        + ("racha de años consecutivos" if criterio == "racha"
+           else "años útiles totales, con huecos admitidos")
+        + "**",
+    ]
+    if excepciones:
+        lineas.append("* Excepciones por variable:")
+        for variable, valor in sorted(excepciones.items()):
+            lineas.append(f"    * {variable}: {valor} años")
+    lineas += [
+        "",
+        "La justificación completa está en `MANIFIESTO.yaml`. El descarte",
+        "efectivo lo aplica el M05; este módulo solo declara qué implica.",
+        "",
+    ]
+    return lineas
 
 
 def _resumir(resultado, configuracion, ventanas, umbrales) -> list[Hallazgo]:
@@ -1162,18 +1243,55 @@ def _resumir(resultado, configuracion, ventanas, umbrales) -> list[Hallazgo]:
         ))
         return hallazgos
 
+    criterio = configuracion.obtener("sensibilidad_series.criterio_umbral")
+    excepciones = dict(
+        configuracion.obtener("sensibilidad_series.umbrales_por_variable") or {})
     nombre = etiqueta_de_ventana(
         ventana_adoptada, int(configuracion.obtener("proyecto.anio_estudio")))
-    for celda in resultado.matriz:
-        if celda["ventana"] == nombre and celda["umbral_anios"] == int(adoptado):
-            severidad = ADVERTENCIA if celda["estaciones"] < 3 else INFORMATIVO
+
+    hallazgos.append(Hallazgo(
+        INFORMATIVO, "adoptado.criterio",
+        f"decisión adoptada: {adoptado} año(s) en la ventana {nombre}, medidos "
+        f"sobre {'años útiles totales' if criterio != 'racha' else 'la racha consecutiva'}"
+        + (f"; excepciones por variable: {excepciones}." if excepciones else "."),
+    ))
+
+    for variable in sorted({c["variable"] for c in resultado.matriz}):
+        umbral = umbral_de_variable(variable, adoptado, excepciones)
+        celda = next(
+            (c for c in resultado.matriz
+             if c["variable"] == variable and c["ventana"] == nombre
+             and c["umbral_anios"] == umbral), None)
+        if celda is None:
             hallazgos.append(Hallazgo(
-                severidad, f"adoptado.{celda['variable']}",
-                f"con {adoptado} años en la ventana {nombre} quedan "
-                f"{celda['estaciones']} estación(es) de {celda['variable']}, "
-                f"de las cuales {celda['estaciones_continuas']} con años "
-                "consecutivos.",
+                ADVERTENCIA, f"adoptado.{variable}",
+                f"el umbral de {umbral} año(s) no se evaluó para {variable} en "
+                f"la ventana {nombre}: la matriz no dice cuántas estaciones "
+                "deja y la decisión queda sin respaldo.",
             ))
+            continue
+        cuantas = (celda["estaciones_continuas"] if criterio == "racha"
+                   else celda["estaciones"])
+        if cuantas == 0:
+            severidad = BLOQUEANTE
+            cierre = ("Ninguna estación sobrevive: con este umbral la variable "
+                      "queda sin dato y los módulos que dependen de ella no "
+                      "pueden ejecutarse.")
+        elif cuantas < 3:
+            severidad = ADVERTENCIA
+            cierre = ("Con menos de tres estaciones no hay interpolación "
+                      "posible, solo extrapolación.")
+        else:
+            severidad = INFORMATIVO
+            cierre = ""
+        excepcion = " (excepción declarada)" if variable in excepciones else ""
+        hallazgos.append(Hallazgo(
+            severidad, f"adoptado.{variable}",
+            f"con {umbral} año(s){excepcion} en la ventana {nombre} quedan "
+            f"{cuantas} estación(es) de {variable}, de las cuales "
+            f"{celda['estaciones_continuas']} con años consecutivos."
+            + (f" {cierre}" if cierre else ""),
+        ))
     return hallazgos
 
 

@@ -559,6 +559,14 @@ ESQUEMA: dict[str, Campo] = {
         "umbral adoptado por el consultor",
         permite_nulo=True, minimo=1, maximo=150,
     ),
+    "sensibilidad_series.criterio_umbral": texto(
+        "sobre qué se mide el umbral", opciones=("utiles", "racha"),
+    ),
+    "sensibilidad_series.umbrales_por_variable": mapa(
+        "excepciones al umbral general, por variable",
+        entero("años", minimo=1, maximo=150),
+        permite_nulo=True,
+    ),
     "sensibilidad_series.ventana_adoptada": Campo(
         tipo=(list,), descripcion="ventana adoptada por el consultor",
         permite_nulo=True, no_vacio=True,
@@ -1594,6 +1602,39 @@ def _inv_umbral_adoptado(datos: dict) -> list[Hallazgo]:
     return []
 
 
+def _inv_umbrales_por_variable(datos: dict) -> list[Hallazgo]:
+    """
+    Cada excepción por variable debe estar respaldada por la matriz.
+
+    Un umbral que no se evaluó no tiene evidencia detrás, y la decisión no sería
+    defendible: nadie podría decir cuántas estaciones deja.
+    """
+    excepciones = obtener(datos, "sensibilidad_series.umbrales_por_variable")
+    if not isinstance(excepciones, dict):
+        return []
+    umbrales = obtener(datos, "sensibilidad_series.umbrales_anios", [])
+    declaradas = set(
+        (obtener(datos, "ideam.descarga.series_por_variable", {}) or {}).keys())
+    hallazgos: list[Hallazgo] = []
+    for variable, valor in excepciones.items():
+        clave = f"sensibilidad_series.umbrales_por_variable.{variable}"
+        if declaradas and variable not in declaradas:
+            hallazgos.append(Hallazgo(
+                ADVERTENCIA, clave,
+                f"la variable {variable!r} no figura en "
+                f"ideam.descarga.series_por_variable ({sorted(declaradas)}). "
+                "La excepción no se aplicará a ninguna serie.",
+            ))
+        if isinstance(umbrales, (list, tuple)) and valor not in umbrales:
+            hallazgos.append(Hallazgo(
+                ADVERTENCIA, clave,
+                f"el umbral {valor} no figura entre los evaluados ({list(umbrales)}). "
+                "La matriz no dice cuántas estaciones deja, y la decisión queda "
+                "sin respaldo.",
+            ))
+    return hallazgos
+
+
 def _inv_cdc_irh(datos: dict) -> list[Hallazgo]:
     menor = obtener(datos, "caudal_ambiental.cdc_si_irh_menor")
     mayor = obtener(datos, "caudal_ambiental.cdc_si_irh_mayor")
@@ -1650,6 +1691,7 @@ INVARIANTES: tuple[Callable[[dict], list[Hallazgo]], ...] = (
     _inv_categorias_estacion,
     _inv_ventanas,
     _inv_umbral_adoptado,
+    _inv_umbrales_por_variable,
     _inv_cdc_irh,
     _inv_decisiones_pendientes,
 )

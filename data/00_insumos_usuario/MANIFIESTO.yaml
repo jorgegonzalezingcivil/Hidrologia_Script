@@ -279,6 +279,44 @@ decisiones:
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "longitud de serie adoptada: umbral, ventana y criterio (M04b, M05)"
+    valor: >-
+      30 años en la ventana 1980-2026, medidos sobre años útiles totales.
+      Excepciones: temperatura 20 años, evaporación 15 años.
+    justificacion: >-
+      Decisión del consultor tras revisar la matriz de sensibilidad del M04b.
+      CLAUDE.md, sección 6, la deja explícitamente en sus manos.
+      VENTANA 1980-2026 (47 años). Conserva más estaciones en todos los umbrales
+      que las ventanas de 1990 y 2000, y cubre varios ciclos ENSO completos, que
+      el M05b necesita para clasificar por fase. Con periodos de retorno de hasta
+      500 años la serie más larga es siempre preferible.
+      UMBRAL GENERAL 30 años. Deja 42 estaciones de precipitación, 41 dentro de
+      la cuenca. Cuesta solo tres frente a 25 años, de modo que la exigencia es
+      casi gratuita en conteo, y coincide con el periodo climatológico normal de
+      la OMM, lo que lo hace sustentable sin argumento adicional.
+      CRITERIO años útiles totales, no racha consecutiva. El M05 existe para
+      complementar los huecos: exigir continuidad antes de intentar el relleno
+      descartaría estaciones que el complemento podría reparar. Medido: con
+      racha, el umbral de 20 años dejaría 24 estaciones donde años útiles deja
+      48. La continuidad se sigue reportando, y con 30 años solo 14 de las 42
+      estaciones de precipitación tienen la serie seguida: el M05 debe tratar
+      esos huecos de forma explícita y el M07 debe advertir si la muestra que
+      recibe no es homogénea en el tiempo.
+      EXCEPCIONES POR VARIABLE. Un umbral único no sirve: aplicar 30 años a
+      todas dejaría la evaporación en CERO estaciones y desactivaría en silencio
+      el balance de Budyko del M18 y la evapotranspiración del M18a.
+      Evaporación 15 años, que es el límite superior posible (con 20 quedan
+      cero) y deja 4 estaciones. Temperatura 20 años, que deja 18 frente a las
+      11 que dejarían 30, por considerarse escasas para sostener el gradiente
+      altitudinal del M18a.
+      CAUDAL. Conserva el umbral general, pero es indiferente: hay una sola
+      estación en cualquier umbral. La restricción no es la longitud sino la
+      disponibilidad, y el módulo lo advierte. Coherente con la no viabilidad de
+      la calibración ya registrada.
+      Este módulo no descarta nada: el descarte efectivo lo aplica el M05.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""
