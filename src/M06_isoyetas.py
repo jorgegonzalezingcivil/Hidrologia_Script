@@ -859,12 +859,18 @@ def _figuras(configuracion, base, resultado, rasters, puntos_xy, ruta_area,
 
     # --- Diferencia respecto de la fase neutral ------------------------------
     if "neutral" not in campos:
+        _figuras_individuales(graficos, estilo, configuracion, base, resultado,
+                              campos, anillos, limites, puntos_xy, crs_figuras,
+                              intervalo, minimo, maximo, logger)
         logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
         return
     base_datos, base_ext = campos["neutral"]
     diferencias = [f for f in ("nino", "nina")
                    if f in campos and campos[f][0].shape == base_datos.shape]
     if not diferencias:
+        _figuras_individuales(graficos, estilo, configuracion, base, resultado,
+                              campos, anillos, limites, puntos_xy, crs_figuras,
+                              intervalo, minimo, maximo, logger)
         logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
         return
 
@@ -904,7 +910,127 @@ def _figuras(configuracion, base, resultado, rasters, puntos_xy, ruta_area,
                                      estilo):
             resultado.productos.append(rutas.relativa(ruta, base))
 
+    _figuras_individuales(graficos, estilo, configuracion, base, resultado,
+                          campos, anillos, limites, puntos_xy, crs_figuras,
+                          intervalo, minimo, maximo, logger)
     logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
+
+
+def _figuras_individuales(graficos, estilo, configuracion, base, resultado,
+                          campos, anillos, limites, puntos_xy, crs_figuras,
+                          intervalo, minimo, maximo, logger) -> None:
+    """
+    Una figura de isoyeta por fase, y una de contraste por fase.
+
+    El panel comparativo sirve para ver de un vistazo que el Niño seca y la
+    Niña moja, pero no se puede insertar en el informe: cada mapa queda del
+    tamaño de un sello. El capítulo de isoyetas necesita una figura por fase,
+    con sus curvas rotuladas y su leyenda propia.
+
+    La escala se mantiene COMÚN entre fases pese a ser figuras separadas: si
+    cada una se autoescalara, la de Niño y la de Niña saldrían igual de intensas
+    y el lector concluiría que llueve lo mismo.
+    """
+    import numpy as np
+
+    if not bool(configuracion.obtener("graficos.figuras_individuales")):
+        return
+    raiz = rutas.resolver(
+        configuracion.obtener("graficos.directorio_individuales"), base)
+    individual = graficos.estilo_individual(
+        estilo,
+        float(configuracion.obtener("graficos.ancho_individual_cm")),
+        float(configuracion.obtener("graficos.alto_individual_cm")))
+    titulo_de = {"nino": "El Niño", "nina": "La Niña", "neutral": "Neutral"}
+    niveles = np.arange(minimo, maximo + intervalo, intervalo)
+
+    def _fondo(ax):
+        for anillo in anillos:
+            ax.plot([x for x, _ in anillo], [y for _, y in anillo],
+                    color=graficos.GRIS_CONTEXTO, linewidth=0.9, zorder=4)
+        if limites is not None:
+            ax.set_xlim(limites[0], limites[1])
+            ax.set_ylim(limites[2], limites[3])
+        ax.set_aspect("equal", adjustable="box")
+        graficos.rotular_en_miles(ax, maximo_marcas=4)
+        ax.tick_params(labelsize=individual.tamano_fuente - 2)
+
+    escritas = 0
+
+    # --- Una isoyeta por fase ------------------------------------------------
+    carpeta = graficos.directorio_tema(raiz, "isoyetas_fase")
+    for fase, (datos, extension) in sorted(campos.items()):
+        with graficos.figura(
+            individual,
+            titulo=f"Precipitación anual multianual  {titulo_de.get(fase, fase)}",
+            etiqueta_x="Este (m)", etiqueta_y="Norte (m)",
+        ) as (fig, ax):
+            imagen = ax.imshow(datos, extent=extension, origin="upper",
+                               cmap="YlGnBu", vmin=minimo, vmax=maximo, zorder=1)
+            contornos = ax.contour(datos, levels=niveles, extent=extension,
+                                   origin="upper", colors="#333333",
+                                   linewidths=0.5, zorder=3)
+            ax.clabel(contornos, inline=True,
+                      fontsize=individual.tamano_fuente - 3, fmt="%.0f")
+            if puntos_xy.get(fase):
+                ax.scatter([x for x, _ in puntos_xy[fase]],
+                           [y for _, y in puntos_xy[fase]], s=10.0,
+                           color="#c00000", edgecolor="white", linewidth=0.4,
+                           zorder=5)
+            _fondo(ax)
+            barra = fig.colorbar(imagen, ax=ax, fraction=0.04, pad=0.03)
+            barra.set_label("mm", fontsize=individual.tamano_fuente - 1)
+            barra.ax.tick_params(labelsize=individual.tamano_fuente - 2)
+            # Dentro del marco: bajo el eje choca con su etiqueta.
+            ax.annotate(f"Coordenadas {crs_figuras}", xy=(0.985, 0.02),
+                        xycoords="axes fraction", ha="right", va="bottom",
+                        fontsize=individual.tamano_fuente - 2, color="#555555",
+                        bbox={"facecolor": "white", "edgecolor": "none",
+                              "alpha": 0.75, "pad": 1.5})
+            fig.tight_layout()
+            graficos.guardar(fig, carpeta / fase, individual)
+            escritas += 1
+
+    # --- Una de contraste por fase ------------------------------------------
+    if "neutral" in campos:
+        carpeta = graficos.directorio_tema(raiz, "contraste_fases")
+        base_datos, base_ext = campos["neutral"]
+        comparables = [f for f in campos
+                       if f != "neutral" and campos[f][0].shape == base_datos.shape]
+        if comparables:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                cambios = {f: 100.0 * (campos[f][0] - base_datos) / base_datos
+                           for f in comparables}
+            tope = float(np.nanpercentile(
+                np.abs(np.concatenate([c[np.isfinite(c)].ravel()
+                                       for c in cambios.values()])), 98))
+            tope = max(5.0, round(tope))
+            for fase, campo in sorted(cambios.items()):
+                with graficos.figura(
+                    individual,
+                    titulo=f"{titulo_de.get(fase, fase)} frente a la fase neutral",
+                    etiqueta_x="Este (m)", etiqueta_y="Norte (m)",
+                ) as (fig, ax):
+                    imagen = ax.imshow(campo, extent=base_ext, origin="upper",
+                                       cmap="RdBu", vmin=-tope, vmax=tope,
+                                       zorder=1)
+                    _fondo(ax)
+                    barra = fig.colorbar(imagen, ax=ax, fraction=0.04, pad=0.03)
+                    barra.set_label("cambio (%)",
+                                    fontsize=individual.tamano_fuente - 1)
+                    barra.ax.tick_params(labelsize=individual.tamano_fuente - 2)
+                    ax.annotate(f"Coordenadas {crs_figuras}", xy=(1, -0.13),
+                                xycoords="axes fraction", ha="right",
+                                fontsize=individual.tamano_fuente - 2,
+                                color="#555555")
+                    fig.tight_layout()
+                    graficos.guardar(fig, carpeta / fase, individual)
+                    escritas += 1
+
+    resultado.productos.append(
+        f"{rutas.relativa(raiz, base)} ({escritas} figura(s) individual(es))")
+    logger.info("%d figura(s) individual(es) en %s", escritas,
+                rutas.relativa(raiz, base))
 
 
 def _resumir(resultado, configuracion) -> list[Hallazgo]:

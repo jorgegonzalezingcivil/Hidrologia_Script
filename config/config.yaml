@@ -840,12 +840,15 @@ graficos:
   # Se agrupan por TEMA y no por modulo: quien redacta el capitulo de
   # consistencia busca todas las curvas de doble masa juntas, no las del M05
   # mezcladas por tipo.
-  por_estacion: true
-  directorio_estaciones: "data/05_resultados/graficos/estaciones"
-  # Ancho de la figura individual. Menor que el de las agregadas: una figura por
-  # estacion ocupa media pagina, no el ancho util completo.
-  ancho_estacion_cm: 11.0
-  alto_estacion_cm: 8.0
+  #
+  # El directorio se llama 'individuales' y no 'estaciones' porque no todas lo
+  # son: las isoyetas se emiten una por fase ENSO y una por periodo de retorno.
+  figuras_individuales: true
+  directorio_individuales: "data/05_resultados/graficos/individuales"
+  # Ancho de la figura individual. Menor que el de las agregadas: una figura
+  # suelta ocupa media pagina, no el ancho util completo.
+  ancho_individual_cm: 11.0
+  alto_individual_cm: 8.0
   # Nombre presentable de cada variable en los rótulos. Las claves son las de
   # ideam.descarga.series_por_variable, que son identificadores sin tilde: usarlas
   # tal cual en una figura del informe se nota. Una variable no listada aquí

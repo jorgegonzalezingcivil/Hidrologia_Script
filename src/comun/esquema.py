@@ -971,16 +971,16 @@ ESQUEMA: dict[str, Campo] = {
                              texto("color", no_vacio=True), no_vacio=True),
     "graficos.rampa": texto("rampa secuencial para categorías ordinales",
                             no_vacio=True),
-    "graficos.por_estacion": booleano(
-        "emitir además una figura por estación, agrupada por tema",
+    "graficos.figuras_individuales": booleano(
+        "emitir además figuras individuales, agrupadas por tema",
     ),
-    "graficos.directorio_estaciones": texto(
-        "directorio raíz de las figuras por estación", no_vacio=True,
+    "graficos.directorio_individuales": texto(
+        "directorio raíz de las figuras individuales", no_vacio=True,
     ),
-    "graficos.ancho_estacion_cm": numero(
+    "graficos.ancho_individual_cm": numero(
         "ancho de la figura individual", minimo=4.0, maximo=40.0,
     ),
-    "graficos.alto_estacion_cm": numero(
+    "graficos.alto_individual_cm": numero(
         "alto de la figura individual", minimo=3.0, maximo=40.0,
     ),
     "graficos.crs_figuras": texto(

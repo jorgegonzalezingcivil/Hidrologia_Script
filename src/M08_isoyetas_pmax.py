@@ -582,14 +582,14 @@ def _figuras(configuracion, base, resultado, rasters, puntos_por_periodo,
             resultado.productos.append(rutas.relativa(ruta, base))
 
     # --- Una figura por periodo, para el informe -----------------------------
-    if bool(configuracion.obtener("graficos.por_estacion")):
+    if bool(configuracion.obtener("graficos.figuras_individuales")):
         raiz = rutas.resolver(
-            configuracion.obtener("graficos.directorio_estaciones"), base)
+            configuracion.obtener("graficos.directorio_individuales"), base)
         carpeta = graficos.directorio_tema(raiz, "isoyetas_pmax")
         individual = graficos.estilo_individual(
             estilo,
-            float(configuracion.obtener("graficos.ancho_estacion_cm")),
-            float(configuracion.obtener("graficos.alto_estacion_cm")))
+            float(configuracion.obtener("graficos.ancho_individual_cm")),
+            float(configuracion.obtener("graficos.alto_individual_cm")))
         for periodo in orden:
             datos, extension = campos[periodo]
             intervalo = resultado.por_periodo[f"{periodo:g}"]["intervalo_mm"]
@@ -597,7 +597,7 @@ def _figuras(configuracion, base, resultado, rasters, puntos_por_periodo,
                 individual,
                 titulo=f"Pmáx 24 h, T = {periodo:g} años",
                 etiqueta_x="Este (m)", etiqueta_y="Norte (m)",
-                alto_cm=float(configuracion.obtener("graficos.alto_estacion_cm")),
+                alto_cm=float(configuracion.obtener("graficos.alto_individual_cm")),
             ) as (fig, ax):
                 imagen = ax.imshow(datos, extent=extension, origin="upper",
                                    cmap="YlGnBu", zorder=1)
@@ -613,10 +613,13 @@ def _figuras(configuracion, base, resultado, rasters, puntos_por_periodo,
                 barra = fig.colorbar(imagen, ax=ax, fraction=0.04, pad=0.03)
                 barra.set_label("mm", fontsize=individual.tamano_fuente - 1)
                 barra.ax.tick_params(labelsize=individual.tamano_fuente - 2)
-                ax.annotate(f"Coordenadas {crs_figuras}", xy=(1, -0.13),
-                            xycoords="axes fraction", ha="right",
+                # Dentro del marco: bajo el eje choca con su etiqueta.
+                ax.annotate(f"Coordenadas {crs_figuras}", xy=(0.985, 0.02),
+                            xycoords="axes fraction", ha="right", va="bottom",
                             fontsize=individual.tamano_fuente - 2,
-                            color="#555555")
+                            color="#555555",
+                            bbox={"facecolor": "white", "edgecolor": "none",
+                                  "alpha": 0.75, "pad": 1.5})
                 fig.tight_layout()
                 graficos.guardar(fig, carpeta / nombre_periodo(periodo),
                                  individual)

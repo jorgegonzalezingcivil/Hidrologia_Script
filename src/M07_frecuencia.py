@@ -843,14 +843,14 @@ def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
     una figura por estacion: en una rejilla de treinta y dos paneles no se lee
     ni el eje.
     """
-    if not bool(configuracion.obtener("graficos.por_estacion")):
+    if not bool(configuracion.obtener("graficos.figuras_individuales")):
         return
     raiz = rutas.resolver(
-        configuracion.obtener("graficos.directorio_estaciones"), base)
+        configuracion.obtener("graficos.directorio_individuales"), base)
     individual = graficos.estilo_individual(
         estilo,
-        float(configuracion.obtener("graficos.ancho_estacion_cm")),
-        float(configuracion.obtener("graficos.alto_estacion_cm")))
+        float(configuracion.obtener("graficos.ancho_individual_cm")),
+        float(configuracion.obtener("graficos.alto_individual_cm")))
     formula = str(configuracion.obtener("frecuencia.posicion_grafica"))
     distribuciones = list(configuracion.obtener("frecuencia.distribuciones"))
     metodos = list(configuracion.obtener("frecuencia.ajuste"))

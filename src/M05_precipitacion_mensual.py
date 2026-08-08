@@ -2027,14 +2027,14 @@ def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
     estampilla. Las rutinas heredadas escribian una figura por estacion, y se
     recupera ese criterio.
     """
-    if not bool(configuracion.obtener("graficos.por_estacion")):
+    if not bool(configuracion.obtener("graficos.figuras_individuales")):
         return
     raiz = rutas.resolver(
-        configuracion.obtener("graficos.directorio_estaciones"), base)
+        configuracion.obtener("graficos.directorio_individuales"), base)
     individual = graficos.estilo_individual(
         estilo,
-        float(configuracion.obtener("graficos.ancho_estacion_cm")),
-        float(configuracion.obtener("graficos.alto_estacion_cm")))
+        float(configuracion.obtener("graficos.ancho_individual_cm")),
+        float(configuracion.obtener("graficos.alto_individual_cm")))
 
     escritas = 0
 

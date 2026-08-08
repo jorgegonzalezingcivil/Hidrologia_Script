@@ -619,7 +619,7 @@ decisiones:
     fecha: "2026-08-08"
     responsable: ""              # pendiente de diligenciar
 
-  - tema: "figuras por estación, agrupadas por tema"
+  - tema: "figuras individuales, agrupadas por tema"
     valor: >-
       Además de las rejillas de resumen, una figura por estación en
       data/05_resultados/graficos/estaciones, agrupada por tema
@@ -633,9 +633,17 @@ decisiones:
       Se agrupan por TEMA y no por módulo porque así es como se redacta: quien
       escribe el capítulo de consistencia busca todas las curvas de doble masa
       juntas, no las del M05 mezcladas por tipo.
-      Seis temas, 32 figuras cada uno: doble_masa, serie_mensual y ciclo_anual
-      del M05; pmax_serie, papel_probabilidad e histograma_pdf del M07. Son 192
-      figuras en PNG y otras tantas en SVG.
+      Nueve temas. Seis por estación con 32 figuras cada uno (doble_masa,
+      serie_mensual y ciclo_anual del M05; pmax_serie, papel_probabilidad e
+      histograma_pdf del M07), y tres de isoyetas que no son por estación:
+      isoyetas_fase con las tres fases ENSO del M06, contraste_fases con las dos
+      comparaciones, e isoyetas_pmax con los ocho periodos de retorno del M08.
+      Son 205 figuras en PNG y otras tantas en SVG.
+      El directorio se llama 'individuales' y no 'estaciones' porque no todas lo
+      son: una isoyeta de T500 no es una estación.
+      Las isoyetas individuales conservan la ESCALA COMÚN de su panel pese a ser
+      figuras separadas. Si cada una se autoescalara, la de Niño y la de Niña
+      saldrían igual de intensas y el lector concluiría que llueve lo mismo.
       Las rejillas se CONSERVAN como resumen de revisión: sirven para detectar
       de un vistazo una estación anómala entre treinta y dos, que es
       precisamente como se descubrió el ajuste degenerado de la Pareto.
