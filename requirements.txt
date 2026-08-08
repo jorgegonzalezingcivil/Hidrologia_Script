@@ -44,3 +44,13 @@ matplotlib==3.11.1
 # la ocasión no sería defendible ante interventoría. La reproyección sigue
 # siendo explícita (CLAUDE.md, sección 5): quien dibuja declara origen y destino.
 pyproj==3.7.2
+
+# --- Imputación multivariada -------------------------------------------------
+# La consume el M05 para los métodos knn y mice de complemento de series, que
+# config.yaml declara en complemento.metodos_evaluados. Los otros tres
+# (razon_normal, regresion_vecinas, idw) se resuelven con numpy.
+#
+# Es la misma librería que usaba la rutina heredada Impute.py. Lo que allí
+# faltaba no era la librería sino la validación cruzada, sin la cual ningún
+# método puede compararse con otro.
+scikit-learn==1.9.0
