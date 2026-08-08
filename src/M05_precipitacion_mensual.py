@@ -1190,10 +1190,17 @@ def ejecutar(
                 propia = [matriz[codigo].get(c, np.nan) for c in claves]
                 comunes = [k for k, a, b in zip(claves, propia, patron)
                            if np.isfinite(a) and np.isfinite(b)]
+                # Correlacion sobre la serie SIN acumular. Es el discriminante,
+                # y no el R2 de la doble masa: aquel sale casi 1 siempre porque
+                # ambos ejes son acumulados.
+                r_patron, _ = est.correlacion_pareada(propia, patron)
+                fila["r_patron"] = (round(float(r_patron), 4)
+                                    if np.isfinite(r_patron) else None)
                 acum_e, acum_p = est.curva_doble_masa(propia, patron)
                 fila["doble_masa"] = est.quiebre_doble_masa(acum_e, acum_p)
                 fila["claves_comunes"] = comunes
             else:
+                fila["r_patron"] = None
                 fila["doble_masa"] = {"hay_quiebre": False,
                                       "motivo": "sin vecinas correlacionadas"}
             resultado.consistencia.append(fila)
@@ -1242,6 +1249,34 @@ def ejecutar(
                     # confundir ambas cosas descartaria observaciones buenas.
                     "descartada": False,
                 })
+        # Descarte por consistencia. El criterio es la correlacion contra el
+        # patron de vecinas sobre la serie SIN acumular: una estacion que no
+        # alcanza el umbral no comparte regimen con su entorno y su serie no
+        # puede verificarse ni complementarse.
+        if descartar:
+            fuera = [f["codigo"] for f in resultado.consistencia
+                     if f["r_patron"] is None or f["r_patron"] < minima]
+            if fuera:
+                for codigo in fuera:
+                    series.pop(codigo, None)
+                    matriz.pop(codigo, None)
+                orden = sorted(series)
+                resultado.consistencia = [
+                    f for f in resultado.consistencia if f["codigo"] not in fuera]
+                for registro_descarte in resultado.descartes:
+                    if registro_descarte["codigo"] in fuera:
+                        registro_descarte["descartada"] = True
+                resultado.estaciones_admitidas = len(series)
+                resultado.hallazgos.append(Hallazgo(
+                    ADVERTENCIA, "consistencia.descartadas",
+                    f"{len(fuera)} estacion(es) ELIMINADAS del analisis por no "
+                    f"alcanzar correlacion {minima} contra el patron de sus "
+                    f"vecinas: {fuera}. No comparten regimen con su entorno, de "
+                    "modo que su serie no puede verificarse por doble masa ni "
+                    "complementarse por vecinas. Quedan "
+                    f"{len(series)} estacion(es).",
+                ))
+
         con_quiebre = [f["codigo"] for f in resultado.consistencia
                        if f["doble_masa"].get("hay_quiebre")]
         if con_quiebre:
@@ -1474,6 +1509,8 @@ def _aplanar_consistencia(filas):
             "vecinas": ";".join(fila.get("vecinas") or ()),
         }
         doble = fila.get("doble_masa") or {}
+        plana["r_patron"] = fila.get("r_patron")
+        plana["dm_r2_recta"] = doble.get("r2_recta")
         plana["dm_quiebre"] = doble.get("hay_quiebre")
         plana["dm_razon_pend"] = doble.get("razon_pendientes")
         plana["dm_indice"] = doble.get("indice")

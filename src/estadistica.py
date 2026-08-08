@@ -469,6 +469,15 @@ def quiebre_doble_masa(
 
     _, corte, (antes, despues) = mejor
     razon = float(despues / antes) if antes else float("nan")
+    # R2 de la recta unica sobre los acumulados. Se publica porque es la cifra
+    # que se espera ver, PERO no sirve para discriminar: ambos ejes son sumas
+    # acumuladas, y una acumulada contra otra siempre da una recta. Medido en
+    # este estudio, ninguna estacion bajaba de 0,99. El discriminante real es la
+    # correlacion sobre la serie SIN acumular.
+    ajuste = np.polyfit(x, y, 1)
+    residuos = y - np.polyval(ajuste, x)
+    total = float(np.sum((y - np.mean(y)) ** 2))
+    r2 = float(1.0 - np.sum(residuos ** 2) / total) if total > 0 else None
     pendiente_global, _ = np.polyfit(x, y, 1)
     error_global = float(np.sum(
         (y - np.polyval(np.polyfit(x, y, 1), x)) ** 2))
@@ -481,6 +490,7 @@ def quiebre_doble_masa(
         "razon_pendientes": round(razon, 4),
         "pendiente_global": round(float(pendiente_global), 6),
         "mejora_ajuste": round(float(mejora), 4),
+        "r2_recta": round(r2, 6) if r2 is not None else None,
     }
 
 

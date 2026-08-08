@@ -436,6 +436,39 @@ decisiones:
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "descarte de estaciones por consistencia (M05)"
+    valor: >-
+      Se eliminan las estaciones que no alcanzan correlación 0,70 contra el
+      patrón de sus vecinas (consistencia.descartar_bajo_umbral). Quedan 32 de 42.
+    justificacion: >-
+      Decisión del consultor: una estación cuyo análisis de consistencia no da
+      buena correlación se elimina.
+      SOBRE QUÉ SE MIDE. El R2 de la recta de doble masa NO sirve para
+      discriminar: medido en este estudio va de 0,9925 a 0,9999 y ninguna
+      estación baja de 0,99. La causa es estructural: ambos ejes son sumas
+      acumuladas, y una acumulada contra otra siempre produce una recta. Con ese
+      criterio no se eliminaría ninguna estación jamás.
+      El discriminante es la correlación contra el patrón de vecinas sobre la
+      serie SIN acumular, que va de 0,707 a 0,912. Es el mismo umbral ya
+      adoptado, 0,70, y las que no lo alcanzan son las diez que no tienen
+      ninguna vecina admisible.
+      CONSECUENCIA QUE DEBE ATENDERSE. Las eliminadas tienen altitudes de 3, 490,
+      567, 765, 2640, 2680, 2750, 2845, 3100 y 3100 m, y las conservadas quedan
+      entre 1850 y 3378 m. El descarte eliminó TODA la franja por debajo de 1850
+      m. No es casualidad: el criterio de correlación descarta precisamente las
+      estaciones de régimen distinto, que son las del valle del Magdalena, y esas
+      son las que informarían a la interpolación sobre esa parte del área.
+      El M06 (isoyetas) y el M11 (zonificación pluviométrica con gradiente
+      altitudinal) deben advertir que por debajo de 1850 m no hay dato y que
+      cualquier valor allí es extrapolación, no interpolación.
+      Atenúa el riesgo que ninguna de las diez estaba dentro de la cuenca
+      delimitada: dentro siguen 31 antes y después del descarte. La pérdida
+      afecta al área de influencia ampliada, no a la cuenca del estudio.
+      La estación de altitud 3 m es 21201180 (GUANQUICA), cuyo valor es un error
+      del catálogo ya registrado aparte: su altitud real ronda los 3000 m.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""
