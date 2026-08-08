@@ -317,6 +317,55 @@ decisiones:
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "correlación mínima entre estaciones vecinas (M05)"
+    valor: "0.70 (consistencia.correlacion_minima)"
+    justificacion: >-
+      Decisión del consultor tras revisar la distribución medida. El valor
+      inicial de 0,80 dejaba 24 de las 42 estaciones sin ninguna vecina, el 57%
+      de la red, y el módulo se detenía antes que descartarlas en silencio.
+      Medido sobre las 42 estaciones admitidas: la correlación entre parejas
+      tiene mediana 0,555, y solo el 1,6% alcanza 0,80. No es falta de muestra,
+      porque la mediana de meses comunes es 424. La causa es el área: abarca la
+      subzona entera, de 250 a más de 3000 m y cruzando la cordillera, con
+      regímenes que no tienen por qué correlacionarse entre sí.
+      Con 0,70 quedan 8 estaciones aisladas (19%) y con 0,60 solo 1. Se adopta
+      0,70 por ser el mayor valor que conserva la red utilizable.
+      El umbral gobierna DOS cosas: qué vecinas sirven para verificar
+      consistencia por doble masa, y de cuáles se puede complementar. Una
+      estación sin ninguna vecina que lo alcance NO se descarta: su observación
+      sigue siendo válida, simplemente no puede complementarse por vecinas y sus
+      huecos quedan abiertos.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
+  - tema: "método de complemento de series mensuales (M05)"
+    valor: "regresion_vecinas (complemento.metodo_adoptado)"
+    justificacion: >-
+      Decisión del consultor sobre la validación cruzada, que enmascara dato
+      observado, lo reconstruye y mide el error. La rutina heredada Impute.py no
+      la hacía, y sin ella ningún método puede compararse con otro: rellenar
+      siempre produce un número.
+      Resultados medidos, con umbral de correlación 0,70:
+      regresion_vecinas RMSE 31,6 y NSE 0,688; idw RMSE 33,9 y NSE 0,641; knn
+      RMSE 35,4; mice RMSE 35,8; razon_normal RMSE 39,3.
+      El RMSE por sí solo NO basta para decidir. Los métodos de regresión tiran
+      hacia la media, de modo que aciertan el promedio y aplanan los extremos:
+      eso mejora el error cuadrático y empeora la serie para el análisis de
+      frecuencia del M07 y para la clasificación por fase ENSO del M05b, que
+      dependen de la variabilidad. Por eso la validación reporta también la
+      razón entre la desviación de lo estimado y la de lo observado.
+      regresion_vecinas conserva el 82,6% de la desviación, segundo tras idw
+      (86,5%) y por delante de razon_normal (76,5%). Gana en error y queda muy
+      cerca del primero en variabilidad, de modo que la elección se sostiene por
+      ambos criterios.
+      ADVERTENCIA que debe atenderse en el M07 y el M05b: TODOS los métodos
+      pierden entre el 14% y el 24% de la desviación. El 11,6% de la serie
+      resultante es sintética, y esa fracción es más plana que la observada. El
+      M07 debe reportar qué proporción de cada serie de máximos proviene de
+      relleno.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""

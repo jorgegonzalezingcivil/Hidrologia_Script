@@ -453,13 +453,21 @@ anomalos:
 
 consistencia:
   metodos: [doble_masa, correlacion, pettitt, snht, mann_kendall, rachas]
-  correlacion_minima: 0.80
+  # DECISIÓN DEL CONSULTOR, 2026-08-07. Registrada en MANIFIESTO.yaml.
+  # Medido sobre las 42 estaciones admitidas: la correlación entre parejas tiene
+  # mediana 0,555 y solo el 1,6% alcanza 0,80. No es falta de muestra (la mediana
+  # de meses comunes es 424), sino que el área abarca la subzona entera, de 250 a
+  # más de 3000 m y cruzando la cordillera, con regímenes que no tienen por qué
+  # correlacionarse. Con 0,80 quedaban 24 estaciones aisladas de 42; con 0,70
+  # quedan 8 y con 0,60 solo 1.
+  correlacion_minima: 0.70
   n_estaciones_vecinas: 5
   descartar_bajo_umbral: true
 
 complemento:
   metodos_evaluados: [regresion_vecinas, razon_normal, idw, knn, mice]
-  metodo_adoptado: null          # lo define el consultor
+  # DECISIÓN DEL CONSULTOR, 2026-08-07. Registrada en MANIFIESTO.yaml.
+  metodo_adoptado: "regresion_vecinas"
   validacion_cruzada: true       # enmascarar datos conocidos y medir RMSE
   k_vecinos: 5
   valor_minimo: 0                # 0 para lluvia; null para temperatura

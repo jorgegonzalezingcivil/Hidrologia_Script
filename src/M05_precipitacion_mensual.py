@@ -457,15 +457,22 @@ def rellenar(
     """
     minimo = configuracion.obtener("complemento.valor_minimo")
     vecinos = int(configuracion.obtener("complemento.k_vecinos"))
+    # El mismo umbral que gobierna la seleccion de vecinas en la etapa de
+    # consistencia. Rellenar desde una vecina con correlacion 0,3 produce dato
+    # sintetico sin sustento, y el valor resultante entraria al analisis con la
+    # misma apariencia que una observacion.
+    correlacion_minima = float(
+        configuracion.obtener("consistencia.correlacion_minima"))
     nombre = str(metodo).strip().lower()
     relleno = np.array(datos, dtype=float, copy=True)
 
     if nombre == "razon_normal":
         salida = _razon_normal(relleno)
     elif nombre == "regresion_vecinas":
-        salida = _regresion_vecinas(relleno, vecinos)
+        salida = _regresion_vecinas(relleno, vecinos, correlacion_minima)
     elif nombre == "idw":
-        salida = _promedio_ponderado_correlacion(relleno, vecinos)
+        salida = _promedio_ponderado_correlacion(
+            relleno, vecinos, correlacion_minima)
     elif nombre == "knn":
         from sklearn.impute import KNNImputer
         salida = KNNImputer(n_neighbors=vecinos, weights="distance",
@@ -532,7 +539,9 @@ def _correlaciones(datos: np.ndarray) -> np.ndarray:
     return matriz
 
 
-def _promedio_ponderado_correlacion(datos: np.ndarray, vecinos: int) -> np.ndarray:
+def _promedio_ponderado_correlacion(
+    datos: np.ndarray, vecinos: int, minima: float = 0.0,
+) -> np.ndarray:
     """
     Promedio de las vecinas ponderado por el cuadrado de la correlación.
 
@@ -545,7 +554,7 @@ def _promedio_ponderado_correlacion(datos: np.ndarray, vecinos: int) -> np.ndarr
     for columna in range(datos.shape[1]):
         orden = np.argsort(-correlaciones[columna])
         mejores = [j for j in orden if j != columna
-                   and correlaciones[columna, j] > 0][:vecinos]
+                   and correlaciones[columna, j] >= minima][:vecinos]
         if not mejores:
             continue
         pesos = np.array([correlaciones[columna, j] ** 2 for j in mejores])
@@ -559,7 +568,9 @@ def _promedio_ponderado_correlacion(datos: np.ndarray, vecinos: int) -> np.ndarr
     return salida
 
 
-def _regresion_vecinas(datos: np.ndarray, vecinos: int) -> np.ndarray:
+def _regresion_vecinas(
+    datos: np.ndarray, vecinos: int, minima: float = 0.0,
+) -> np.ndarray:
     """
     Regresión lineal simple contra la vecina mejor correlacionada disponible.
 
@@ -571,7 +582,7 @@ def _regresion_vecinas(datos: np.ndarray, vecinos: int) -> np.ndarray:
     correlaciones = _correlaciones(datos)
     for columna in range(datos.shape[1]):
         orden = [j for j in np.argsort(-correlaciones[columna])
-                 if j != columna and correlaciones[columna, j] > 0][:vecinos]
+                 if j != columna and correlaciones[columna, j] >= minima][:vecinos]
         ajustes: dict[int, tuple[float, float]] = {}
         for j in orden:
             comunes = np.isfinite(datos[:, columna]) & np.isfinite(datos[:, j])
@@ -638,7 +649,24 @@ def validacion_cruzada(
 
     residuo = estimados_ar[validos] - reales_ar[validos]
     observado = reales_ar[validos]
+    estimado = estimados_ar[validos]
     denominador = float(np.sum((observado - np.mean(observado)) ** 2))
+
+    # Razon de desviaciones: el criterio que el error cuadratico NO recoge.
+    # Los metodos de regresion tiran hacia la media, de modo que aciertan el
+    # promedio y aplanan los extremos. Eso mejora el RMSE y empeora la serie
+    # para lo que viene despues: el M07 ajusta distribuciones de maximos y el
+    # M05b clasifica por fase ENSO, y ambos dependen de la variabilidad. Una
+    # razon por debajo de 1 significa que la serie complementada es mas plana
+    # que la observada.
+    desviacion_real = float(np.std(observado, ddof=1)) if observado.size > 1 else 0.0
+    desviacion_est = float(np.std(estimado, ddof=1)) if estimado.size > 1 else 0.0
+    razon = (desviacion_est / desviacion_real) if desviacion_real > 0 else None
+
+    correlacion = None
+    if observado.size > 2 and desviacion_real > 0 and desviacion_est > 0:
+        correlacion = float(np.corrcoef(observado, estimado)[0, 1])
+
     return {
         "metodo": metodo,
         "n_validacion": int(validos.sum()),
@@ -649,6 +677,8 @@ def validacion_cruzada(
         "nash_sutcliffe": round(
             float(1.0 - np.sum(residuo ** 2) / denominador), 4)
         if denominador > 0 else None,
+        "razon_desviacion": round(razon, 4) if razon is not None else None,
+        "r_validacion": round(correlacion, 4) if correlacion is not None else None,
     }
 
 
@@ -993,7 +1023,8 @@ def ejecutar(
                 logger.info("  %-20s %s", metodo,
                             ultimo.get("error")
                             or f"RMSE {ultimo['rmse']} | MAE {ultimo['mae']} | "
-                               f"NSE {ultimo['nash_sutcliffe']}")
+                               f"NSE {ultimo['nash_sutcliffe']} | "
+                               f"sd_est/sd_obs {ultimo['razon_desviacion']}")
             validos = [c for c in resultado.complemento if "rmse" in c]
             if validos:
                 resultado.metodo_recomendado = min(
@@ -1258,7 +1289,8 @@ def _escribir_informe(destino, resultado, configuracion, orden, claves,
     if validos:
         lineas += _tabla_markdown(
             sorted(validos, key=lambda c: c["rmse"]),
-            ["metodo", "n_validacion", "rmse", "mae", "sesgo", "nash_sutcliffe"])
+            ["metodo", "n_validacion", "rmse", "mae", "sesgo",
+             "nash_sutcliffe", "razon_desviacion", "r_validacion"])
         lineas += [
             "",
             f"Menor error: **{resultado.metodo_recomendado}**. El modulo no lo",
