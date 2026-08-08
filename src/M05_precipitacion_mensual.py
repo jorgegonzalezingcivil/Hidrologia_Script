@@ -109,6 +109,10 @@ ORIGEN_MENSUAL = "mensual_ideam"
 ORIGEN_AGREGADO = "agregado_diaria"
 ORIGEN_SINTETICO = "complementado"
 
+# El Catalogo Nacional de Estaciones publica la ubicacion en MAGNA-SIRGAS
+# geografico, no en WGS84. Se declara en lugar de asumirlo, igual que en el M04b.
+CRS_CATALOGO = "EPSG:4686"
+
 
 # =============================================================================
 # Estructuras
@@ -345,25 +349,100 @@ def vecinas_por_correlacion(
     claves: Sequence[tuple[int, int]],
     cuantas: int,
     minima: float,
-) -> list[tuple[str, float, int]]:
+    ubicaciones: dict[str, dict] | None = None,
+    distancia_max_km: float = float("inf"),
+    desnivel_max_m: float = float("inf"),
+) -> list[dict[str, Any]]:
     """
-    Vecinas ordenadas por correlación mensual, no por distancia.
+    Vecinas que lo son por correlacion Y por proximidad en el terreno.
 
-    La distancia es un mal indicador en terreno montañoso: dos estaciones a diez
-    kilómetros pueden estar en vertientes opuestas. La correlación mide lo que
-    realmente interesa, que es si comparten régimen.
+    Los dos criterios hacen falta. La correlacion sola no basta: medido en este
+    estudio, entre las parejas que superaban 0,70 el percentil 90 de la distancia
+    llegaba a 58 km y el maximo a 105 km, con desniveles de hasta 3157 m. A esa
+    separacion la correlacion no significa regimen compartido, sino que a ambas
+    las gobierna el mismo ciclo estacional regional, y eso no sustenta una curva
+    de doble masa.
+
+    La proximidad sola tampoco basta: en terreno montanoso dos estaciones a diez
+    kilometros pueden estar en vertientes opuestas, y por eso se exige ademas la
+    correlacion y se limita el desnivel.
     """
     propia = [matriz[codigo].get(c, np.nan) for c in claves]
-    candidatas: list[tuple[str, float, int]] = []
+    candidatas: list[dict[str, Any]] = []
     for otro in matriz:
         if otro == codigo:
             continue
         ajena = [matriz[otro].get(c, np.nan) for c in claves]
         correlacion, comunes = est.correlacion_pareada(propia, ajena)
-        if np.isfinite(correlacion) and correlacion >= minima:
-            candidatas.append((otro, float(correlacion), comunes))
-    candidatas.sort(key=lambda t: -t[1])
+        if not np.isfinite(correlacion) or correlacion < minima:
+            continue
+        admisible, distancia, desnivel = es_vecina_admisible(
+            codigo, otro, ubicaciones or {}, distancia_max_km, desnivel_max_m)
+        if not admisible:
+            continue
+        candidatas.append({
+            "codigo": otro, "correlacion": float(correlacion),
+            "meses_comunes": comunes,
+            "distancia_km": round(distancia, 2) if distancia is not None else None,
+            "desnivel_m": round(desnivel, 1) if desnivel is not None else None,
+        })
+    candidatas.sort(key=lambda d: -d["correlacion"])
     return candidatas[:cuantas]
+
+
+def leer_ubicaciones(base: Path, configuracion: Config) -> dict[str, dict]:
+    """
+    Coordenadas planas y altitud de cada estación, desde la capa del M03.
+
+    Se reproyecta al CRS de cálculo para medir distancias en metros. Hacerlo en
+    grados daría distancias que dependen de la latitud, y el área del estudio
+    abarca un grado completo.
+    """
+    ruta = rutas.resolver(
+        configuracion.obtener("estaciones.salida_seleccionadas"), base)
+    if not ruta.is_file():
+        return {}
+    try:
+        from pyproj import Transformer
+    except ImportError:
+        return {}
+    conversor = Transformer.from_crs(
+        CRS_CATALOGO, configuracion.obtener("crs.calculo"), always_xy=True)
+    ubicaciones: dict[str, dict] = {}
+    for fila in shapefile.leer_registros(
+        ruta, ["codigo", "latitud", "longitud", "altitud"],
+    ):
+        codigo = str(fila.get("codigo", "")).strip()
+        try:
+            este, norte = conversor.transform(
+                float(fila["longitud"]), float(fila["latitud"]))
+            altitud = float(fila["altitud"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        ubicaciones[codigo] = {"x": este, "y": norte, "z": altitud}
+    return ubicaciones
+
+
+def es_vecina_admisible(
+    uno: str, otro: str, ubicaciones: dict[str, dict],
+    distancia_max_km: float, desnivel_max_m: float,
+) -> tuple[bool, float | None, float | None]:
+    """
+    Comprueba que dos estaciones sean vecinas también en el terreno.
+
+    Devuelve la decisión con la distancia y el desnivel, para que el motivo
+    quede escrito y no haya que recalcularlo al explicar un descarte.
+
+    Sin ubicación de alguna de las dos se admite el par y quien llama lo
+    reporta: negar la vecindad por falta de metadato descartaría dato bueno.
+    """
+    a, b = ubicaciones.get(uno), ubicaciones.get(otro)
+    if a is None or b is None:
+        return True, None, None
+    distancia = ((a["x"] - b["x"]) ** 2 + (a["y"] - b["y"]) ** 2) ** 0.5 / 1000.0
+    desnivel = abs(a["z"] - b["z"])
+    admisible = (distancia <= distancia_max_km) and (desnivel <= desnivel_max_m)
+    return admisible, distancia, desnivel
 
 
 def distribucion_correlaciones(
@@ -448,6 +527,7 @@ def _matriz_numpy(
 
 def rellenar(
     datos: np.ndarray, metodo: str, configuracion: Config,
+    admisibles: np.ndarray | None = None,
 ) -> np.ndarray:
     """
     Aplica un método de relleno a la matriz completa.
@@ -469,10 +549,11 @@ def rellenar(
     if nombre == "razon_normal":
         salida = _razon_normal(relleno)
     elif nombre == "regresion_vecinas":
-        salida = _regresion_vecinas(relleno, vecinos, correlacion_minima)
+        salida = _regresion_vecinas(relleno, vecinos, correlacion_minima,
+                                    admisibles)
     elif nombre == "idw":
         salida = _promedio_ponderado_correlacion(
-            relleno, vecinos, correlacion_minima)
+            relleno, vecinos, correlacion_minima, admisibles)
     elif nombre == "knn":
         from sklearn.impute import KNNImputer
         salida = KNNImputer(n_neighbors=vecinos, weights="distance",
@@ -527,12 +608,23 @@ def _razon_normal(datos: np.ndarray) -> np.ndarray:
     return salida
 
 
-def _correlaciones(datos: np.ndarray) -> np.ndarray:
-    """Matriz de correlación entre estaciones, con cero donde no se puede."""
+def _correlaciones(
+    datos: np.ndarray, admisibles: np.ndarray | None = None,
+) -> np.ndarray:
+    """
+    Matriz de correlación entre estaciones, con cero donde no se puede.
+
+    La máscara de admisibilidad anula las parejas que no son vecinas en el
+    terreno. Rellenar desde una estación a cien kilómetros y tres mil metros de
+    desnivel no está mejor sustentado que hacerlo desde una mal correlacionada:
+    el mismo criterio que gobierna la doble masa debe gobernar el relleno.
+    """
     columnas = datos.shape[1]
     matriz = np.zeros((columnas, columnas))
     for i in range(columnas):
         for j in range(i + 1, columnas):
+            if admisibles is not None and not admisibles[i, j]:
+                continue
             valor, _ = est.correlacion_pareada(datos[:, i], datos[:, j])
             if np.isfinite(valor):
                 matriz[i, j] = matriz[j, i] = valor
@@ -541,6 +633,7 @@ def _correlaciones(datos: np.ndarray) -> np.ndarray:
 
 def _promedio_ponderado_correlacion(
     datos: np.ndarray, vecinos: int, minima: float = 0.0,
+    admisibles: np.ndarray | None = None,
 ) -> np.ndarray:
     """
     Promedio de las vecinas ponderado por el cuadrado de la correlación.
@@ -550,7 +643,7 @@ def _promedio_ponderado_correlacion(
     terreno montañoso la cercanía no garantiza el mismo régimen.
     """
     salida = np.array(datos, copy=True)
-    correlaciones = _correlaciones(datos)
+    correlaciones = _correlaciones(datos, admisibles)
     for columna in range(datos.shape[1]):
         orden = np.argsort(-correlaciones[columna])
         mejores = [j for j in orden if j != columna
@@ -570,6 +663,7 @@ def _promedio_ponderado_correlacion(
 
 def _regresion_vecinas(
     datos: np.ndarray, vecinos: int, minima: float = 0.0,
+    admisibles: np.ndarray | None = None,
 ) -> np.ndarray:
     """
     Regresión lineal simple contra la vecina mejor correlacionada disponible.
@@ -579,7 +673,7 @@ def _regresion_vecinas(
     disponible y no en un promedio que diluya.
     """
     salida = np.array(datos, copy=True)
-    correlaciones = _correlaciones(datos)
+    correlaciones = _correlaciones(datos, admisibles)
     for columna in range(datos.shape[1]):
         orden = [j for j in np.argsort(-correlaciones[columna])
                  if j != columna and correlaciones[columna, j] >= minima][:vecinos]
@@ -603,6 +697,7 @@ def _regresion_vecinas(
 def validacion_cruzada(
     datos: np.ndarray, metodo: str, configuracion: Config,
     proporcion: float = 0.10, semilla: int = 42,
+    admisibles: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """
     Enmascara datos conocidos, los reconstruye y mide el error.
@@ -636,7 +731,8 @@ def validacion_cruzada(
         perforada[fila, columna] = np.nan
 
     try:
-        reconstruida = rellenar(perforada, metodo, configuracion)
+        reconstruida = rellenar(perforada, metodo, configuracion,
+                                admisibles)
     except Exception as exc:  # noqa: BLE001
         return {"metodo": metodo, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -922,6 +1018,18 @@ def ejecutar(
     with registro.bloque(logger, "Etapa 2: consistencia"):
         minima = float(configuracion.obtener("consistencia.correlacion_minima"))
         cuantas = int(configuracion.obtener("consistencia.n_estaciones_vecinas"))
+        distancia_max = float(
+            configuracion.obtener("consistencia.distancia_maxima_km"))
+        desnivel_max = float(
+            configuracion.obtener("consistencia.desnivel_maximo_m"))
+        ubicaciones = leer_ubicaciones(base, configuracion)
+        if not ubicaciones:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "consistencia.sin_ubicaciones",
+                "no se pudieron leer las coordenadas de las estaciones: la "
+                "vecindad se juzga solo por correlacion, sin limite de distancia "
+                "ni de desnivel. Una vecina puede quedar a mas de 100 km.",
+            ))
         for codigo, serie in sorted(series.items()):
             anuales = totales_anuales(serie)
             fila: dict[str, Any] = {"codigo": codigo,
@@ -932,11 +1040,19 @@ def ejecutar(
                 fila["pruebas"] = {"error": f"solo {len(anuales)} anio(s) completos"}
 
             vecinas = vecinas_por_correlacion(
-                codigo, matriz, claves, cuantas, minima)
+                codigo, matriz, claves, cuantas, minima, ubicaciones,
+                distancia_max, desnivel_max)
             fila["n_vecinas"] = len(vecinas)
-            fila["mejor_correlacion"] = round(vecinas[0][1], 4) if vecinas else None
+            fila["mejor_correlacion"] = (
+                round(vecinas[0]["correlacion"], 4) if vecinas else None)
+            fila["dist_media_km"] = (
+                round(float(np.mean([v["distancia_km"] for v in vecinas
+                                     if v["distancia_km"] is not None])), 1)
+                if any(v["distancia_km"] is not None for v in vecinas) else None)
+            fila["vecinas"] = [v["codigo"] for v in vecinas]
             if vecinas:
-                patron = patron_de_vecinas([v[0] for v in vecinas], matriz, claves)
+                patron = patron_de_vecinas(
+                    [v["codigo"] for v in vecinas], matriz, claves)
                 propia = [matriz[codigo].get(c, np.nan) for c in claves]
                 acum_e, acum_p = est.curva_doble_masa(propia, patron)
                 fila["doble_masa"] = est.quiebre_doble_masa(acum_e, acum_p)
@@ -1008,6 +1124,16 @@ def ejecutar(
     completada = None
     with registro.bloque(logger, "Etapa 3: complemento"):
         datos = _matriz_numpy(orden, matriz, claves)
+        # El mismo criterio de vecindad que gobierna la doble masa gobierna el
+        # relleno: si una estacion no sirve para verificar, tampoco para rellenar.
+        admisibles = np.ones((len(orden), len(orden)), dtype=bool)
+        for i, uno in enumerate(orden):
+            for j, otro in enumerate(orden):
+                if i >= j:
+                    continue
+                ok, _, _ = es_vecina_admisible(
+                    uno, otro, ubicaciones, distancia_max, desnivel_max)
+                admisibles[i, j] = admisibles[j, i] = ok
         huecos = int(np.sum(~np.isfinite(datos)))
         logger.info(
             "Matriz de %d periodo(s) x %d estacion(es); %s hueco(s) (%.1f%%)",
@@ -1018,7 +1144,8 @@ def ejecutar(
             for metodo in configuracion.obtener("complemento.metodos_evaluados"):
                 resultado.complemento.append(
                     validacion_cruzada(datos, metodo, configuracion,
-                                       semilla=semilla))
+                                       semilla=semilla,
+                                       admisibles=admisibles))
                 ultimo = resultado.complemento[-1]
                 logger.info("  %-20s %s", metodo,
                             ultimo.get("error")
@@ -1038,7 +1165,8 @@ def ejecutar(
 
         adoptado = configuracion.obtener("complemento.metodo_adoptado")
         if adoptado:
-            completada = rellenar(datos, adoptado, configuracion)
+            completada = rellenar(datos, adoptado, configuracion,
+                                  admisibles)
             nuevos = int(np.sum(np.isfinite(completada) & ~np.isfinite(datos)))
             resultado.meses_completados = nuevos
             proporcion = 100.0 * nuevos / max(
@@ -1120,6 +1248,8 @@ def _aplanar_consistencia(filas):
             "anios_completos": fila["anios_completos"],
             "n_vecinas": fila["n_vecinas"],
             "mejor_correlacion": fila["mejor_correlacion"],
+            "dist_media_km": fila.get("dist_media_km"),
+            "vecinas": ";".join(fila.get("vecinas") or ()),
         }
         doble = fila.get("doble_masa") or {}
         plana["dm_quiebre"] = doble.get("hay_quiebre")
@@ -1161,6 +1291,21 @@ def _escribir_productos(configuracion, base, resultado, series, orden, claves,
         fila = {"anio": anio, "mes": mes}
         for codigo in orden:
             fila[codigo] = series[codigo].origen.get((anio, mes), "")
+        filas.append(fila)
+    _escribir_csv(destino, filas, delimitador)
+    resultado.productos.append(rutas.relativa(destino, base))
+
+    # Matriz de marcas, en paralelo a la serie. Sin ella la marca vive solo en
+    # M05_anomalos.csv y cualquier modulo que lea la serie no sabe que valores
+    # estan senalados: el dato anomalo entraria al analisis indistinguible del
+    # resto, que es justo lo que marcar pretende evitar.
+    marcados = {(int(a["anio"]), int(a["mes"]), a["codigo"]) for a in resultado.anomalos}
+    destino = directorio_series / "precipitacion_mensual_anomalos.csv"
+    filas = []
+    for anio, mes in claves:
+        fila = {"anio": anio, "mes": mes}
+        for codigo in orden:
+            fila[codigo] = 1 if (anio, mes, codigo) in marcados else 0
         filas.append(fila)
     _escribir_csv(destino, filas, delimitador)
     resultado.productos.append(rutas.relativa(destino, base))

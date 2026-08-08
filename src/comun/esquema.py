@@ -596,6 +596,14 @@ ESQUEMA: dict[str, Campo] = {
     "consistencia.correlacion_minima": numero(
         "correlación mínima con la estación vecina", minimo=0, maximo=1,
     ),
+    "consistencia.distancia_maxima_km": numero(
+        "distancia máxima admitida a una estación vecina",
+        minimo=0.1, maximo=500.0,
+    ),
+    "consistencia.desnivel_maximo_m": numero(
+        "desnivel máximo admitido respecto a una estación vecina",
+        minimo=1.0, maximo=6000.0,
+    ),
     "consistencia.n_estaciones_vecinas": entero(
         "número de estaciones vecinas", minimo=1, maximo=50,
     ),

@@ -366,6 +366,33 @@ decisiones:
     fecha: "2026-08-07"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "criterio de vecindad para consistencia y complemento (M05)"
+    valor: >-
+      Correlación >= 0.70 Y distancia <= 30 km Y desnivel <= 1000 m
+      (consistencia.distancia_maxima_km, consistencia.desnivel_maximo_m).
+    justificacion: >-
+      La correlación por sí sola no define una vecina. Medido sobre las parejas
+      que superaban 0,70: la distancia mediana era 15 km, pero el percentil 90
+      llegaba a 58 km y el máximo a 105 km, con desniveles de hasta 3157 m. El
+      27% estaba a más de 30 km. A esa separación la correlación no significa
+      régimen compartido: a ambas estaciones las gobierna el mismo ciclo
+      estacional regional, y eso no sustenta una curva de doble masa.
+      La doble masa clásica compara contra un patrón de estaciones PRÓXIMAS y
+      del mismo régimen. Los dos límites lo hacen exigible.
+      La proximidad sola tampoco basta: en terreno montañoso dos estaciones a
+      diez kilómetros pueden estar en vertientes opuestas, y por eso se conserva
+      además el criterio de correlación y se limita el desnivel.
+      EFECTO MEDIDO. Las estaciones con quiebre de doble masa pasaron de 5 a 15
+      de 42. Los patrones lejanos suavizaban la curva y ocultaban
+      inhomogeneidades reales, que es exactamente el fallo silencioso que este
+      criterio evita.
+      El mismo límite gobierna el complemento: si una estación no sirve para
+      verificar, tampoco para rellenar. Aplicarlo mejoró el método adoptado de
+      RMSE 31,6 a 31,3 y de NSE 0,688 a 0,698, y bajó la fracción sintética del
+      11,6% al 10,6%.
+    fecha: "2026-08-07"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""

@@ -461,6 +461,17 @@ consistencia:
   # correlacionarse. Con 0,80 quedaban 24 estaciones aisladas de 42; con 0,70
   # quedan 8 y con 0,60 solo 1.
   correlacion_minima: 0.70
+  # Una vecina tiene que serlo tambien en el terreno, no solo en la estadistica.
+  # Medido sobre las parejas que superaban la correlacion 0,70: la distancia
+  # mediana era 15 km, pero el percentil 90 llegaba a 58 km y el maximo a 105 km,
+  # con desniveles de hasta 3157 m. A esa distancia y ese desnivel la correlacion
+  # no significa regimen compartido: ambas responden al mismo ciclo estacional
+  # regional, y eso no sustenta una curva de doble masa ni un relleno.
+  #
+  # La doble masa clasica compara contra un patron de estaciones PROXIMAS y del
+  # mismo regimen. Estos dos limites lo hacen exigible.
+  distancia_maxima_km: 30.0
+  desnivel_maximo_m: 1000.0
   n_estaciones_vecinas: 5
   descartar_bajo_umbral: true
 
