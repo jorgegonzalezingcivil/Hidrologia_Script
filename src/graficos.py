@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, Sequence
 
 import matplotlib
+import numpy as np
 
 # Backend sin ventana. Debe fijarse ANTES de importar pyplot: los módulos corren
 # sin sesión gráfica y cualquier backend interactivo fallaría o abriría ventanas
@@ -62,6 +63,10 @@ __all__ = [
     "rampa",
     "dispersion_sobre_area",
     "barras_de_rango",
+    "mapa_calor",
+    "matriz_faltantes",
+    "cajas_por_grupo",
+    "curva_doble_masa",
     "transformador",
     "rotular_en_miles",
     "CM_POR_PULGADA",
@@ -449,6 +454,146 @@ def dispersion_sobre_area(
     if grupos:
         ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False,
                   loc="best", markerscale=1.2)
+
+
+def mapa_calor(
+    ax: Any,
+    matriz: Sequence[Sequence[float]],
+    etiquetas: Sequence[str],
+    estilo: Estilo,
+    minimo: float = -1.0,
+    maximo: float = 1.0,
+    rampa: str | None = None,
+    barra: bool = True,
+) -> Any:
+    """
+    Matriz de correlaciones como mapa de calor.
+
+    Conserva la figura que producía la rutina heredada EDA.py. Su utilidad no es
+    leer un valor concreto sino ver la estructura: bloques de estaciones que se
+    parecen entre sí y filas oscuras que delatan a la que no se parece a nadie,
+    que es la candidata a quedar sin vecinas.
+
+    La escala se fija de forma explícita entre 'minimo' y 'maximo' y no se deja
+    al rango de los datos: si cada figura se autoescala, dos estudios no se
+    pueden comparar y un mapa de correlaciones bajas parece uno de altas.
+    """
+    datos = np.asarray(matriz, dtype=float)
+    imagen = ax.imshow(datos, cmap=rampa or estilo.rampa, vmin=minimo,
+                       vmax=maximo, aspect="auto", interpolation="nearest")
+    ax.set_xticks(range(len(etiquetas)))
+    ax.set_yticks(range(len(etiquetas)))
+    tamano = max(3.0, estilo.tamano_fuente - 4)
+    ax.set_xticklabels(etiquetas, rotation=90, fontsize=tamano)
+    ax.set_yticklabels(etiquetas, fontsize=tamano)
+    ax.grid(False)
+    if barra:
+        barra_color = ax.figure.colorbar(imagen, ax=ax, fraction=0.046, pad=0.04)
+        barra_color.ax.tick_params(labelsize=estilo.tamano_fuente - 2)
+    return imagen
+
+
+def matriz_faltantes(
+    ax: Any,
+    presente: Sequence[Sequence[bool]],
+    etiquetas_columna: Sequence[str],
+    estilo: Estilo,
+    etiquetas_fila: Sequence[str] | None = None,
+    paso_fila: int = 60,
+) -> None:
+    """
+    Diagrama de datos faltantes, en la línea del que producía Impute.py.
+
+    Cada columna es una estación y cada fila un periodo. El hueco se ve como
+    banda clara, de modo que se distingue de un vistazo la estación con huecos
+    dispersos de la que tiene un tramo entero sin registro: son problemas
+    distintos y admiten soluciones distintas.
+    """
+    datos = np.asarray(presente, dtype=float)
+    ax.imshow(datos, cmap="Greys", aspect="auto", interpolation="nearest",
+              vmin=0.0, vmax=1.0)
+    ax.set_xticks(range(len(etiquetas_columna)))
+    ax.set_xticklabels(etiquetas_columna, rotation=90,
+                       fontsize=max(3.0, estilo.tamano_fuente - 4))
+    if etiquetas_fila is not None:
+        posiciones = list(range(0, len(etiquetas_fila), max(1, paso_fila)))
+        ax.set_yticks(posiciones)
+        ax.set_yticklabels([etiquetas_fila[i] for i in posiciones],
+                           fontsize=estilo.tamano_fuente - 2)
+    ax.grid(False)
+
+
+def cajas_por_grupo(
+    ax: Any,
+    grupos: dict[str, Sequence[float]],
+    estilo: Estilo,
+    marcados: dict[str, Sequence[float]] | None = None,
+) -> None:
+    """
+    Diagrama de cajas por grupo, con los valores señalados superpuestos.
+
+    Conserva el boxplot de EDA.py y le añade lo que aquel no mostraba: qué
+    puntos quedaron marcados como anómalos. Ver la caja sin los marcados obliga
+    a creer el conteo; verlos encima permite juzgar si son error o cola natural
+    de la distribución.
+    """
+    nombres = list(grupos)
+    datos = [list(grupos[n]) for n in nombres]
+    cajas = ax.boxplot(datos, patch_artist=True, showfliers=False,
+                       widths=0.6, tick_labels=nombres)
+    for parche in cajas["boxes"]:
+        parche.set_facecolor(estilo.color(0))
+        parche.set_alpha(0.35)
+        parche.set_edgecolor(estilo.color(0))
+    for pieza in ("whiskers", "caps", "medians"):
+        for linea in cajas[pieza]:
+            linea.set_color(estilo.color(0))
+    if marcados:
+        for indice, nombre in enumerate(nombres, start=1):
+            valores = list(marcados.get(nombre, ()))
+            if not valores:
+                continue
+            ax.plot([indice] * len(valores), valores, linestyle="none",
+                    marker="o", markersize=3.0, color="#c00000", alpha=0.7,
+                    zorder=5)
+    ax.tick_params(labelsize=estilo.tamano_fuente - 1)
+
+
+def curva_doble_masa(
+    ax: Any,
+    acumulado_patron: Sequence[float],
+    acumulado_estacion: Sequence[float],
+    estilo: Estilo,
+    indice_quiebre: int | None = None,
+    razon: float | None = None,
+) -> None:
+    """
+    Curva de doble masa de una estación contra el patrón de sus vecinas.
+
+    Se dibuja además la recta de referencia que pasa por el origen con la
+    pendiente del primer tramo: la separación de la curva respecto de esa recta
+    es el quiebre, y sin ella el ojo tiende a ver recta donde hay codo.
+
+    El quiebre se marca con su año para que la figura sea legible sin volver a
+    la tabla.
+    """
+    x = np.asarray(acumulado_patron, dtype=float)
+    y = np.asarray(acumulado_estacion, dtype=float)
+    ax.plot(x, y, color=estilo.color(0), linewidth=1.3, marker="", zorder=3)
+    if x.size > 1 and x[-1] > 0:
+        if indice_quiebre is not None and 0 < indice_quiebre < x.size:
+            pendiente = y[indice_quiebre] / x[indice_quiebre] if x[indice_quiebre] else 0.0
+        else:
+            pendiente = y[-1] / x[-1]
+        ax.plot([0, x[-1]], [0, pendiente * x[-1]], color=GRIS_CONTEXTO,
+                linewidth=0.9, linestyle="--", zorder=2)
+    if indice_quiebre is not None and 0 <= indice_quiebre < x.size:
+        ax.plot([x[indice_quiebre]], [y[indice_quiebre]], marker="o",
+                markersize=5.0, color="#c00000", zorder=4)
+        if razon is not None:
+            ax.annotate(f"x{razon:.2f}", xy=(x[indice_quiebre], y[indice_quiebre]),
+                        xytext=(6, -10), textcoords="offset points",
+                        fontsize=estilo.tamano_fuente - 2, color="#c00000")
 
 
 def leyenda_manual(

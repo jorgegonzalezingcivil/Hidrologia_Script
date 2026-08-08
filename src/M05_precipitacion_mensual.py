@@ -1199,6 +1199,7 @@ def ejecutar(
                 acum_e, acum_p = est.curva_doble_masa(propia, patron)
                 fila["doble_masa"] = est.quiebre_doble_masa(acum_e, acum_p)
                 fila["claves_comunes"] = comunes
+                fila["acumulados"] = (acum_p.tolist(), acum_e.tolist())
             else:
                 fila["r_patron"] = None
                 fila["doble_masa"] = {"hay_quiebre": False,
@@ -1456,7 +1457,7 @@ def ejecutar(
     if con_graficas:
         with registro.bloque(logger, "Graficas"):
             _figuras(configuracion, base, resultado, series, orden, claves,
-                     datos, logger)
+                     datos, logger, completada, ubicaciones)
 
     resultado.hallazgos.extend(_resumir(resultado, configuracion))
     codigo_salida = (SALIDA_BLOQUEANTE
@@ -1718,7 +1719,7 @@ def _escribir_informe(destino, resultado, configuracion, orden, claves,
 # Graficas
 # =============================================================================
 def _figuras(configuracion, base, resultado, series, orden, claves, datos,
-             logger) -> None:
+             logger, completada=None, ubicaciones=None) -> None:
     """Emite las figuras del modulo."""
     try:
         import graficos
@@ -1779,8 +1780,240 @@ def _figuras(configuracion, base, resultado, series, orden, claves, datos,
                     fig, directorio / "M05_complemento", estilo):
                 resultado.productos.append(rutas.relativa(ruta, base))
 
+    minima = float(configuracion.obtener("consistencia.correlacion_minima"))
+    _figura_doble_masa(graficos, estilo, directorio, resultado,
+                       {c: dict(s.valores) for c, s in series.items()},
+                       claves, base)
+    _figura_correlaciones(graficos, estilo, directorio, orden, datos,
+                          resultado, base, minima)
+    _figura_faltantes(graficos, estilo, directorio, orden, claves, datos,
+                      completada, resultado, base)
+    _figura_anomalos(graficos, estilo, directorio, orden, claves, datos,
+                     resultado, base)
+    _figura_estaciones(graficos, estilo, directorio, resultado, base,
+                       configuracion, ubicaciones or {})
     logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
 
+
+def _figura_doble_masa(graficos, estilo, directorio, resultado, matriz, claves,
+                       base) -> None:
+    """
+    Una curva de doble masa por estación, en rejilla.
+
+    Es la figura que sustenta el descarte y la corrección, y hasta ahora la
+    decisión viajaba solo como número. Un quiebre se discute mirando la curva:
+    la tabla dice que existe, la figura dice si es un codo o una inflexión
+    gradual, y esa diferencia cambia si conviene corregir o descartar.
+    """
+    con_curva = [f for f in resultado.consistencia
+                 if f.get("acumulados") and len(f["acumulados"][0]) > 3]
+    if not con_curva:
+        return
+    columnas = 4
+    filas = (len(con_curva) + columnas - 1) // columnas
+    with graficos.figura(
+        estilo, titulo="Curvas de doble masa contra el patron de vecinas",
+        filas=filas, columnas=columnas,
+        alto_cm=max(estilo.alto_cm, 4.2 * filas),
+    ) as (fig, ejes):
+        for indice, fila in enumerate(con_curva):
+            ax = ejes[indice // columnas][indice % columnas]
+            patron, estacion = fila["acumulados"]
+            doble = fila.get("doble_masa") or {}
+            graficos.curva_doble_masa(
+                ax, patron, estacion, estilo,
+                indice_quiebre=doble.get("indice") if doble.get("hay_quiebre") else None,
+                razon=doble.get("razon_pendientes") if doble.get("hay_quiebre") else None,
+            )
+            ax.set_title(f"{fila['codigo']}  r={fila.get('r_patron')}",
+                         fontsize=estilo.tamano_fuente - 1, loc="left",
+                         color="#333333")
+            ax.tick_params(labelsize=estilo.tamano_fuente - 3)
+            for lado in ("top", "right"):
+                ax.spines[lado].set_visible(False)
+        for sobrante in range(len(con_curva), filas * columnas):
+            ejes[sobrante // columnas][sobrante % columnas].axis("off")
+        fig.supxlabel("acumulado del patron (mm)",
+                      fontsize=estilo.tamano_fuente)
+        fig.supylabel("acumulado de la estacion (mm)",
+                      fontsize=estilo.tamano_fuente)
+        fig.tight_layout()
+        for ruta in graficos.guardar(fig, directorio / "M05_doble_masa", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+
+def _figura_correlaciones(graficos, estilo, directorio, orden, datos,
+                          resultado, base, minima) -> None:
+    """
+    Mapa de calor de las correlaciones entre estaciones.
+
+    Conserva la figura de la rutina heredada EDA.py. Su utilidad no es leer un
+    valor concreto sino ver la estructura: bloques de estaciones que se parecen
+    y filas oscuras que delatan a la que no se parece a nadie.
+    """
+    n = len(orden)
+    if n < 2:
+        return
+    matriz = np.ones((n, n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            valor, _ = est.correlacion_pareada(datos[:, i], datos[:, j])
+            matriz[i, j] = matriz[j, i] = valor if np.isfinite(valor) else np.nan
+    with graficos.figura(
+        estilo, titulo=f"Correlacion entre estaciones (umbral adoptado {minima})",
+        alto_cm=max(estilo.alto_cm, 0.35 * n + 5.0),
+    ) as (fig, ax):
+        graficos.mapa_calor(ax, matriz, orden, estilo, minimo=0.0, maximo=1.0)
+        fig.tight_layout()
+        for ruta in graficos.guardar(fig, directorio / "M05_correlaciones",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+
+def _figura_faltantes(graficos, estilo, directorio, orden, claves, datos,
+                      completada, resultado, base) -> None:
+    """
+    Diagrama de datos faltantes antes y despues del complemento.
+
+    Es el 'missing values diagram' que producia Impute.py. Distingue de un
+    vistazo la estacion con huecos dispersos de la que tiene un tramo entero sin
+    registro: son problemas distintos y admiten soluciones distintas.
+    """
+    etiquetas_fila = [f"{a}" for a, _ in claves]
+    paneles = [("observado", np.isfinite(datos))]
+    if completada is not None:
+        paneles.append(("tras el complemento", np.isfinite(completada)))
+    with graficos.figura(
+        estilo, titulo="Disponibilidad de dato por estacion y periodo",
+        filas=1, columnas=len(paneles),
+        alto_cm=max(estilo.alto_cm, 12.0),
+    ) as (fig, ejes):
+        for indice, (nombre, presente) in enumerate(paneles):
+            ax = ejes[0][indice]
+            graficos.matriz_faltantes(
+                ax, presente, orden, estilo,
+                etiquetas_fila=etiquetas_fila if indice == 0 else None)
+            faltan = int(np.sum(~presente))
+            ax.set_title(f"{nombre}: {faltan:,} hueco(s)",
+                         fontsize=estilo.tamano_fuente, loc="left",
+                         color="#333333")
+        fig.tight_layout()
+        for ruta in graficos.guardar(fig, directorio / "M05_faltantes", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+
+def _figura_anomalos(graficos, estilo, directorio, orden, claves, datos,
+                     resultado, base) -> None:
+    """
+    Cajas por mes calendario con los valores marcados encima.
+
+    Conserva el boxplot de EDA.py y le anade lo que aquel no mostraba: que
+    puntos quedaron senalados. Ver la caja sin ellos obliga a creer el conteo;
+    verlos encima permite juzgar si son error o cola natural de la distribucion,
+    que es la razon por la que en este estudio NO se eliminan.
+    """
+    marcados = {(int(a["anio"]), int(a["mes"]), a["codigo"])
+                for a in resultado.anomalos}
+    grupos: dict[str, list[float]] = {}
+    senalados: dict[str, list[float]] = {}
+    for mes in range(1, 13):
+        nombre = f"{mes:02d}"
+        grupos[nombre] = []
+        senalados[nombre] = []
+        for indice, (anio, mes_clave) in enumerate(claves):
+            if mes_clave != mes:
+                continue
+            for columna, codigo in enumerate(orden):
+                valor = datos[indice, columna]
+                if not np.isfinite(valor):
+                    continue
+                grupos[nombre].append(float(valor))
+                if (anio, mes, codigo) in marcados:
+                    senalados[nombre].append(float(valor))
+    if not any(grupos.values()):
+        return
+    with graficos.figura(
+        estilo,
+        titulo="Precipitacion mensual por mes calendario, con los valores marcados",
+        etiqueta_x="mes", etiqueta_y="precipitacion (mm)",
+    ) as (fig, ax):
+        graficos.cajas_por_grupo(ax, grupos, estilo, marcados=senalados)
+        graficos.leyenda_manual(ax, [
+            ("senalado por el metodo de anomalos", "#c00000"),
+        ], estilo)
+        fig.tight_layout()
+        for ruta in graficos.guardar(fig, directorio / "M05_anomalos", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+
+def _figura_estaciones(graficos, estilo, directorio, resultado, base,
+                       configuracion, ubicaciones) -> None:
+    """
+    Ubicacion de las estaciones conservadas, corregidas y eliminadas.
+
+    Cierra el ciclo del descarte: la tabla dice cuantas se fueron y esta figura
+    dice DONDE. En este estudio muestra que las eliminadas son las de cota baja,
+    de modo que la red conservada no cubre la franja inferior del area.
+    """
+    if not ubicaciones:
+        return
+    crs = (configuracion.obtener("graficos.crs_figuras")
+           or configuracion.obtener("punto_descarga.crs"))
+    a_plano_area = graficos.transformador("EPSG:4326", crs)
+    conversor = graficos.transformador(
+        configuracion.obtener("crs.calculo"), crs)
+
+    poligonos: list = []
+    reporte = rutas.directorio("procesado", base) / "M02_delimitacion.json"
+    if reporte.is_file():
+        try:
+            datos_m02 = json.loads(reporte.read_text(encoding="utf-8"))
+            wkt = (datos_m02.get("geometrias_epsg4326") or {}).get("area_estaciones")
+            if wkt:
+                from comun import geometria
+                poligonos = [[[a_plano_area(float(x), float(y)) for x, y in anillo]
+                              for anillo in poli]
+                             for poli in geometria.poligonos_de_wkt(wkt)]
+        except (OSError, json.JSONDecodeError, ErrorFormato):
+            poligonos = []
+
+    eliminadas = {d["codigo"] for d in resultado.descartes if d["descartada"]}
+    corregidas = {c["codigo"] for c in resultado.correcciones}
+    conservadas = {f["codigo"] for f in resultado.estado}
+
+    grupos: dict[str, tuple[list[float], list[float]]] = {}
+    for nombre, codigos in (
+        ("conservadas", conservadas - corregidas),
+        ("corregidas por doble masa", corregidas),
+        ("eliminadas por consistencia", eliminadas),
+    ):
+        equis, yes = [], []
+        for codigo in sorted(codigos):
+            sitio = ubicaciones.get(codigo)
+            if sitio is None:
+                continue
+            este, norte = conversor(sitio["x"], sitio["y"])
+            equis.append(este)
+            yes.append(norte)
+        if equis:
+            grupos[f"{nombre} ({len(equis)})"] = (equis, yes)
+    if not grupos:
+        return
+
+    with graficos.figura(
+        estilo, titulo="Estaciones de precipitacion tras el analisis del M05",
+        etiqueta_x="Este (m)", etiqueta_y="Norte (m)",
+        alto_cm=max(estilo.alto_cm, 12.0),
+    ) as (fig, ax):
+        graficos.dispersion_sobre_area(ax, poligonos, grupos, estilo,
+                                       tamanos={k: 26.0 for k in grupos})
+        graficos.rotular_en_miles(ax)
+        ax.annotate(f"Coordenadas {crs}", xy=(1, -0.09),
+                    xycoords="axes fraction", ha="right",
+                    fontsize=estilo.tamano_fuente - 2, color="#555555")
+        fig.tight_layout()
+        for ruta in graficos.guardar(fig, directorio / "M05_estaciones", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
 
 # =============================================================================
 # Cierre
