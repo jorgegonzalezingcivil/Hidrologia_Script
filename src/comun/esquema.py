@@ -907,6 +907,23 @@ ESQUEMA: dict[str, Campo] = {
         "intervalo de cálculo de las especificaciones de control",
         minimo=1, maximo=1440,
     ),
+    # --- M09: intercambio con HEC-HMS ----------------------------------------
+    "hec_hms.intercambio.insumos": texto(
+        "directorio de los insumos para el paso manual", no_vacio=True),
+    "hec_hms.intercambio.salida": texto(
+        "directorio donde el consultor deposita la salida", no_vacio=True),
+    "hec_hms.intercambio.subcuencas": texto(
+        "nombre del shapefile de subcuencas", no_vacio=True),
+    "hec_hms.intercambio.corrientes": texto(
+        "nombre del shapefile de corrientes", no_vacio=True),
+    "hec_hms.intercambio.fraccion_minima_pct": numero(
+        "fracción mínima de la preliminar que debe representar la delimitada",
+        minimo=0.01, maximo=100.0,
+    ),
+    "hec_hms.intercambio.area_minima_subcuenca_km2": numero(
+        "área mínima admitida de subcuenca", minimo=0.0, maximo=1000.0,
+    ),
+
     "calibracion.activar_si_hay_series": booleano(
         "activar la calibración si existen series utilizables",
     ),

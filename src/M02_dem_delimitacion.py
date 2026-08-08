@@ -1051,6 +1051,47 @@ def _escribir_area(configuracion, base, area, escenario, ruta_dem, crs_calculo,
         crs_id=crs_calculo.authid(), tipo_geometria="Polygon")
     _registrar_producto(resultado, base, destino_env, CAMPOS_MARCO, delimitador)
 
+    # --- Recorte del drenaje nacional ---------------------------------------
+    # Las capas del IGAC pesan 645 MB y viven fuera del repositorio. El recorte
+    # a la envolvente pesa unos cientos de kilobytes y es lo que se versiona.
+    #
+    # No es un producto accesorio: el M09 lo entrega a HEC-HMS para que el
+    # consultor verifique que las corrientes trazadas sobre el terreno siguen la
+    # red real, que es el control que atrapa el fallo del DEM sin reacondicionar.
+    # El M16 lo usara ademas para la cartografia tematica.
+    directorio_nacional = Path(
+        configuracion.obtener("referencia_nacional.directorio"))
+    campo_nombre = configuracion.obtener("referencia_nacional.campos.nombre")
+    extension_recorte = envolvente.boundingBox()
+    for clave_origen, clave_destino in (
+        ("referencia_nacional.drenaje_sencillo",
+         "referencia_nacional.salida_recorte_sencillo"),
+        ("referencia_nacional.drenaje_doble",
+         "referencia_nacional.salida_recorte_doble"),
+    ):
+        origen_capa = directorio_nacional / configuracion.obtener(clave_origen)
+        destino_capa = rutas.resolver(
+            configuracion.obtener(clave_destino), base)
+        if not origen_capa.is_file():
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, clave_destino,
+                f"no se encuentra {origen_capa}: el recorte del drenaje no se "
+                "escribio. El M09 lo necesita como capa de verificacion del "
+                "paso manual de HEC-HMS.",
+            ))
+            continue
+        try:
+            red.recortar_capa(origen_capa, extension_recorte, destino_capa,
+                              crs_calculo.authid(), campo_nombre)
+        except (ErrorFormato, ErrorRutas) as exc:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, clave_destino,
+                f"no se pudo recortar {origen_capa.name}: {exc}.",
+            ))
+            continue
+        resultado.capas.append(rutas.relativa(destino_capa, base))
+        logger.info("Drenaje recortado: %s", destino_capa.name)
+
     buffer_est = float(configuracion.obtener("estaciones.buffer_adicional_km"))
     seleccion = area.buffer(buffer_est * 1000.0, 12) if buffer_est > 0         else QgsGeometry(area)
 

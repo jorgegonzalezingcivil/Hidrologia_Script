@@ -686,6 +686,45 @@ decisiones:
     fecha: "2026-08-08"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "alcance del M09 y reacondicionamiento del DEM"
+    valor: >-
+      Un módulo con dos modos (--preparar y --importar). El DEM se entrega SIN
+      reacondicionar; el reacondicionamiento se hará dentro de HEC-HMS. La
+      cuenca preliminar sirve de cota superior, no de objetivo de igualdad.
+    justificacion: >-
+      Decisión del consultor tras revisar el alcance. El M09 está a caballo del
+      único paso manual del estudio (CLAUDE.md, sección 4), y por eso tiene dos
+      modos explícitos en lugar de detección automática: la misma orden
+      produciría resultados distintos según el estado del disco, y eso no se
+      puede auditar.
+      INSUMOS que se entregan: DEM recortado, cuenca preliminar, punto de
+      descarga y los dos drenajes del IGAC recortados con la holgura ya
+      definida, más un instructivo que hace reproducible el paso manual.
+      REACONDICIONAMIENTO en HEC-HMS, no aquí. Queda declarado el riesgo: con el
+      DEM de radar crudo, el análisis de terreno del M02 llegó a delimitar 6,59
+      km² sobre una subzona de 5.926, porque en la sabana el relieve cae
+      centímetros por kilómetro mientras el DEM tiene incertidumbre vertical de
+      varios metros. Por eso los drenajes viajan entre los insumos y el
+      instructivo indica el remedio si la delimitación sale desviada.
+      VERIFICACIÓN por cota y no por igualdad. Para el escenario 1 la cuenca
+      preliminar es la subzona entera, que es una unidad cerrada y contiene la
+      cuenca aportante por definición: sobredimensiona el área varias veces, de
+      modo que exigir coincidencia rechazaría cualquier delimitación correcta.
+      Se comprueba que la delimitada no exceda la preliminar y que no baje del
+      5% de ella, que es el control que atrapa el fallo del DEM.
+      DOS VACÍOS CORREGIDOS al revisar el alcance. El M02 no escribía los
+      drenajes recortados que la configuración declara, de modo que eran
+      productos fantasma; ya los produce. Y quedaba en disco un
+      cuenca_preliminar.shp huérfano de 6,59 km², residuo del análisis de
+      terreno anterior al rediseño del M02, que la verificación del M09 estaba
+      tomando como referencia: se eliminó.
+      LO QUE EL M09 NO VERIFICA: la topología. Comprobar que cada tramo conecte
+      con su subcuenca y que la red drene al punto exige leer geometría vértice
+      a vértice y pertenece al entorno SIG. Se declara como no verificado en
+      lugar de darlo por bueno.
+    fecha: "2026-08-08"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""

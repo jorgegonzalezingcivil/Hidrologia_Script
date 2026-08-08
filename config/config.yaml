@@ -775,6 +775,32 @@ hec_hms:
   control:
     intervalo_min: 5             # debe coincidir con tormenta.intervalo_calculo_min
 
+  # --- M09: intercambio con el paso manual -----------------------------------
+  # CLAUDE.md, seccion 4: la delimitacion asistida de HEC-HMS es el UNICO paso
+  # con intervencion manual obligatoria. El M09 esta a caballo de el: prepara lo
+  # que el programa necesita y despues lee lo que produjo.
+  intercambio:
+    insumos: "data/04_modelos/hec_hms/insumos"
+    salida: "data/04_modelos/hec_hms/salida"
+    # Nombres que el consultor debe dar a lo que exporte desde HEC-HMS.
+    subcuencas: "subcuencas.shp"
+    corrientes: "corrientes.shp"
+    # Fraccion MINIMA que la cuenca delimitada debe representar de la
+    # preliminar. No es una tolerancia de igualdad: para el escenario 1 la
+    # preliminar es la subzona entera, que sobredimensiona el area varias veces
+    # y solo sirve de COTA SUPERIOR.
+    #
+    # El control por abajo es el que atrapa el fallo conocido: con el DEM de
+    # radar sin reacondicionar, el analisis de terreno del M02 llego a producir
+    # 6,59 km2 sobre una subzona de 5.926, una fraccion del 0,1%. En terreno
+    # plano el ruido vertical gobierna las direcciones de flujo y el resultado
+    # es una cuenca verosimil y equivocada. Ese riesgo alcanza igual a HEC-HMS,
+    # porque el DEM se entrega sin reacondicionar por decision declarada.
+    fraccion_minima_pct: 5.0
+    # Area minima de subcuenca. Por debajo suele tratarse de un artefacto del
+    # trazado y no de una unidad hidrologica.
+    area_minima_subcuenca_km2: 0.5
+
 calibracion:
   activar_si_hay_series: true
   fuente_caudales: [socrata, usuario]
