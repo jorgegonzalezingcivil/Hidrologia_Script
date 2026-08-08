@@ -502,6 +502,54 @@ decisiones:
     fecha: "2026-08-08"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "malla de interpolación de isoyetas y método (M06, M08)"
+    valor: >-
+      100 m, malla propia separada de la del DEM (isoyetas.resolucion_m). IDW con
+      potencia 2; el kriging detiene el módulo mientras no se declare proveedor.
+    justificacion: >-
+      Decisión del consultor. El área de influencia mide 146 por 115 km: a los
+      12,5 m del DEM serían 107 millones de celdas y 429 MB por raster, 1,3 GB
+      solo para las tres fases del M06 y unos 3,4 GB más para los ocho periodos
+      de retorno del M08.
+      El argumento de fondo no es el peso sino el soporte del dato: se
+      interpolan 32 estaciones separadas unos 15 km, y una malla 1200 veces más
+      fina que ese espaciamiento aparenta una precisión que la información no
+      tiene. Las curvas se entregan además en vectorial, que se dibuja bien a
+      cualquier escala del pliego, de modo que la malla fina no hacía falta ni
+      siquiera para la cartografía a 1:10.000.
+      IDW es el predeterminado que fija CLAUDE.md, sección 6, citando a Vargas
+      et al. El kriging no viene en el núcleo de QGIS: el módulo se detiene con
+      mensaje explícito si se declara, en lugar de sustituir el método en
+      silencio.
+    fecha: "2026-08-08"
+    responsable: ""              # pendiente de diligenciar
+
+  - tema: "ALERTA: la altitud no explica la precipitación en la red conservada"
+    valor: >-
+      Medido sobre las 32 estaciones: r2 de 0,011 en fase neutral, 0,001 en
+      Niña y 0,032 en Niño.
+    justificacion: >-
+      CLAUDE.md, sección 6, define la zonificación pluviométrica del M11 como
+      "diferencial porcentual + gradiente altitudinal + ponderación por área".
+      Ese gradiente NO existe en la red disponible, y el M06 lo mide antes de que
+      el M11 lo aplique: prescribir un método no garantiza que el dato lo
+      sustente, y aplicarlo aquí apoyaría la zonificación en una relación
+      inexistente.
+      Causa probable: el descarte por consistencia del M05 eliminó las
+      estaciones de cota baja y dejó la red entre 1850 y 3378 m, todas en la
+      sabana. El rango que mostraría el gradiente quedó truncado.
+      SEGUNDO HALLAZGO, del mismo origen. La validación dejando uno fuera del
+      campo IDW da Nash-Sutcliffe de 0,16 a 0,22 y RMSE relativo del 18 al 22%.
+      El campo apenas mejora usar la media: la precipitación varía a escalas más
+      cortas que el espaciamiento de la red, que es lo habitual en terreno
+      andino. El mapa de isoyetas es entregable, pero su incertidumbre debe
+      declararse en el informe y no presentarse como un campo preciso.
+      El M11 debe decidir de forma explícita si conserva el gradiente
+      altitudinal, si lo sustituye por otro criterio, o si se reincorporan
+      estaciones de cota baja aceptando su menor correlación.
+    fecha: "2026-08-08"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""

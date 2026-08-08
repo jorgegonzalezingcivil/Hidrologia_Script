@@ -679,6 +679,25 @@ ESQUEMA: dict[str, Campo] = {
     "interpolacion.validacion_cruzada": booleano("validación cruzada de la superficie"),
 
     # --- M07 -----------------------------------------------------------------
+    # --- M06 / M08: isoyetas -------------------------------------------------
+    "isoyetas.resolucion_m": numero(
+        "resolución de la malla de interpolación de estaciones",
+        minimo=1.0, maximo=5000.0,
+    ),
+    "isoyetas.intervalo_mm": numero(
+        "intervalo entre curvas de isoyeta", minimo=1.0, maximo=1000.0,
+    ),
+    "isoyetas.solo_totales_completos": booleano(
+        "interpolar solo los totales que cubren los doce meses",
+    ),
+    "isoyetas.minimo_estaciones": entero(
+        "mínimo de estaciones para interpolar una fase", minimo=3, maximo=100,
+    ),
+    "isoyetas.salida_raster": texto("directorio de los raster de isoyetas",
+                                    no_vacio=True),
+    "isoyetas.salida_curvas": texto("directorio de las curvas de isoyeta",
+                                    no_vacio=True),
+
     "frecuencia.periodos_retorno": lista(
         "periodos de retorno en años",
         numero("periodo de retorno", minimo=1.01, maximo=10000), creciente=True,
@@ -1661,6 +1680,29 @@ def _inv_umbrales_por_variable(datos: dict) -> list[Hallazgo]:
     return hallazgos
 
 
+def _inv_resolucion_isoyetas(datos: dict) -> list[Hallazgo]:
+    """
+    La malla de isoyetas no debe confundirse con la del terreno.
+
+    Interpolar unas decenas de estaciones sobre la malla del DEM aparenta una
+    precisión que el dato no tiene, y multiplica por miles el peso del producto.
+    """
+    isoyetas = obtener(datos, "isoyetas.resolucion_m")
+    terreno = obtener(datos, "interpolacion.resolucion_raster_m")
+    if not isinstance(isoyetas, (int, float)) or isinstance(isoyetas, bool):
+        return []
+    hallazgos: list[Hallazgo] = []
+    if isinstance(terreno, (int, float)) and isoyetas <= terreno:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "isoyetas.resolucion_m",
+            f"la malla de isoyetas ({isoyetas} m) es igual o más fina que la del "
+            f"terreno ({terreno} m). Las isoyetas se interpolan desde unas "
+            "decenas de estaciones separadas kilómetros: esa finura aparenta una "
+            "precisión que el dato no sustenta y multiplica el peso del producto.",
+        ))
+    return hallazgos
+
+
 def _inv_cdc_irh(datos: dict) -> list[Hallazgo]:
     menor = obtener(datos, "caudal_ambiental.cdc_si_irh_menor")
     mayor = obtener(datos, "caudal_ambiental.cdc_si_irh_mayor")
@@ -1718,6 +1760,7 @@ INVARIANTES: tuple[Callable[[dict], list[Hallazgo]], ...] = (
     _inv_ventanas,
     _inv_umbral_adoptado,
     _inv_umbrales_por_variable,
+    _inv_resolucion_isoyetas,
     _inv_cdc_irh,
     _inv_decisiones_pendientes,
 )
