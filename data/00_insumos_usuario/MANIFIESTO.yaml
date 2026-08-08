@@ -639,9 +639,19 @@ decisiones:
       Las rejillas se CONSERVAN como resumen de revisión: sirven para detectar
       de un vistazo una estación anómala entre treinta y dos, que es
       precisamente como se descubrió el ajuste degenerado de la Pareto.
-      NO se versionan en el repositorio: se regeneran en cada corrida y son
-      cientos de archivos. El repositorio versiona las agregadas, que son las
-      que fijan el criterio.
+      SÍ se versionan, por decisión del consultor: el entregable debe ser
+      autocontenido, de modo que quien reciba el repositorio tenga el informe
+      completo sin volver a ejecutar nada.
+      Al aplicarlo se descubrió que NINGUNA figura estaba versionada, tampoco
+      las agregadas: la regla data/05_resultados/** las excluía todas y solo
+      sobrevivían los .gitkeep. Se corrigió para todo el árbol de gráficos, con
+      las dos líneas de directorio que git necesita para descender a un
+      directorio excluido antes de que un patrón de archivo pueda alcanzarlo.
+      COSTO medido: 27,5 MB por corrida (18,8 en PNG y 8,8 en SVG), sobre un
+      repositorio que antes pesaba 31 MB. Los PNG no se comprimen, de modo que
+      cada regeneración añade blobs nuevos y el historial crece en esa cantidad
+      cada vez. Si el repositorio llegara a hacerse pesado, la vía es purgar el
+      historial de figuras y no dejar de versionarlas.
     fecha: "2026-08-08"
     responsable: ""              # pendiente de diligenciar
 

@@ -67,6 +67,17 @@ data/04_modelos/**
 data/05_resultados/**
 !data/05_resultados/**/
 !data/05_resultados/**/.gitkeep
+# Las FIGURAS sí se versionan, agregadas y por estación: el entregable debe ser
+# autocontenido, de modo que quien reciba el repositorio tenga el informe
+# completo sin volver a ejecutar nada.
+#
+# La re-inclusión necesita las dos líneas de directorio de arriba: git no
+# desciende a un directorio excluido, y sin ellas un patrón de archivo no
+# alcanza a los que están dentro.
+!data/05_resultados/graficos/**/*.png
+!data/05_resultados/graficos/**/*.svg
+!data/05_resultados/graficos/*.png
+!data/05_resultados/graficos/*.svg
 outputs/**
 !outputs/**/
 !outputs/**/.gitkeep
@@ -121,6 +132,3 @@ desktop.ini
 .env
 *.secret
 
-# Figuras por estación: se regeneran con cada corrida y son cientos de archivos.
-# El repositorio versiona las agregadas, que son las que fijan el criterio.
-data/05_resultados/graficos/estaciones/
