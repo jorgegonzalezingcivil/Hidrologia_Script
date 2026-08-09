@@ -725,6 +725,39 @@ decisiones:
     fecha: "2026-08-08"
     responsable: ""              # pendiente de diligenciar
 
+  - tema: "modo de análisis: general para cuencas de gran magnitud"
+    valor: >-
+      analisis.modo = "general". Una sola cuenca, la del M02, sin modelo
+      HEC-HMS. Caracterización general en todos los módulos.
+    justificacion: >-
+      Decisión del consultor. En cuencas como la del río Bogotá el tratamiento
+      hidrológico es distinto por la magnitud de los caudales y el tamaño del
+      área intervenida: no se construye modelo lluvia-escorrentía por
+      subcuencas. Para otros escenarios de análisis, el modo 'detallado' usa las
+      subcuencas que el M09 importa de HEC-HMS.
+      El modo NO es una comodidad de ejecución: cambia lo que significa cada
+      resultado, y los módulos lo declaran en su reporte en lugar de entregar
+      cifras sin contexto. Un invariante del esquema exige motivo escrito cuando
+      el modo es general, porque no modelar es una decisión con margen técnico.
+      EVIDENCIA MEDIDA que respalda la decisión. Ninguna de las trece fórmulas
+      de tiempo de concentración de la matriz aplica a una cuenca de 5.926 km²:
+      Kirpich excede su rango de calibración 13.169 veces, California 132,
+      Giandotti 6 y Témez 2, y esta última es la de mayor alcance de la matriz
+      (3.000 km²). El M10 se detiene y NO adopta la mediana, como exige
+      CLAUDE.md, sección 7.
+      Para una cuenca de esta magnitud el tiempo de concentración no es el
+      parámetro que gobierna la respuesta: corresponde tránsito hidráulico.
+      MORFOMETRÍA obtenida: 5.925,9 km², perímetro 581,7 km, longitud axial
+      176,5 km, coeficiente de compacidad de Gravelius 2,13. La cuenca es
+      marcadamente alargada, lo que amortigua el hidrograma porque el agua de
+      las cabeceras llega desfasada respecto a la cercana al cierre.
+      PENDIENTE: los parámetros de relieve (cotas, curva hipsométrica, pendiente
+      media) exigen leer el DEM celda a celda y el venv no tiene GDAL. El M10
+      los declara como no calculados en lugar de inventarlos; corresponden al
+      entorno SIG.
+    fecha: "2026-08-09"
+    responsable: ""              # pendiente de diligenciar
+
   # Plantilla para las siguientes decisiones:
   # - tema: ""                   # p.ej. "umbral de longitud de serie"
   #   valor: ""

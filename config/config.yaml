@@ -721,6 +721,39 @@ tormenta:
   advertir_si_duracion_menor_tc: true
 
 # -----------------------------------------------------------------------------
+# MODO DE ANALISIS
+# -----------------------------------------------------------------------------
+# DECISION DEL CONSULTOR, 2026-08-08. Registrada en MANIFIESTO.yaml.
+#
+# No todo estudio se resuelve con un modelo lluvia-escorrentia por subcuencas.
+# En cuencas grandes como la del rio Bogota el tratamiento hidrologico es
+# distinto por la magnitud de los caudales y el tamano del area intervenida: no
+# se construye modelo HEC-HMS y la caracterizacion es GENERAL, sobre una sola
+# unidad.
+#
+#   general    una sola cuenca, la que entrega el M02. Sin modelo HEC-HMS. Los
+#              modulos caracterizan el conjunto y declaran expresamente que no
+#              hay desagregacion por subcuencas.
+#   detallado  subcuencas y tramos delimitados en HEC-HMS (M09 --importar), con
+#              caracterizacion y modelo por unidad.
+#
+# El modo NO es una comodidad de ejecucion: cambia lo que significa cada
+# resultado. Un tiempo de concentracion de una cuenca de miles de kilometros
+# cuadrados no tiene el mismo sentido que el de una subcuenca de decenas, y los
+# modulos deben decirlo en lugar de entregar una cifra sin contexto.
+analisis:
+  modo: "general"                # general | detallado
+  # Capa que representa la cuenca cuando el modo es 'general'.
+  cuenca_general: "data/03_SIG/vector/area_influencia.shp"
+  # Justificacion que viaja al informe. Obligatoria en modo general: un estudio
+  # que no explica por que no modelo la cuenca no es defendible.
+  motivo_general: >-
+    Cuenca de gran magnitud sobre el rio Bogota. El tratamiento hidrologico
+    corresponde a caudales y area intervenida que no se resuelven con un modelo
+    lluvia-escorrentia por subcuencas, de modo que la caracterizacion es general
+    y no se construye modelo HEC-HMS.
+
+# -----------------------------------------------------------------------------
 # M10 - CARACTERIZACIÓN
 # -----------------------------------------------------------------------------
 morfometria:

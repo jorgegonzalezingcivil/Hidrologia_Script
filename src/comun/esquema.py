@@ -827,6 +827,18 @@ ESQUEMA: dict[str, Campo] = {
     ),
 
     # --- M10 -----------------------------------------------------------------
+    # --- Modo de análisis -----------------------------------------------------
+    "analisis.modo": texto(
+        "modo de análisis del estudio", opciones=("general", "detallado"),
+    ),
+    "analisis.cuenca_general": texto(
+        "capa de la cuenca cuando el modo es general", no_vacio=True,
+    ),
+    "analisis.motivo_general": texto(
+        "justificación de no construir modelo por subcuencas",
+        permite_nulo=True,
+    ),
+
     "morfometria.parametros.geometria": lista(
         "parámetros de geometría", texto("parámetro"),
     ),
@@ -1754,6 +1766,28 @@ def _inv_resolucion_isoyetas(datos: dict) -> list[Hallazgo]:
     return hallazgos
 
 
+def _inv_modo_general(datos: dict) -> list[Hallazgo]:
+    """
+    El modo general exige justificación escrita.
+
+    No construir modelo por subcuencas es una decisión con margen técnico, y
+    CLAUDE.md, sección 7, obliga a registrar el criterio de toda decisión con
+    margen. Un estudio que no explica por qué no modeló la cuenca no es
+    defendible ante interventoría.
+    """
+    if obtener(datos, "analisis.modo") != "general":
+        return []
+    motivo = obtener(datos, "analisis.motivo_general")
+    if not (isinstance(motivo, str) and motivo.strip()):
+        return [Hallazgo(
+            BLOQUEANTE, "analisis.motivo_general",
+            "el modo es 'general' y no hay motivo escrito. No construir modelo "
+            "por subcuencas es una decisión con margen técnico y debe quedar "
+            "justificada.",
+        )]
+    return []
+
+
 def _inv_cdc_irh(datos: dict) -> list[Hallazgo]:
     menor = obtener(datos, "caudal_ambiental.cdc_si_irh_menor")
     mayor = obtener(datos, "caudal_ambiental.cdc_si_irh_mayor")
@@ -1812,6 +1846,7 @@ INVARIANTES: tuple[Callable[[dict], list[Hallazgo]], ...] = (
     _inv_umbral_adoptado,
     _inv_umbrales_por_variable,
     _inv_resolucion_isoyetas,
+    _inv_modo_general,
     _inv_cdc_irh,
     _inv_decisiones_pendientes,
 )

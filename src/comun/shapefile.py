@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import re
+import math
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +45,10 @@ __all__ = [
     "leer_shapefile",
     "leer_registros",
     "escribir_puntos",
+    "leer_geometrias",
+    "longitud_lineas",
+    "perimetro_poligonos",
+    "distancia_maxima",
     "valores_unicos",
     "area_poligonos",
     "epsg_de_wkt",
@@ -232,6 +237,195 @@ def _leer_cabecera_shp(ruta: Path) -> tuple[int, tuple[float, float, float, floa
     codigo_geometria = struct.unpack("<i", cabecera[32:36])[0]
     extension = struct.unpack("<4d", cabecera[36:68])
     return codigo_geometria, extension
+
+
+# =============================================================================
+# Geometría
+# =============================================================================
+# Códigos de tipo de geometría del formato .shp. Solo se leen los que el estudio
+# usa; los demás se rechazan con su código en lugar de devolver algo vacío.
+_TIPO_NULO = 0
+_TIPO_PUNTO = 1
+_TIPO_POLILINEA = 3
+_TIPO_POLIGONO = 5
+_TIPO_MULTIPUNTO = 8
+
+
+def leer_geometrias(ruta: str | Path) -> list[list[list[tuple[float, float]]]]:
+    """
+    Lee la geometría de un shapefile de líneas o polígonos.
+
+    Devuelve una lista por entidad, cada una con sus PARTES, y cada parte con
+    sus vértices. Un polígono con isla tiene dos partes; una polilínea partida,
+    también. Respetar esa estructura importa: unir las partes produciría un
+    perímetro y una longitud equivocados.
+
+    Existe porque los módulos de análisis corren en el venv, donde no hay GDAL,
+    y aun así deben calcular perímetros, longitudes de cauce y densidad de
+    drenaje. Leer el formato binario es preferible a arrastrar una dependencia
+    geoespacial al entorno que comparte el Python de QGIS.
+
+    Se ignora la dimensión Z o M si el archivo la trae: el estudio trabaja en
+    dos dimensiones y la tercera vendría del DEM, no de la capa vectorial.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si el archivo no existe.
+    ErrorFormato
+        Si el tipo de geometría no es de líneas ni de polígonos, o si un
+        registro está truncado.
+    """
+    ruta = Path(ruta)
+    if not ruta.is_file():
+        raise ErrorRutas(f"No existe el shapefile {ruta}.")
+
+    codigo, _ = _leer_cabecera_shp(ruta)
+    admitidos = (_TIPO_POLILINEA, _TIPO_POLIGONO,
+                 _TIPO_POLILINEA + 10, _TIPO_POLIGONO + 10,   # con Z
+                 _TIPO_POLILINEA + 20, _TIPO_POLIGONO + 20)   # con M
+    if codigo not in admitidos:
+        raise ErrorFormato(
+            f"{ruta.name} tiene geometría de tipo {codigo}, y esta función lee "
+            f"líneas ({_TIPO_POLILINEA}) o polígonos ({_TIPO_POLIGONO})."
+        )
+
+    entidades: list[list[list[tuple[float, float]]]] = []
+    with ruta.open("rb") as manejador:
+        manejador.seek(100)
+        while True:
+            cabecera = manejador.read(8)
+            if len(cabecera) < 8:
+                break
+            _, longitud_palabras = struct.unpack(">2i", cabecera)
+            cuerpo = manejador.read(longitud_palabras * 2)
+            if len(cuerpo) < longitud_palabras * 2:
+                raise ErrorFormato(
+                    f"{ruta.name}: un registro de geometría está truncado."
+                )
+            tipo = struct.unpack("<i", cuerpo[0:4])[0]
+            if tipo == _TIPO_NULO:
+                entidades.append([])
+                continue
+            # Tras el tipo van la caja envolvente (4 dobles), el número de
+            # partes, el de puntos, y el índice de inicio de cada parte.
+            n_partes, n_puntos = struct.unpack("<2i", cuerpo[36:44])
+            inicio_indices = 44
+            indices = struct.unpack(
+                f"<{n_partes}i",
+                cuerpo[inicio_indices:inicio_indices + 4 * n_partes])
+            inicio_puntos = inicio_indices + 4 * n_partes
+            crudos = struct.unpack(
+                f"<{2 * n_puntos}d",
+                cuerpo[inicio_puntos:inicio_puntos + 16 * n_puntos])
+            puntos = [(crudos[i], crudos[i + 1])
+                      for i in range(0, len(crudos), 2)]
+
+            partes: list[list[tuple[float, float]]] = []
+            for orden, arranque in enumerate(indices):
+                fin = indices[orden + 1] if orden + 1 < n_partes else n_puntos
+                partes.append(puntos[arranque:fin])
+            entidades.append(partes)
+    return entidades
+
+
+def longitud_lineas(ruta: str | Path) -> float:
+    """
+    Longitud total de una capa de líneas, en las unidades de su CRS.
+
+    Suma parte por parte. Unir las partes de una polilínea partida añadiría un
+    segmento ficticio entre el final de una y el principio de la siguiente, que
+    puede medir kilómetros.
+    """
+    total = 0.0
+    for entidad in leer_geometrias(ruta):
+        for parte in entidad:
+            for uno, otro in zip(parte, parte[1:]):
+                total += math.hypot(otro[0] - uno[0], otro[1] - uno[1])
+    return total
+
+
+def perimetro_poligonos(ruta: str | Path) -> float:
+    """
+    Perímetro total de una capa de polígonos, en las unidades de su CRS.
+
+    Incluye los anillos interiores: el borde de una isla es perímetro de la
+    entidad, y omitirlo subestimaría el coeficiente de compacidad.
+    """
+    total = 0.0
+    for entidad in leer_geometrias(ruta):
+        for anillo in entidad:
+            cerrado = list(anillo)
+            if cerrado and cerrado[0] != cerrado[-1]:
+                cerrado.append(cerrado[0])
+            for uno, otro in zip(cerrado, cerrado[1:]):
+                total += math.hypot(otro[0] - uno[0], otro[1] - uno[1])
+    return total
+
+
+def _envolvente_convexa(
+    puntos: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """
+    Envolvente convexa por la cadena monotona de Andrew.
+
+    La distancia maxima entre dos puntos de un conjunto se alcanza SIEMPRE entre
+    dos vertices de su envolvente convexa. Calcularla primero reduce el problema
+    de decenas de miles de vertices a unas decenas, y con ello el coste de
+    cuadratico a practicamente lineal: sobre la cuenca de este estudio, de ocho
+    minutos a menos de un segundo.
+    """
+    unicos = sorted(set(puntos))
+    if len(unicos) < 3:
+        return unicos
+
+    def giro(o, a, b) -> float:
+        return ((a[0] - o[0]) * (b[1] - o[1])
+                - (a[1] - o[1]) * (b[0] - o[0]))
+
+    inferior: list[tuple[float, float]] = []
+    for punto in unicos:
+        while len(inferior) >= 2 and giro(inferior[-2], inferior[-1], punto) <= 0:
+            inferior.pop()
+        inferior.append(punto)
+    superior: list[tuple[float, float]] = []
+    for punto in reversed(unicos):
+        while len(superior) >= 2 and giro(superior[-2], superior[-1], punto) <= 0:
+            superior.pop()
+        superior.append(punto)
+    return inferior[:-1] + superior[:-1]
+
+
+def distancia_maxima(ruta: str | Path, muestreo: int = 1) -> float:
+    """
+    Mayor distancia entre dos vertices de la capa: la longitud axial.
+
+    Es la que alimenta el coeficiente de forma y varias formulas de tiempo de
+    concentracion.
+
+    Se calcula sobre la envolvente convexa y no sobre todos los vertices. El
+    resultado es EXACTAMENTE el mismo, porque el par mas distante siempre cae
+    sobre ella, y el coste deja de ser cuadratico sobre el total de vertices.
+
+    'muestreo' se conserva por compatibilidad, pero ya no hace falta: con la
+    envolvente el calculo es rapido sobre la capa completa, y saltarse vertices
+    solo introduciria error.
+    """
+    puntos: list[tuple[float, float]] = []
+    for entidad in leer_geometrias(ruta):
+        for parte in entidad:
+            puntos.extend(parte[::max(1, muestreo)])
+    if len(puntos) < 2:
+        return 0.0
+    candidatos = _envolvente_convexa(puntos) or puntos
+    mayor = 0.0
+    for indice, uno in enumerate(candidatos):
+        for otro in candidatos[indice + 1:]:
+            distancia = math.hypot(otro[0] - uno[0], otro[1] - uno[1])
+            if distancia > mayor:
+                mayor = distancia
+    return mayor
+
 
 
 # =============================================================================
