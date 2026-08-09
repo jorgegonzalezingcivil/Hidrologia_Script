@@ -12,34 +12,61 @@
 # =============================================================================
 
 suelos:
+  # NO se aporta informacion propia del proyecto. Se usa la CAPA DE BASE
+  # declarada en config.yaml (referencia_nacional.suelos_hsg), como permite
+  # numero_curva.usar_base_si_no_aportado.
+  #
+  # Si en un estudio futuro se dispone de un estudio de suelos propio, se coloca
+  # en esta carpeta, se pone 'aportado' en verdadero y se diligencia el resto:
+  # lo aportado tiene precedencia sobre la base.
   aportado: false
-  archivo: ""                    # ruta relativa a data/00_insumos_usuario/suelos/
-  tipo: ""                       # shapefile | raster
-  perfil: ""                     # A | B | C | D  (ver CLAUDE.md)
-                                 # A: trae grupo hidrológico asignado (A,B,C,D)
-                                 # B: IGAC con textura, profundidad y drenaje
-                                 # C: codificación propia (UCS, símbolo, leyenda)
-                                 # D: ráster con valores a reclasificar
-  campo_clave: ""                # campo con el atributo a homologar
-  fuente: ""                     # IGAC, estudio de suelos del proyecto, otro
-  fecha: ""
-  escala: ""                     # 1:25000, 1:100000, etc.
-  crs_declarado: ""
-  observaciones: ""
-
-cobertura:
-  aportado: false
+  usa_capa_base: true
+  base_archivo: "suelos/HYSOGs250m.tif"
+  base_fuente: "Ross et al. (2018), Global Hydrologic Soil Groups, ORNL DAAC"
+  base_tipo: "raster"
+  base_perfil: "D"               # raster con valores a reclasificar
+  base_escala: "1:250000"        # 250 m de resolucion
+  base_crs: "EPSG:4326"
+  base_codificacion: >-
+    1=A, 2=B, 3=C, 4=D para grupos simples. 11=A/D, 12=B/D, 13=C/D, 14=D/D para
+    los DUALES, que significan drenado y sin drenar.
   archivo: ""
-  tipo: ""                       # shapefile | raster
+  tipo: ""
+  perfil: ""
   campo_clave: ""
-  fuente: ""                     # cobertura del proyecto | Corine Land Cover | otro
+  fuente: ""
   fecha: ""
   escala: ""
   crs_declarado: ""
-  observaciones: ""
-  # Si no se aporta, el sistema recorta Corine Land Cover al área de influencia.
-  # Si tampoco está disponible, el CN se asigna por criterio del consultor con
-  # registro explícito.
+  observaciones: >-
+    Muestreado sobre el area del estudio: C 69,1%, D 14,2%, C/D 12,9%, D/D 2,8%,
+    B 0,6% y 0,4% sin dato. Los grupos DUALES suman el 15,7% del area y exigen
+    decision: un suelo C/D se comporta como C si esta drenado y como D si no. La
+    practica conservadora adopta el segundo termino, lo que sube el numero de
+    curva y el caudal de diseno. Esa eleccion debe declararse antes del M13.
+
+cobertura:
+  # Igual que suelos: se usa la CAPA DE BASE y no informacion propia del
+  # proyecto. CLAUDE.md, seccion 6, ya preveia Corine Land Cover como respaldo.
+  aportado: false
+  usa_capa_base: true
+  base_archivo: "cobertura/cobertura_tierra_clc_2018.shp"
+  base_fuente: "IDEAM, Corine Land Cover Colombia 2018"
+  base_tipo: "shapefile"
+  base_campo: "codigo"
+  base_crs: "EPSG:4686"
+  archivo: ""
+  tipo: ""
+  campo_clave: ""
+  fuente: ""
+  fecha: ""
+  escala: ""
+  crs_declarado: ""
+  observaciones: >-
+    332.333 poligonos con leyenda jerarquica en seis niveles (nivel_1 a
+    nivel_6). El campo 'codigo' trae el codigo CLC de tres digitos, que es el
+    que se homologa a numero de curva. El .prj declara GCS_MAGNA sin autoridad
+    EPSG: corresponde a EPSG:4686 y la reproyeccion debe ser explicita.
 
 caudales:
   aportado: false

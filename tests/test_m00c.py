@@ -28,6 +28,8 @@ from comun import esquema, shapefile  # noqa: E402
 from comun.config import cargar, leer_yaml  # noqa: E402
 from comun.errores import ErrorFormato  # noqa: E402
 
+_CFG = cargar(raiz=_RAIZ_REPO)
+
 _WKT_9377 = (
     'PROJCS["MAGNA-SIRGAS 2018 / Origen-Nacional",'
     'GEOGCS["MAGNA-SIRGAS 2018",DATUM["D",SPHEROID["GRS 1980",6378137,298.257222101,'
@@ -586,17 +588,40 @@ class PruebaModuloCompleto(unittest.TestCase):
 
     def test_ejecucion_sobre_el_repositorio(self) -> None:
         """
-        Con el manifiesto en blanco, el suelo obligatorio falta y el módulo debe
-        detenerse. Es el comportamiento correcto en el estado inicial.
+        El manifiesto declara CAPA DE BASE para suelos, de modo que no aportar
+        información propia ya no detiene el módulo.
+
+        No aportarla deja de ser bloqueante porque existe una fuente que sirve
+        siempre, pero SÍ se advierte: un número de curva derivado de una capa
+        global no vale lo mismo que uno derivado de un estudio de suelos del
+        proyecto, y el informe debe poder distinguirlos.
         """
         destino_json = self.temporal / "reporte.json"
         codigo, hallazgos = m00c.ejecutar(
             raiz=_RAIZ_REPO, ruta_json=destino_json, consola=False
         )
-        self.assertEqual(codigo, m00c.SALIDA_BLOQUEANTE)
-        self.assertTrue(any(h.clave == "suelos.aportado" and h.es_bloqueante
-                            for h in hallazgos))
+        self.assertEqual(codigo, m00c.SALIDA_CORRECTA)
+        base = [h for h in hallazgos if h.clave == "suelos.usa_capa_base"]
+        self.assertTrue(base, "debe advertir que usa la capa de base")
+        self.assertFalse(base[0].es_bloqueante)
+        # Y no debe quedar el bloqueante antiguo.
+        self.assertFalse(any(h.clave == "suelos.aportado" and h.es_bloqueante
+                             for h in hallazgos))
         self.assertTrue(destino_json.is_file())
+
+    def test_sin_capa_de_base_vuelve_a_ser_bloqueante(self) -> None:
+        """
+        La capa de base solo exime si EXISTE. Declararla y no tenerla en disco
+        deja el estudio sin grupo hidrológico, y eso sí detiene.
+        """
+        hallazgos = m00c.verificar_obligatoriedad(
+            {"suelos": {"aportado": False, "usa_capa_base": True,
+                        "base_archivo": "suelos/no_existe.tif"}},
+            _CFG,
+        )
+        bloqueantes = [h for h in hallazgos if h.es_bloqueante]
+        self.assertTrue(bloqueantes)
+        self.assertIn("NO se encuentra", bloqueantes[0].mensaje)
 
 
 if __name__ == "__main__":

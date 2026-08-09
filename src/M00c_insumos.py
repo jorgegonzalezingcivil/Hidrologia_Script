@@ -898,7 +898,38 @@ def verificar_obligatoriedad(
 
     for nombre in INSUMOS_OBLIGATORIOS:
         bloque = manifiesto.get(nombre)
-        if isinstance(bloque, dict) and not bloque.get("aportado"):
+        if not isinstance(bloque, dict) or bloque.get("aportado"):
+            continue
+
+        # Capa de BASE. Algunos insumos tienen una fuente nacional o global que
+        # sirve siempre, con independencia del tamano de la cuenca, y que el
+        # consultor solo sustituye si dispone de informacion propia. No aportar
+        # lo propio deja de ser bloqueante cuando la base existe y esta
+        # declarada, pero SI se advierte: un numero de curva derivado de una
+        # capa global no vale lo mismo que uno derivado de un estudio de suelos
+        # del proyecto, y el informe debe poder distinguirlos.
+        if bloque.get("usa_capa_base"):
+            archivo = str(bloque.get("base_archivo") or "").strip()
+            directorio = configuracion.obtener(
+                "referencia_nacional.directorio", "")
+            existe = bool(archivo) and (Path(directorio) / archivo).is_file()
+            hallazgos.append(Hallazgo(
+                ADVERTENCIA if existe else BLOQUEANTE,
+                f"{nombre}.usa_capa_base",
+                f"no se aporto {nombre} propio del proyecto y se usara la capa "
+                f"de base declarada ({archivo or 'sin declarar'}, "
+                f"{bloque.get('base_fuente') or 'sin fuente'})."
+                + (f" Escala {bloque.get('base_escala')}." 
+                   if bloque.get("base_escala") else "")
+                + (" El resultado que se derive de ella debe declararse como "
+                   "procedente de una fuente general y no de un estudio del "
+                   "proyecto." if existe else
+                   f" NO se encuentra en {directorio}: sin ella no hay grupo "
+                   "hidrologico ni numero de curva sustentados."),
+            ))
+            continue
+
+        if True:
             hallazgos.append(Hallazgo(
                 BLOQUEANTE, f"{nombre}.aportado",
                 f"el insumo de {nombre} es obligatorio y no se aportó. Sin él no "

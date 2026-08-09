@@ -120,6 +120,32 @@ referencia_nacional:
   # ventana de 25 km alrededor del punto.
   max_incumplimiento_sentido_pct: 10.0
   # Productos versionables que deja el recorte, dentro del repositorio.
+  # --- Suelos y cobertura de base -------------------------------------------
+  # DECISION DEL CONSULTOR, 2026-08-09. Registrada en MANIFIESTO.yaml.
+  #
+  # Estas dos capas son la BASE SIEMPRE, con independencia del tamano de la
+  # cuenca. Si el consultor aporta informacion propia en
+  # data/00_insumos_usuario, ESA tiene precedencia; si no la aporta, se usan
+  # estas y el modulo lo declara en su reporte.
+  #
+  # Viven fuera del repositorio por la misma razon que el drenaje del IGAC:
+  # entre las dos ocupan 3 GB y versionarlas haria inmanejable el entregable.
+  # El repositorio versiona solo el recorte al area de influencia.
+  #
+  # HYSOGs250m trae el grupo hidrologico YA ASIGNADO, de modo que corresponde al
+  # perfil D del adaptador: raster con valores a reclasificar. Su codificacion
+  # es 1=A, 2=B, 3=C, 4=D para grupos simples, y 11=A/D, 12=B/D, 13=C/D, 14=D/D
+  # para los DUALES, que significan drenado/sin drenar.
+  suelos_hsg: "suelos/HYSOGs250m.tif"
+  suelos_hsg_crs: "EPSG:4326"
+  suelos_hsg_escala: "1:250000"
+  suelos_hsg_fuente: "Ross et al. (2018), Global Hydrologic Soil Groups, ORNL DAAC"
+  cobertura_clc: "cobertura/cobertura_tierra_clc_2018.shp"
+  cobertura_clc_crs: "EPSG:4686"
+  cobertura_clc_campo: "codigo"
+  cobertura_clc_fuente: "IDEAM, Corine Land Cover Colombia 2018"
+  salida_recorte_suelos: "data/referencia/sig/suelos_hsg_area.tif"
+  salida_recorte_cobertura: "data/referencia/sig/cobertura_clc_area.shp"
   salida_recorte_sencillo: "data/referencia/sig/drenaje_sencillo_area.shp"
   salida_recorte_doble: "data/referencia/sig/drenaje_doble_area.shp"
   salida_grafo: "data/02_procesado/red_drenaje_grafo.json"
@@ -789,6 +815,13 @@ numero_curva:
   homologacion_suelos: "data/00_insumos_usuario/homologacion/suelos.csv"
   homologacion_cobertura: "data/00_insumos_usuario/homologacion/cobertura.csv"
   advertir_escala_incompatible: true
+  # Precedencia de insumos. Si el consultor aporta suelos o cobertura propios en
+  # data/00_insumos_usuario, ESOS mandan. Si no, se usan las capas de base
+  # declaradas en referencia_nacional, y el modulo lo declara en su reporte: un
+  # numero de curva derivado de una capa global no vale lo mismo que uno
+  # derivado de un estudio de suelos del proyecto, y el informe debe poder
+  # distinguirlos.
+  usar_base_si_no_aportado: true
 
 # -----------------------------------------------------------------------------
 # M13 / M14 - MODELO HEC-HMS

@@ -297,6 +297,26 @@ ESQUEMA: dict[str, Campo] = {
         "incumplimiento máximo admitido de la convención de sentido",
         minimo=0, maximo=100,
     ),
+    "referencia_nacional.suelos_hsg": texto(
+        "ráster de grupo hidrológico de suelo, capa de base", no_vacio=True),
+    "referencia_nacional.suelos_hsg_crs": texto(
+        "CRS del ráster de suelos", no_vacio=True),
+    "referencia_nacional.suelos_hsg_escala": texto(
+        "escala equivalente del ráster de suelos", no_vacio=True),
+    "referencia_nacional.suelos_hsg_fuente": texto(
+        "procedencia del ráster de suelos", no_vacio=True),
+    "referencia_nacional.cobertura_clc": texto(
+        "capa de cobertura de base", no_vacio=True),
+    "referencia_nacional.cobertura_clc_crs": texto(
+        "CRS de la capa de cobertura", no_vacio=True),
+    "referencia_nacional.cobertura_clc_campo": texto(
+        "campo con el código de cobertura", no_vacio=True),
+    "referencia_nacional.cobertura_clc_fuente": texto(
+        "procedencia de la capa de cobertura", no_vacio=True),
+    "referencia_nacional.salida_recorte_suelos": texto(
+        "recorte versionable del ráster de suelos", no_vacio=True),
+    "referencia_nacional.salida_recorte_cobertura": texto(
+        "recorte versionable de la cobertura", no_vacio=True),
     "referencia_nacional.salida_recorte_sencillo": texto(
         "recorte versionable del drenaje sencillo", no_vacio=True,
     ),
@@ -888,6 +908,8 @@ ESQUEMA: dict[str, Campo] = {
     "numero_curva.homologacion_cobertura": ruta(
         "homologación de cobertura del consultor",
     ),
+    "numero_curva.usar_base_si_no_aportado": booleano(
+        "usar las capas de base cuando el consultor no aporta las suyas"),
     "numero_curva.advertir_escala_incompatible": booleano(
         "advertir si la escala del shape de suelos es incompatible",
     ),
