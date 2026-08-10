@@ -26,16 +26,24 @@ Aplicarlas fuera de su rango es la extrapolación más frecuente y menos
 justificada de la práctica, y por eso la matriz vive en data/referencia con el
 rango de cada una y su procedencia, nunca en el código.
 
-LO QUE ESTE MÓDULO NO CALCULA. Los parámetros de RELIEVE (cota máxima, mínima,
-media, curva hipsométrica, pendiente de la cuenca) exigen leer el DEM celda a
-celda, y el venv no tiene GDAL. Se declaran como pendientes en lugar de
-inventarlos: corresponden al entorno SIG.
+Sobre el RELIEVE. Cotas, curva hipsométrica y pendiente salen de leer el DEM
+celda a celda, con el adaptador 'comun/raster.py', sin GDAL y sin salir del
+venv. La pendiente no se entrega como una sola cifra: se calcula además sobre
+el DEM agregado a resoluciones más gruesas, porque la pendiente de una celda no
+es una propiedad del terreno sino del terreno Y de la resolución con que se
+mide. Ese contraste separa el relieve del error del sensor, que sobre terreno
+plano domina por completo la diferencia de cota entre celdas contiguas y, al
+carecer de signo el módulo del gradiente, solo puede inflar el resultado.
 
 Productos:
     data/02_procesado/morfometria/parametros.csv
     data/02_procesado/morfometria/tiempo_concentracion.csv
+    data/02_procesado/morfometria/curva_hipsometrica.csv
+    data/02_procesado/morfometria/distribucion_altimetrica.csv
+    data/02_procesado/morfometria/pendiente_por_escala.csv
     data/02_procesado/morfometria/M10_morfometria.md
     data/02_procesado/M10_morfometria.json
+    data/05_resultados/graficos/M10_*.png
 
 Uso:
     python src/M10_morfometria.py
@@ -62,7 +70,9 @@ _DIRECTORIO_SRC = Path(__file__).resolve().parent
 if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
-from comun import esquema, geometria, registro, rutas, shapefile  # noqa: E402
+from comun import (  # noqa: E402
+    esquema, geometria, raster, registro, rutas, shapefile,
+)
 from comun.config import Config, cargar  # noqa: E402
 from comun.errores import (  # noqa: E402
     ErrorConfiguracion,
@@ -79,9 +89,8 @@ SALIDA_CORRECTA = 0
 SALIDA_BLOQUEANTE = 1
 SALIDA_ERROR = 3
 
-# Parámetros que exigen el DEM y no se pueden calcular en el venv. Se declaran
-# para que el informe sepa que faltan, en lugar de que su ausencia pase
-# inadvertida.
+# Parámetros que exigen el DEM. Si falta, se declaran uno a uno para que el
+# informe sepa qué falta, en lugar de que su ausencia pase inadvertida.
 PARAMETROS_DE_RELIEVE = (
     "cota_max", "cota_min", "cota_media", "desnivel_altitudinal",
     "curva_hipsometrica", "pendiente_media_cuenca",
@@ -92,6 +101,7 @@ PARAMETROS_DE_RELIEVE = (
 class ResultadoM10:
     modo: str = ""
     unidades: list[dict[str, Any]] = field(default_factory=list)
+    relieve: dict[str, Any] = field(default_factory=dict)
     tiempos: list[dict[str, Any]] = field(default_factory=list)
     adoptados: dict[str, Any] = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
@@ -154,12 +164,13 @@ def parametros_de_drenaje(
     """
     longitud_m = 0.0
     tramos = 0
+    indice = geometria.IndicePoligonos(poligonos)
     for entidad in shapefile.leer_geometrias(ruta_drenaje):
         dentro_alguno = False
         for parte in entidad:
             for uno, otro in zip(parte, parte[1:]):
                 centro = _centro((uno, otro))
-                if not geometria.punto_en_alguno(centro[0], centro[1], poligonos):
+                if not indice.contiene(centro[0], centro[1]):
                     continue
                 longitud_m += math.hypot(otro[0] - uno[0], otro[1] - uno[1])
                 dentro_alguno = True
@@ -167,6 +178,438 @@ def parametros_de_drenaje(
             tramos += 1
     return {"long_cauces_km": round(longitud_m / 1000.0, 2),
             "tramos_dentro": tramos}
+
+
+# =============================================================================
+# Relieve
+# =============================================================================
+# Constante del estimador de ruido vertical. La pendiente de Horn sobre un
+# plano contaminado con ruido blanco de desviación sigma tiene componentes de
+# desviación sigma*raiz(3)/(4*dx), y su módulo sigue una Rayleigh, cuya mediana
+# vale raiz(2*ln2) veces esa desviación. Invirtiendo:
+#
+#       sigma = mediana_de_pendiente * dx / (raiz(2*ln2) * raiz(3)/4)
+#
+# El divisor es 0,5098, de modo que el factor es 1,9615.
+FACTOR_RUIDO = 1.0 / (math.sqrt(2.0 * math.log(2.0)) * math.sqrt(3.0) / 4.0)
+
+# Casillas del histograma de pendiente, en m/m. Cubre hasta la vertical con
+# resolución suficiente para leer una mediana fiable.
+PASO_PENDIENTE = 0.002
+CASILLAS_PENDIENTE = 2500
+
+
+def _mascara_de_fila(info, aristas, fila: int, np_) -> Any:
+    """
+    Devuelve, para una fila del ráster, qué celdas caen dentro de la cuenca.
+
+    Se resuelve por el CENTRO de la celda, que es la convención de estadística
+    zonal de GDAL y de QGIS. Cambiarla por el criterio de superficie tocada
+    inflaría el área en un borde de media celda alrededor de toda la divisoria.
+    """
+    mascara = np_.zeros(info.ancho, dtype=bool)
+    y = info.y_de_fila(fila)
+    for x_inicio, x_fin in geometria.tramos_de_barrido(aristas, y):
+        desde = math.ceil((x_inicio - info.origen_x) / info.tamano_x - 0.5)
+        hasta = math.ceil((x_fin - info.origen_x) / info.tamano_x - 0.5) - 1
+        desde = max(int(desde), 0)
+        hasta = min(int(hasta), info.ancho - 1)
+        if hasta >= desde:
+            mascara[desde:hasta + 1] = True
+    return mascara
+
+
+def pendiente_de_horn(bloque, valido, tamano_x: float, tamano_y: float, np_):
+    """
+    Pendiente por el método de Horn (1981) sobre la fila central del bloque.
+
+    Es el método de la ventana de 3 x 3 con pesos 1-2-1 que usan GDAL, QGIS y
+    ArcGIS. Se prefiere al de máxima diferencia porque promedia las ocho
+    vecinas, lo que atenúa (sin eliminar) el ruido de celda del DEM de radar.
+
+    Devuelve el módulo del gradiente en m/m y la máscara de celdas donde se
+    pudo calcular. Una celda con cualquier vecina sin dato queda excluida: dar
+    por buena una ventana incompleta introduce un escalón artificial en el
+    borde de cada hueco del DEM.
+    """
+    z = bloque
+    v = valido
+    # Ventana completa: las nueve celdas con dato.
+    entera = (v[0, :-2] & v[0, 1:-1] & v[0, 2:]
+              & v[1, :-2] & v[1, 1:-1] & v[1, 2:]
+              & v[2, :-2] & v[2, 1:-1] & v[2, 2:])
+
+    dzdx = ((z[0, 2:] + 2.0 * z[1, 2:] + z[2, 2:])
+            - (z[0, :-2] + 2.0 * z[1, :-2] + z[2, :-2])) / (8.0 * tamano_x)
+    dzdy = ((z[2, :-2] + 2.0 * z[2, 1:-1] + z[2, 2:])
+            - (z[0, :-2] + 2.0 * z[0, 1:-1] + z[0, 2:])) / (8.0 * tamano_y)
+    return np_.hypot(dzdx, dzdy), entera
+
+
+def _pendiente_de_malla(malla, valido, paso: float, np_):
+    """Aplica Horn a una malla completa en memoria. Para las mallas gruesas."""
+    alto, ancho = malla.shape
+    if alto < 3 or ancho < 3:
+        return np_.zeros((0,)), np_.zeros((0,), dtype=bool)
+    pendientes = np_.zeros((alto - 2, ancho - 2))
+    enteras = np_.zeros((alto - 2, ancho - 2), dtype=bool)
+    for j in range(1, alto - 1):
+        valor, entera = pendiente_de_horn(
+            malla[j - 1:j + 2], valido[j - 1:j + 2], paso, paso, np_)
+        pendientes[j - 1] = valor
+        enteras[j - 1] = entera
+    return pendientes, enteras
+
+
+def _percentil_de_histograma(cuentas, bordes, fraccion: float, np_) -> float:
+    """
+    Percentil leído sobre un histograma acumulado.
+
+    Se trabaja sobre histograma y no sobre el vector de valores porque la
+    cuenca tiene decenas de millones de celdas: guardarlas todas para ordenar
+    costaría cientos de megabytes sin mejorar una cifra que se reporta al metro.
+    """
+    total = float(cuentas.sum())
+    if total <= 0:
+        return float("nan")
+    acumulado = np_.cumsum(cuentas)
+    objetivo = fraccion * total
+    indice = int(np_.searchsorted(acumulado, objetivo, side="left"))
+    indice = min(max(indice, 0), len(cuentas) - 1)
+    previo = float(acumulado[indice - 1]) if indice > 0 else 0.0
+    en_casilla = float(cuentas[indice])
+    if en_casilla <= 0:
+        return float(bordes[indice])
+    interpolado = (objetivo - previo) / en_casilla
+    return float(bordes[indice] + interpolado * (bordes[indice + 1] - bordes[indice]))
+
+
+def estadisticas_de_relieve(
+    ruta_dem: Path,
+    poligonos,
+    intervalo_m: float = 25.0,
+    escalas: Sequence[int] = (4, 8, 16),
+    pendiente_llana: float = 0.005,
+) -> dict[str, Any]:
+    """
+    Cotas, curva hipsométrica y pendiente de la cuenca, leyendo el DEM.
+
+    Recorre el ráster tres veces y nunca lo carga entero: 456 MB de terreno no
+    caben con holgura junto a las mallas de agregación.
+
+        1. extremos y media, que fijan el rango del histograma
+        2. mallas agregadas, que dan la pendiente a varias resoluciones
+        3. histogramas de cota y de pendiente
+
+    El tercer recorrido separa además la pendiente de las celdas que caen en
+    zona LLANA según la malla más gruesa. Esa separación es el diagnóstico que
+    justifica la advertencia sobre el DEM de radar: sobre terreno plano, la
+    diferencia de cota entre celdas contiguas es del orden del error vertical
+    del propio DEM, no del relieve, y como el módulo del gradiente no tiene
+    signo, ese error nunca se compensa: solo infla la pendiente.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        No está el DEM.
+    ErrorHidrologia
+        La cuenca no cae sobre el ráster, o no queda ninguna celda con dato.
+    """
+    import numpy as np  # noqa: PLC0415  (solo el venv lo necesita)
+
+    info = raster.leer_info(ruta_dem)
+    aristas = geometria.aristas_de(poligonos)
+    if not aristas:
+        raise ErrorHidrologia("la cuenca no tiene aristas legibles.")
+    xmin, ymin, xmax, ymax = geometria.envolvente(poligonos)
+
+    rxmin, rymin, rxmax, rymax = info.extension
+    if xmin >= rxmax or xmax <= rxmin or ymin >= rymax or ymax <= rymin:
+        raise ErrorHidrologia(
+            f"la cuenca no se superpone con el DEM. Cuenca "
+            f"({xmin:.0f}, {ymin:.0f}) a ({xmax:.0f}, {ymax:.0f}); DEM "
+            f"({rxmin:.0f}, {rymin:.0f}) a ({rxmax:.0f}, {rymax:.0f}). "
+            "Suele ser un CRS distinto del declarado.")
+
+    fuera = not info.contiene(xmin, ymin, xmax, ymax)
+    fila_ini = max(0, info.fila_de(ymax))
+    fila_fin = min(info.alto - 1, info.fila_de(ymin))
+    nodato = info.nodato
+
+    # --- Recorrido 1: extremos ----------------------------------------------
+    cota_min = float("inf")
+    cota_max = float("-inf")
+    suma = 0.0
+    validas = 0
+    dentro = 0
+    with raster.LectorRaster(ruta_dem) as lector:
+        for fila in range(fila_ini, fila_fin + 1):
+            mascara = _mascara_de_fila(info, aristas, fila, np)
+            if not mascara.any():
+                continue
+            z = np.frombuffer(lector.fila(fila), dtype=info.descriptor)
+            dentro += int(mascara.sum())
+            if nodato is not None:
+                mascara &= z != nodato
+            valores = z[mascara]
+            if not valores.size:
+                continue
+            validas += valores.size
+            suma += float(valores.sum(dtype=np.float64))
+            cota_min = min(cota_min, float(valores.min()))
+            cota_max = max(cota_max, float(valores.max()))
+
+    if not validas:
+        raise ErrorHidrologia(
+            "ninguna celda del DEM dentro de la cuenca tiene dato.")
+
+    media = suma / validas
+    area_celda = info.area_celda_m2
+
+    # --- Recorrido 2: mallas agregadas ---------------------------------------
+    columna_ini = max(0, info.columna_de(xmin))
+    columna_fin = min(info.ancho - 1, info.columna_de(xmax))
+    ancho_util = columna_fin - columna_ini + 1
+    alto_util = fila_fin - fila_ini + 1
+
+    escalas = tuple(int(f) for f in escalas if int(f) >= 2)
+    sumas: dict[int, Any] = {}
+    cuentas: dict[int, Any] = {}
+    for factor in escalas:
+        filas_gruesas = (alto_util + factor - 1) // factor
+        columnas_gruesas = (ancho_util + factor - 1) // factor
+        sumas[factor] = np.zeros((filas_gruesas, columnas_gruesas), np.float64)
+        cuentas[factor] = np.zeros((filas_gruesas, columnas_gruesas), np.int32)
+
+    if escalas:
+        with raster.LectorRaster(ruta_dem) as lector:
+            for fila in range(fila_ini, fila_fin + 1):
+                mascara = _mascara_de_fila(info, aristas, fila, np)
+                if not mascara.any():
+                    continue
+                z = np.frombuffer(lector.fila(fila), dtype=info.descriptor)
+                if nodato is not None:
+                    mascara = mascara & (z != nodato)
+                ventana = mascara[columna_ini:columna_fin + 1]
+                if not ventana.any():
+                    continue
+                cotas = np.where(
+                    ventana, z[columna_ini:columna_fin + 1], 0.0
+                ).astype(np.float64)
+                unos = ventana.astype(np.int32)
+                indice = fila - fila_ini
+                for factor in escalas:
+                    relleno = (-ancho_util) % factor
+                    if relleno:
+                        bloque = np.concatenate([cotas, np.zeros(relleno)])
+                        marcas = np.concatenate(
+                            [unos, np.zeros(relleno, np.int32)])
+                    else:
+                        bloque, marcas = cotas, unos
+                    sumas[factor][indice // factor] += bloque.reshape(
+                        -1, factor).sum(axis=1)
+                    cuentas[factor][indice // factor] += marcas.reshape(
+                        -1, factor).sum(axis=1)
+
+    # Una celda gruesa vale si la mayoría de sus celdas finas tiene dato: con
+    # menos, su cota media representa el borde y no la celda.
+    pendiente_por_escala: list[dict[str, Any]] = []
+    llanas = None
+    for factor in escalas:
+        completas = cuentas[factor] >= (factor * factor) // 2
+        malla = np.zeros_like(sumas[factor])
+        np.divide(sumas[factor], cuentas[factor], out=malla,
+                  where=cuentas[factor] > 0)
+        paso = info.tamano_x * factor
+        valores, enteras = _pendiente_de_malla(malla, completas, paso, np)
+        utiles = valores[enteras] if enteras.size else np.zeros(0)
+        pendiente_por_escala.append({
+            "factor": factor,
+            "tamano_celda_m": round(paso, 2),
+            "celdas": int(utiles.size),
+            "pendiente_media_mm": round(float(utiles.mean()), 5)
+            if utiles.size else None,
+            "pendiente_mediana_mm": round(float(np.median(utiles)), 5)
+            if utiles.size else None,
+        })
+        if factor == max(escalas) and enteras.size:
+            llanas = (valores < pendiente_llana) & enteras
+
+    # --- Recorrido 3: histogramas -------------------------------------------
+    borde_inferior = math.floor(cota_min / intervalo_m) * intervalo_m
+    borde_superior = math.ceil(cota_max / intervalo_m) * intervalo_m
+    if borde_superior <= borde_inferior:
+        borde_superior = borde_inferior + intervalo_m
+    n_casillas = int(round((borde_superior - borde_inferior) / intervalo_m))
+    bordes_cota = borde_inferior + intervalo_m * np.arange(n_casillas + 1)
+    cuentas_cota = np.zeros(n_casillas, np.int64)
+
+    bordes_pendiente = PASO_PENDIENTE * np.arange(CASILLAS_PENDIENTE + 1)
+    cuentas_pendiente = np.zeros(CASILLAS_PENDIENTE, np.int64)
+    cuentas_llana = np.zeros(CASILLAS_PENDIENTE, np.int64)
+    suma_pendiente = 0.0
+    celdas_pendiente = 0
+    factor_grueso = max(escalas) if escalas else 0
+
+    def _acumular_pendiente(fila: int, bloque, validez, mascara) -> None:
+        nonlocal suma_pendiente, celdas_pendiente
+        valores, enteras = pendiente_de_horn(
+            bloque, validez, info.tamano_x, info.tamano_y, np)
+        usar = enteras & mascara[1:-1]
+        if not usar.any():
+            return
+        utiles = valores[usar]
+        suma_pendiente += float(utiles.sum())
+        celdas_pendiente += int(utiles.size)
+        cuentas_pendiente[:] += np.bincount(
+            np.clip((utiles / PASO_PENDIENTE).astype(np.int64),
+                    0, CASILLAS_PENDIENTE - 1),
+            minlength=CASILLAS_PENDIENTE)
+        if llanas is None or not factor_grueso:
+            return
+        # ¿En qué celda gruesa cae cada celda fina de esta fila?
+        fila_gruesa = (fila - fila_ini) // factor_grueso - 1
+        if not 0 <= fila_gruesa < llanas.shape[0]:
+            return
+        columnas = np.nonzero(usar)[0] + 1  # índice en la fila del ráster
+        gruesas = (columnas - columna_ini) // factor_grueso - 1
+        dentro_malla = (gruesas >= 0) & (gruesas < llanas.shape[1])
+        if not dentro_malla.any():
+            return
+        es_llana = np.zeros(columnas.size, dtype=bool)
+        es_llana[dentro_malla] = llanas[fila_gruesa, gruesas[dentro_malla]]
+        if not es_llana.any():
+            return
+        cuentas_llana[:] += np.bincount(
+            np.clip((utiles[es_llana] / PASO_PENDIENTE).astype(np.int64),
+                    0, CASILLAS_PENDIENTE - 1),
+            minlength=CASILLAS_PENDIENTE)
+
+    with raster.LectorRaster(ruta_dem) as lector:
+        anterior = valido_ant = None
+        actual = valido_act = None
+        for fila in range(max(0, fila_ini - 1), min(info.alto, fila_fin + 2)):
+            crudo = np.frombuffer(lector.fila(fila), dtype=info.descriptor)
+            siguiente = crudo.astype(np.float64)
+            valido_sig = (siguiente != nodato if nodato is not None
+                          else np.ones(siguiente.size, dtype=bool))
+            centro = fila - 1
+            if anterior is not None and fila_ini <= centro <= fila_fin:
+                mascara = _mascara_de_fila(info, aristas, centro, np)
+                if mascara.any():
+                    dentro_validas = mascara & valido_act
+                    if dentro_validas.any():
+                        indices = np.clip(
+                            ((actual[dentro_validas] - borde_inferior)
+                             / intervalo_m).astype(np.int64),
+                            0, n_casillas - 1)
+                        cuentas_cota[:] += np.bincount(
+                            indices, minlength=n_casillas)
+                    _acumular_pendiente(
+                        centro,
+                        np.vstack([anterior, actual, siguiente]),
+                        np.vstack([valido_ant, valido_act, valido_sig]),
+                        mascara)
+            anterior, valido_ant = actual, valido_act
+            actual, valido_act = siguiente, valido_sig
+
+    # --- Síntesis ------------------------------------------------------------
+    cota_p1 = _percentil_de_histograma(cuentas_cota, bordes_cota, 0.01, np)
+    cota_p50 = _percentil_de_histograma(cuentas_cota, bordes_cota, 0.50, np)
+    cota_p99 = _percentil_de_histograma(cuentas_cota, bordes_cota, 0.99, np)
+    desnivel = cota_max - cota_min
+
+    pendiente_media = (suma_pendiente / celdas_pendiente
+                       if celdas_pendiente else float("nan"))
+    pendiente_p50 = _percentil_de_histograma(
+        cuentas_pendiente, bordes_pendiente, 0.50, np)
+    pendiente_p90 = _percentil_de_histograma(
+        cuentas_pendiente, bordes_pendiente, 0.90, np)
+
+    mediana_llana = (_percentil_de_histograma(
+        cuentas_llana, bordes_pendiente, 0.50, np)
+        if cuentas_llana.sum() else float("nan"))
+    ruido_m = (FACTOR_RUIDO * mediana_llana * info.tamano_x
+               if mediana_llana == mediana_llana else float("nan"))
+
+    curva = curva_hipsometrica(cuentas_cota, bordes_cota, area_celda)
+    integral = (media - cota_min) / desnivel if desnivel > 0 else float("nan")
+
+    return {
+        "dem": str(ruta_dem),
+        "crs_dem": info.crs_epsg,
+        "tamano_celda_m": info.tamano_x,
+        "celdas_en_cuenca": dentro,
+        "celdas_con_dato": validas,
+        "cobertura_dem_pct": round(100.0 * validas / dentro, 3) if dentro else 0.0,
+        "dem_no_cubre_la_envolvente": fuera,
+        "area_por_dem_km2": round(validas * area_celda / 1e6, 3),
+        "cota_min": round(cota_min, 2),
+        "cota_max": round(cota_max, 2),
+        "cota_media": round(media, 2),
+        "cota_mediana": round(cota_p50, 2),
+        "cota_p1": round(cota_p1, 2),
+        "cota_p99": round(cota_p99, 2),
+        "desnivel_altitudinal": round(desnivel, 2),
+        "desnivel_robusto": round(cota_p99 - cota_p1, 2),
+        "integral_hipsometrica": round(integral, 4),
+        "pendiente_media_cuenca": round(pendiente_media, 5),
+        "pendiente_media_pct": round(100.0 * pendiente_media, 2),
+        "pendiente_media_grados": round(math.degrees(math.atan(pendiente_media)), 2),
+        "pendiente_mediana": round(pendiente_p50, 5),
+        "pendiente_p90": round(pendiente_p90, 5),
+        "celdas_con_pendiente": celdas_pendiente,
+        "pendiente_por_escala": pendiente_por_escala,
+        "celdas_llanas": int(cuentas_llana.sum()),
+        "pendiente_mediana_en_llano": (round(mediana_llana, 5)
+                                       if mediana_llana == mediana_llana else None),
+        "ruido_vertical_estimado_m": (round(ruido_m, 3)
+                                      if ruido_m == ruido_m else None),
+        "curva_hipsometrica": curva,
+        "histograma_cota": [
+            {"cota_inf": round(float(bordes_cota[i]), 1),
+             "cota_sup": round(float(bordes_cota[i + 1]), 1),
+             "celdas": int(cuentas_cota[i]),
+             "area_km2": round(float(cuentas_cota[i]) * area_celda / 1e6, 3)}
+            for i in range(n_casillas) if cuentas_cota[i]
+        ],
+    }
+
+
+def curva_hipsometrica(cuentas, bordes,
+                       area_celda_m2: float) -> list[dict[str, float]]:
+    """
+    Fracción de área POR ENCIMA de cada cota, normalizada entre 0 y 1.
+
+    Es la forma en que Strahler la definió y la que permite comparar cuencas de
+    tamaño distinto. Su integral clasifica el estado de la cuenca: por encima
+    de 0,60 se lee como cuenca joven, en desequilibrio; entre 0,35 y 0,60 como
+    cuenca madura; por debajo de 0,35 como cuenca erosionada.
+    """
+    total = float(cuentas.sum())
+    if total <= 0:
+        return []
+    cota_min = float(bordes[0])
+    cota_max = float(bordes[-1])
+    rango = cota_max - cota_min
+    encima = float(total)
+    curva: list[dict[str, float]] = []
+    for indice in range(len(cuentas)):
+        cota = float(bordes[indice])
+        curva.append({
+            "cota": round(cota, 1),
+            "cota_relativa": round((cota - cota_min) / rango, 4) if rango else 0.0,
+            "area_encima_km2": round(encima * area_celda_m2 / 1e6, 3),
+            "area_relativa": round(encima / total, 4),
+        })
+        encima -= float(cuentas[indice])
+    curva.append({
+        "cota": round(cota_max, 1),
+        "cota_relativa": 1.0,
+        "area_encima_km2": 0.0,
+        "area_relativa": 0.0,
+    })
+    return curva
 
 
 # =============================================================================
@@ -271,6 +714,148 @@ def resumir_adopcion(
         "procede_adoptar": len(aplicables) >= minimo_formulas,
         "aplicables": [e["formula"] for e in aplicables],
     }
+
+
+def _resolver_relieve(relieve, parametros, resultado, configuracion,
+                      logger) -> float | None:
+    """
+    Incorpora el relieve a los parámetros y decide qué pendiente se adopta.
+
+    La elección tiene margen, de modo que queda registrada de forma explícita
+    (CLAUDE.md, sección 7): un estudio que no puede explicar por qué adoptó una
+    pendiente y no otra no es defendible ante interventoría.
+    """
+    escalares = [c for c in relieve
+                 if c not in ("curva_hipsometrica", "histograma_cota",
+                              "pendiente_por_escala")]
+    for clave in escalares:
+        parametros[clave] = relieve[clave]
+
+    logger.info("Cota %.0f a %.0f m | media %.0f | desnivel %.0f m | HI %.3f",
+                relieve["cota_min"], relieve["cota_max"],
+                relieve["cota_media"], relieve["desnivel_altitudinal"],
+                relieve["integral_hipsometrica"])
+
+    if relieve["dem_no_cubre_la_envolvente"] or relieve["cobertura_dem_pct"] < 99.9:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "relieve.cobertura",
+            f"el DEM cubre el {relieve['cobertura_dem_pct']:.2f} % de la "
+            "cuenca. Las cotas y la pendiente describen solo esa parte, y la "
+            "curva hipsometrica esta sesgada hacia ella.",
+        ))
+
+    integral = relieve["integral_hipsometrica"]
+    lectura = ("cuenca joven, en desequilibrio, con relieve por desmantelar"
+               if integral > 0.60 else
+               "cuenca erosionada, en fase de monadnock" if integral < 0.35
+               else "cuenca madura, en equilibrio")
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "relieve.hipsometria",
+        f"integral hipsometrica {integral:.3f}: {lectura} (Strahler). "
+        f"Cota de {relieve['cota_min']:.0f} a {relieve['cota_max']:.0f} m, "
+        f"media {relieve['cota_media']:.0f} m, desnivel "
+        f"{relieve['desnivel_altitudinal']:.0f} m. El desnivel robusto, entre "
+        f"los percentiles 1 y 99, es {relieve['desnivel_robusto']:.0f} m: la "
+        "diferencia con el desnivel total mide cuanto pesan las celdas "
+        "extremas, que en un DEM de radar pueden ser un pozo o un pico de "
+        "ruido y no terreno.",
+    ))
+
+    # --- ¿Representa algo la cota media? ------------------------------------
+    # En una cuenca de un solo modo, la cota media cae donde hay terreno. En
+    # una de dos plataformas separadas por un salto, cae en el hueco entre
+    # ellas y no describe ningun sitio de la cuenca. La diferencia importa
+    # aguas abajo: la zonificacion pluviometrica y el gradiente de temperatura
+    # usan la cota media como si fuera representativa.
+    histograma = relieve["histograma_cota"]
+    if histograma:
+        mayor = max(p["area_km2"] for p in histograma)
+        media = relieve["cota_media"]
+        en_la_media = next(
+            (p["area_km2"] for p in histograma
+             if p["cota_inf"] <= media < p["cota_sup"]), 0.0)
+        if mayor > 0 and en_la_media / mayor < 0.10:
+            modal = max(histograma, key=lambda p: p["area_km2"])
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "relieve.cota_media_no_representativa",
+                f"la cota media, {media:.0f} m, cae en una franja que apenas "
+                f"tiene {en_la_media:.1f} km2, frente a los {mayor:.1f} km2 de "
+                f"la franja mas extensa, entre {modal['cota_inf']:.0f} y "
+                f"{modal['cota_sup']:.0f} m. La distribucion altimetrica no "
+                "tiene un solo modo: la cuenca son dos plataformas separadas "
+                "por un salto, y el promedio cae en el hueco entre ellas. "
+                "Consecuencia: la cota media NO debe usarse como cota "
+                "representativa para el gradiente altitudinal de precipitacion "
+                "(M11) ni para el de temperatura y evapotranspiracion (M18a). "
+                f"Para eso sirve la mediana, {relieve['cota_mediana']:.0f} m, o "
+                "mejor una particion por franjas.",
+            ))
+
+    # --- Que pendiente se adopta --------------------------------------------
+    nativa = relieve["pendiente_media_cuenca"]
+    escalas = relieve["pendiente_por_escala"]
+    gruesa = escalas[-1]["pendiente_media_mm"] if escalas else None
+    razon_maxima = float(configuracion.obtener(
+        "morfometria.relieve.razon_maxima_nativa_gruesa"))
+    razon = (nativa / gruesa) if gruesa else None
+
+    if razon is None:
+        adoptada, criterio = nativa, "nativa"
+    elif razon <= razon_maxima:
+        adoptada, criterio = nativa, "nativa"
+    else:
+        adoptada, criterio = gruesa, f"agregada a {escalas[-1]['tamano_celda_m']:.0f} m"
+
+    parametros["pendiente_adoptada"] = round(adoptada, 5)
+    parametros["pendiente_criterio"] = criterio
+    escalera = "; ".join(
+        f"{e['tamano_celda_m']:.0f} m: {100 * e['pendiente_media_mm']:.1f} %"
+        for e in escalas if e["pendiente_media_mm"] is not None)
+
+    resultado.hallazgos.append(Hallazgo(
+        ADVERTENCIA if criterio != "nativa" else INFORMATIVO,
+        "relieve.pendiente_adoptada",
+        f"pendiente media {100 * nativa:.1f} % a la resolucion nativa de "
+        f"{relieve['tamano_celda_m']:.1f} m. Al agregar el DEM baja asi: "
+        f"{escalera}. La razon entre la nativa y la mas gruesa es "
+        + (f"{razon:.2f}" if razon else "indeterminada")
+        + f", frente al maximo admitido de {razon_maxima:.2f}. Se adopta la "
+        f"pendiente {criterio}: {100 * adoptada:.1f} %."
+        + ("" if criterio == "nativa" else
+           " La cifra nativa se descarta porque no describe el terreno sino el "
+           "error vertical del DEM, que el modulo del gradiente nunca compensa "
+           "por carecer de signo."),
+    ))
+
+    # --- Diagnostico del terreno llano --------------------------------------
+    umbral_llano = float(configuracion.obtener(
+        "morfometria.relieve.pendiente_llana_mm"))
+    en_llano = relieve.get("pendiente_mediana_en_llano")
+    ruido = relieve.get("ruido_vertical_estimado_m")
+    if en_llano and relieve["celdas_llanas"]:
+        proporcion = 100.0 * relieve["celdas_llanas"] / relieve["celdas_con_dato"]
+        exceso = en_llano / umbral_llano
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA if exceso >= 3.0 else INFORMATIVO,
+            "relieve.ruido_en_llano",
+            f"el {proporcion:.1f} % de la cuenca es terreno llano (pendiente "
+            f"por debajo de {100 * umbral_llano:.1f} % medida a "
+            f"{escalas[-1]['tamano_celda_m']:.0f} m). Ahi la pendiente "
+            f"calculada celda a celda da una mediana de {100 * en_llano:.1f} %, "
+            f"{exceso:.0f} veces el umbral que define ese terreno como llano. "
+            f"La diferencia no es relieve: corresponde a un error vertical del "
+            f"DEM del orden de {ruido:.2f} m, estimado invirtiendo la respuesta "
+            "de Horn ante ruido blanco. Consecuencia practica: en las partes "
+            "planas la pendiente esta sobrestimada en cerca de un orden de "
+            "magnitud, y toda formula que dependa de ella (el tiempo de "
+            "concentracion varia con S elevado a -0,385 en Kirpich) devuelve "
+            "ahi un valor corto, del lado inseguro para el volumen y del lado "
+            "conservador para el pico.",
+        ))
+
+    logger.info("Pendiente media %.2f %% (nativa) | adoptada %.2f %% (%s)",
+                100 * nativa, 100 * adoptada, criterio)
+    return adoptada
 
 
 # =============================================================================
@@ -400,16 +985,43 @@ def ejecutar(
                 "del drenaje o la geometria del area del M02.",
             ))
 
-    resultado.unidades.append(parametros)
+    # --- Relieve -------------------------------------------------------------
+    pendiente_adoptada: float | None = None
+    with registro.bloque(logger, "Parametros de relieve"):
+        ruta_dem = rutas.resolver(
+            configuracion.obtener("dem.delimitacion.salida_dem"), base)
+        if not ruta_dem.is_file():
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "morfometria.relieve",
+                f"no se encuentra el DEM en {rutas.relativa(ruta_dem, base)}: "
+                "los parametros de relieve quedan sin calcular ("
+                + ", ".join(PARAMETROS_DE_RELIEVE)
+                + "). Ejecutar el M02.",
+            ))
+        else:
+            try:
+                poligonos_cuenca = shapefile.leer_geometrias(ruta_cuenca)
+                relieve = estadisticas_de_relieve(
+                    ruta_dem, poligonos_cuenca,
+                    intervalo_m=float(configuracion.obtener(
+                        "morfometria.relieve.intervalo_hipsometrico_m")),
+                    escalas=configuracion.obtener(
+                        "morfometria.relieve.escalas_diagnostico"),
+                    pendiente_llana=float(configuracion.obtener(
+                        "morfometria.relieve.pendiente_llana_mm")),
+                )
+            except (ErrorFormato, ErrorHidrologia, ErrorRutas) as error:
+                resultado.hallazgos.append(Hallazgo(
+                    BLOQUEANTE, "morfometria.relieve",
+                    f"no se pudo leer el relieve del DEM: {error}"))
+                relieve = None
+            if relieve is not None:
+                relieve["dem"] = rutas.relativa(ruta_dem, base)
+                resultado.relieve = relieve
+                pendiente_adoptada = _resolver_relieve(
+                    relieve, parametros, resultado, configuracion, logger)
 
-    resultado.hallazgos.append(Hallazgo(
-        ADVERTENCIA, "morfometria.relieve",
-        "los parametros de RELIEVE no se calcularon: "
-        + ", ".join(PARAMETROS_DE_RELIEVE)
-        + ". Exigen leer el DEM celda a celda y el venv no tiene GDAL. "
-        "Corresponden al entorno SIG y quedan pendientes; sin ellos no hay "
-        "pendiente media de cuenca, que varias formulas de Tc necesitan.",
-    ))
+    resultado.unidades.append(parametros)
 
     # --- Tiempo de concentracion ---------------------------------------------
     with registro.bloque(logger, "Tiempo de concentracion"):
@@ -418,10 +1030,15 @@ def ejecutar(
                 configuracion.obtener("tiempo_concentracion.tabla_aplicabilidad"),
                 base),
             delimitador)
-        # Sin DEM no hay pendiente media: la matriz se aplica solo por area, y
-        # se declara, porque filtrar tambien por pendiente descartaria mas.
         resultado.tiempos = evaluar_aplicabilidad(
-            matriz, parametros["area_km2"], None)
+            matriz, parametros["area_km2"], pendiente_adoptada)
+        if pendiente_adoptada is None:
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "tiempo_concentracion.sin_pendiente",
+                "sin pendiente media de cuenca, la matriz se aplico solo por "
+                "area. Se declara porque filtrar tambien por pendiente "
+                "descartaria mas formulas, no menos.",
+            ))
         minimo = int(configuracion.obtener(
             "tiempo_concentracion.min_formulas_aplicables"))
         resultado.adoptados = resumir_adopcion(resultado.tiempos, minimo)
@@ -491,16 +1108,141 @@ def _escribir_productos(configuracion, base, resultado, delimitador,
     directorio = rutas.directorio("procesado", base, crear=True) / "morfometria"
     directorio.mkdir(parents=True, exist_ok=True)
 
-    for nombre, contenido in (("parametros.csv", resultado.unidades),
-                              ("tiempo_concentracion.csv", resultado.tiempos)):
+    contenidos = [("parametros.csv", resultado.unidades),
+                  ("tiempo_concentracion.csv", resultado.tiempos)]
+    if resultado.relieve:
+        contenidos += [
+            ("curva_hipsometrica.csv", resultado.relieve["curva_hipsometrica"]),
+            ("distribucion_altimetrica.csv", resultado.relieve["histograma_cota"]),
+            ("pendiente_por_escala.csv", resultado.relieve["pendiente_por_escala"]),
+        ]
+    for nombre, contenido in contenidos:
         destino = directorio / nombre
         _escribir_csv(destino, contenido, delimitador)
         resultado.productos.append(rutas.relativa(destino, base))
+
+    if resultado.relieve:
+        _escribir_figuras(configuracion, base, resultado, logger)
 
     informe = directorio / "M10_morfometria.md"
     _escribir_informe(informe, resultado, configuracion)
     resultado.productos.append(rutas.relativa(informe, base))
     logger.info("%d unidad(es) caracterizada(s)", len(resultado.unidades))
+
+
+def _escribir_figuras(configuracion, base, resultado, logger) -> None:
+    """Curva hipsométrica, distribución altimétrica y escalera de pendiente."""
+    try:
+        import graficos
+    except ImportError as exc:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "graficos.ausente",
+            f"no se pudieron generar las figuras: {exc}.",
+        ))
+        return
+
+    estilo = graficos.Estilo.desde_config(configuracion)
+    directorio = rutas.resolver(configuracion.obtener("graficos.directorio"), base)
+    directorio.mkdir(parents=True, exist_ok=True)
+    relieve = resultado.relieve
+
+    # --- Curva hipsometrica --------------------------------------------------
+    curva = relieve["curva_hipsometrica"]
+    with graficos.figura(
+        estilo, titulo="Curva hipsométrica de la cuenca",
+        etiqueta_x="área acumulada por encima de la cota (%)",
+        etiqueta_y="cota (m s. n. m.)",
+    ) as (fig, ax):
+        ax.plot([100.0 * p["area_relativa"] for p in curva],
+                [p["cota"] for p in curva],
+                color=estilo.color(0), linewidth=1.8)
+        ax.axhline(relieve["cota_media"], color="#c00000", linestyle="--",
+                   linewidth=1.2)
+        ax.annotate(f"cota media {relieve['cota_media']:.0f} m",
+                    xy=(0.98, relieve["cota_media"]),
+                    xycoords=("axes fraction", "data"),
+                    xytext=(0, 4), textcoords="offset points",
+                    ha="right", fontsize=estilo.tamano_fuente - 1,
+                    color="#c00000")
+        ax.annotate(
+            f"integral hipsométrica {relieve['integral_hipsometrica']:.3f}",
+            xy=(0.04, 0.06), xycoords="axes fraction",
+            fontsize=estilo.tamano_fuente - 1)
+        ax.set_xlim(0, 100)
+        fig.tight_layout()
+        for ruta in graficos.guardar(
+                fig, directorio / "M10_curva_hipsometrica", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+    # --- Distribucion altimetrica -------------------------------------------
+    histograma = relieve["histograma_cota"]
+    with graficos.figura(
+        estilo, titulo="Distribución altimétrica de la cuenca",
+        etiqueta_x="cota (m s. n. m.)", etiqueta_y="área (km²)",
+    ) as (fig, ax):
+        anchura = (histograma[0]["cota_sup"] - histograma[0]["cota_inf"]
+                   if histograma else 1.0)
+        ax.bar([p["cota_inf"] for p in histograma],
+               [p["area_km2"] for p in histograma],
+               width=anchura, align="edge", color=estilo.color(0),
+               edgecolor="white", linewidth=0.2)
+        ax.axvline(relieve["cota_media"], color="#c00000", linestyle="--",
+                   linewidth=1.2)
+        ax.annotate(f"media {relieve['cota_media']:.0f} m",
+                    xy=(relieve["cota_media"], 1),
+                    xycoords=("data", "axes fraction"),
+                    xytext=(4, -10), textcoords="offset points",
+                    fontsize=estilo.tamano_fuente - 1, color="#c00000")
+        graficos.rotular_en_miles(ax)
+        fig.tight_layout()
+        for ruta in graficos.guardar(
+                fig, directorio / "M10_distribucion_altimetrica", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+    # --- Pendiente frente a resolucion ---------------------------------------
+    # Es la figura que sostiene la advertencia sobre el DEM de radar. Sin ella,
+    # la afirmacion de que la pendiente nativa esta inflada por el ruido seria
+    # una opinion; con ella es una medicion que el lector puede comprobar.
+    escalas = relieve["pendiente_por_escala"]
+    if escalas:
+        tamanos = ([relieve["tamano_celda_m"]]
+                   + [e["tamano_celda_m"] for e in escalas])
+        medias = ([100.0 * relieve["pendiente_media_cuenca"]]
+                  + [100.0 * e["pendiente_media_mm"] for e in escalas])
+        medianas = ([100.0 * relieve["pendiente_mediana"]]
+                    + [100.0 * e["pendiente_mediana_mm"] for e in escalas])
+        with graficos.figura(
+            estilo,
+            titulo="Pendiente media según la resolución con que se calcula",
+            etiqueta_x="tamaño de celda (m)",
+            etiqueta_y="pendiente (%)",
+        ) as (fig, ax):
+            graficos.lineas(
+                ax,
+                {"media": (tamanos, medias), "mediana": (tamanos, medianas)},
+                estilo)
+            ax.set_xscale("log")
+            # Sin apagar las marcas menores, la escala logaritmica rotula
+            # ademas sus propias potencias y la figura queda ilegible.
+            ax.minorticks_off()
+            ax.set_xticks(tamanos)
+            ax.set_xticklabels(
+                [f"{t:g}" for t in tamanos])
+            en_llano = relieve.get("pendiente_mediana_en_llano")
+            if en_llano:
+                ax.annotate(
+                    "en terreno llano la mediana a resolución nativa es "
+                    f"{100 * en_llano:.1f} %,\nequivalente a un error vertical "
+                    f"de {relieve['ruido_vertical_estimado_m']:.2f} m",
+                    xy=(0.03, 0.06), xycoords="axes fraction",
+                    fontsize=estilo.tamano_fuente - 1, color="#c00000")
+            fig.tight_layout()
+            for ruta in graficos.guardar(
+                    fig, directorio / "M10_pendiente_por_resolucion", estilo):
+                resultado.productos.append(rutas.relativa(ruta, base))
+
+    logger.info("Figuras de relieve escritas en %s",
+                rutas.relativa(directorio, base))
 
 
 def _tabla_markdown(filas, columnas) -> list[str]:
@@ -536,17 +1278,82 @@ def _escribir_informe(destino, resultado, configuracion) -> None:
         [{"parametro": k, "valor": v} for k, v in unidad.items()
          if k not in ("modo", "unidades")],
         ["parametro", "valor"])
+    lineas += ["", "## Parametros de relieve", ""]
+    relieve = resultado.relieve
+    if not relieve:
+        lineas += [
+            "NO se calcularon: " + ", ".join(PARAMETROS_DE_RELIEVE) + ".",
+            "",
+            "Falta el DEM que produce el M02. Sin el no hay pendiente media de",
+            "cuenca, que varias formulas de tiempo de concentracion necesitan.",
+            "",
+        ]
+    else:
+        lineas += [
+            f"Leidos del DEM `{relieve['dem']}` ({relieve['crs_dem']}), con",
+            f"celda de {relieve['tamano_celda_m']:.1f} m, sobre",
+            f"{relieve['celdas_con_dato']:,} celdas con dato que cubren el",
+            f"{relieve['cobertura_dem_pct']:.2f} % de la cuenca. El area que",
+            f"resulta de contarlas, {relieve['area_por_dem_km2']:.1f} km2,",
+            f"contrasta con la del poligono, {unidad.get('area_km2', 0)} km2:",
+            "coincidir valida a la vez la delimitacion y el barrido del raster.",
+            "",
+        ]
+        lineas += _tabla_markdown(
+            [{"parametro": k, "valor": relieve[k]} for k in (
+                "cota_min", "cota_p1", "cota_media", "cota_mediana",
+                "cota_p99", "cota_max", "desnivel_altitudinal",
+                "desnivel_robusto", "integral_hipsometrica",
+                "pendiente_media_cuenca", "pendiente_media_pct",
+                "pendiente_media_grados", "pendiente_mediana",
+                "pendiente_p90") if k in relieve],
+            ["parametro", "valor"])
+        lineas += [
+            "",
+            "### Pendiente segun la resolucion",
+            "",
+            "La pendiente de una celda no es una propiedad del terreno sino del",
+            "terreno Y de la resolucion con que se mide. Agregando el DEM se",
+            "separa una cosa de la otra: sobre relieve real la pendiente media",
+            "baja poco al agregar, mientras que la que produce el ruido del",
+            "sensor se desploma, porque el promedio la cancela.",
+            "",
+        ]
+        lineas += _tabla_markdown(
+            [{"tamano_celda_m": relieve["tamano_celda_m"],
+              "pendiente_media_mm": relieve["pendiente_media_cuenca"],
+              "pendiente_mediana_mm": relieve["pendiente_mediana"],
+              "celdas": relieve["celdas_con_pendiente"]}] + [
+                {k: e[k] for k in ("tamano_celda_m", "pendiente_media_mm",
+                                   "pendiente_mediana_mm", "celdas")}
+                for e in relieve["pendiente_por_escala"]],
+            ["tamano_celda_m", "pendiente_media_mm", "pendiente_mediana_mm",
+             "celdas"])
+        if relieve.get("ruido_vertical_estimado_m"):
+            lineas += [
+                "",
+                f"Se adopta la pendiente **{unidad.get('pendiente_criterio')}**:",
+                f"{100 * unidad.get('pendiente_adoptada', 0):.2f} %.",
+                "",
+                "Sobre el subconjunto de terreno LLANO, donde la señal de",
+                "relieve es despreciable, la pendiente calculada celda a celda",
+                f"tiene mediana {100 * relieve['pendiente_mediana_en_llano']:.1f} %.",
+                "Invirtiendo la respuesta del operador de Horn ante ruido",
+                "blanco, eso corresponde a un error vertical del DEM de",
+                f"{relieve['ruido_vertical_estimado_m']:.2f} m. No es una",
+                "objecion al DEM, que es el mejor disponible: es la razon por la",
+                "que en las partes planas la pendiente no debe leerse a",
+                "resolucion nativa.",
+                "",
+            ]
+        lineas += [
+            "",
+            "La curva hipsometrica y la distribucion altimetrica se entregan en",
+            "`curva_hipsometrica.csv` y `distribucion_altimetrica.csv`, y como",
+            "figuras del informe.",
+            "",
+        ]
     lineas += [
-        "",
-        "## Parametros de relieve",
-        "",
-        "NO se calcularon: " + ", ".join(PARAMETROS_DE_RELIEVE) + ".",
-        "",
-        "Exigen leer el DEM celda a celda y este modulo corre en el venv, que",
-        "no tiene GDAL. Corresponden al entorno SIG y quedan pendientes. Sin",
-        "ellos no hay pendiente media de cuenca, que varias formulas de tiempo",
-        "de concentracion necesitan.",
-        "",
         "## Tiempo de concentracion",
         "",
         f"* Formulas evaluadas: {resultado.adoptados.get('formulas_evaluadas', 0)}",

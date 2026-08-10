@@ -21,11 +21,16 @@ if str(_DIRECTORIO_SRC) not in sys.path:
 import M10_morfometria as m10  # noqa: E402
 from comun import shapefile  # noqa: E402
 from comun.config import cargar  # noqa: E402
-from comun.errores import ErrorRutas  # noqa: E402
+from comun.errores import ErrorHidrologia, ErrorRutas  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_raster import escribir_tiff  # noqa: E402
 
 _CFG = cargar(raiz=_RAIZ_REPO)
 _CUENCA = _RAIZ_REPO / "data" / "03_SIG" / "vector" / "area_influencia.shp"
 HAY_CUENCA = _CUENCA.is_file()
+_DEM = _RAIZ_REPO / _CFG.obtener("dem.delimitacion.salida_dem")
+HAY_DEM = _DEM.is_file()
 
 
 class PruebaEnvolventeConvexa(unittest.TestCase):
@@ -163,6 +168,195 @@ class PruebaGeometriaReal(unittest.TestCase):
     def test_la_longitud_axial_no_excede_el_perimetro(self) -> None:
         p = m10.parametros_geometricos(_CUENCA)
         self.assertLess(p["longitud_axial_km"], p["perimetro_km"])
+
+
+class PruebaRelieveSintetico(unittest.TestCase):
+    """
+    Un plano inclinado de pendiente conocida es el único caso en el que se sabe
+    de antemano cuánto debe dar el cálculo. Si Horn no reproduce ahí la cifra
+    exacta, ningún resultado sobre terreno real es defendible.
+    """
+
+    CELDA = 10.0
+    ORIGEN = (1000.0, 2000.0)
+
+    def setUp(self) -> None:
+        self.temporal = Path(tempfile.mkdtemp())
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self.temporal, ignore_errors=True)
+
+    def _plano(self, alto: int, ancho: int, pendiente: float) -> Path:
+        # La cota crece hacia el este; la fila no influye.
+        valores = [[100.0 + pendiente * self.CELDA * i for i in range(ancho)]
+                   for _ in range(alto)]
+        return escribir_tiff(self.temporal / "plano.tif", valores,
+                             celda=self.CELDA, origen=self.ORIGEN)
+
+    def _cuadrado(self, celdas: int):
+        """Polígono que encierra las celdas interiores del ráster."""
+        x0 = self.ORIGEN[0] + self.CELDA
+        y1 = self.ORIGEN[1] - self.CELDA
+        lado = (celdas - 2) * self.CELDA
+        return [[[(x0, y1 - lado), (x0, y1), (x0 + lado, y1),
+                  (x0 + lado, y1 - lado)]]]
+
+    def test_un_plano_inclinado_devuelve_su_pendiente(self) -> None:
+        dem = self._plano(12, 12, 0.20)
+        resultado = m10.estadisticas_de_relieve(
+            dem, self._cuadrado(12), intervalo_m=5.0, escalas=(2,))
+        self.assertAlmostEqual(
+            resultado["pendiente_media_cuenca"], 0.20, places=5)
+        # La mediana sale del histograma de pendiente, de modo que su
+        # resolución es la de una casilla. Exigirle más sería exigirle una
+        # precisión que el propio producto no declara.
+        self.assertAlmostEqual(resultado["pendiente_mediana"], 0.20,
+                               delta=m10.PASO_PENDIENTE)
+
+    def test_una_superficie_horizontal_no_tiene_pendiente(self) -> None:
+        dem = self._plano(12, 12, 0.0)
+        resultado = m10.estadisticas_de_relieve(
+            dem, self._cuadrado(12), intervalo_m=5.0, escalas=(2,))
+        self.assertAlmostEqual(resultado["pendiente_media_cuenca"], 0.0)
+        self.assertEqual(resultado["desnivel_altitudinal"], 0.0)
+
+    def test_el_area_por_conteo_de_celdas_coincide(self) -> None:
+        dem = self._plano(12, 12, 0.10)
+        resultado = m10.estadisticas_de_relieve(
+            dem, self._cuadrado(12), intervalo_m=5.0, escalas=(2,))
+        # 10 x 10 celdas de 10 x 10 m.
+        self.assertEqual(resultado["celdas_con_dato"], 100)
+        self.assertAlmostEqual(resultado["area_por_dem_km2"], 0.01, places=6)
+
+    def test_las_cotas_extremas_son_las_del_plano(self) -> None:
+        dem = self._plano(12, 12, 0.10)
+        resultado = m10.estadisticas_de_relieve(
+            dem, self._cuadrado(12), intervalo_m=5.0, escalas=(2,))
+        # Columnas 1 a 10: cota 100 + 1*10*0,10 hasta 100 + 10*10*0,10.
+        self.assertAlmostEqual(resultado["cota_min"], 101.0, places=4)
+        self.assertAlmostEqual(resultado["cota_max"], 110.0, places=4)
+        self.assertAlmostEqual(resultado["cota_media"], 105.5, places=4)
+
+    def test_las_celdas_sin_dato_no_entran(self) -> None:
+        valores = [[100.0 + 0.5 * i for i in range(12)] for _ in range(12)]
+        for j in range(12):
+            valores[j][5] = -9999.0
+        dem = escribir_tiff(self.temporal / "hueco.tif", valores,
+                            celda=self.CELDA, origen=self.ORIGEN)
+        resultado = m10.estadisticas_de_relieve(
+            dem, self._cuadrado(12), intervalo_m=5.0, escalas=(2,))
+        self.assertEqual(resultado["celdas_en_cuenca"], 100)
+        self.assertEqual(resultado["celdas_con_dato"], 90)
+        self.assertAlmostEqual(resultado["cobertura_dem_pct"], 90.0, places=3)
+        # Y ninguna ventana que toque el hueco produce pendiente.
+        self.assertLess(resultado["celdas_con_pendiente"], 90)
+
+    def test_una_cuenca_fuera_del_raster_es_error(self) -> None:
+        dem = self._plano(12, 12, 0.10)
+        lejos = [[[(0.0, 0.0), (0.0, 10.0), (10.0, 10.0), (10.0, 0.0)]]]
+        with self.assertRaises(ErrorHidrologia) as contexto:
+            m10.estadisticas_de_relieve(dem, lejos)
+        self.assertIn("CRS", str(contexto.exception))
+
+    def test_el_ruido_estimado_recupera_su_magnitud(self) -> None:
+        """
+        Se contamina un plano horizontal con ruido de desviación conocida y se
+        comprueba que el estimador la recupera. Es lo que sostiene la
+        advertencia sobre el DEM de radar en terreno llano.
+        """
+        import random
+
+        random.seed(20260809)
+        sigma = 1.5
+        valores = [[100.0 + random.gauss(0.0, sigma) for _ in range(120)]
+                   for _ in range(120)]
+        dem = escribir_tiff(self.temporal / "ruido.tif", valores,
+                            celda=self.CELDA, origen=self.ORIGEN)
+        resultado = m10.estadisticas_de_relieve(
+            dem, self._cuadrado(120), intervalo_m=1.0, escalas=(8,),
+            pendiente_llana=0.05)
+        estimado = resultado["ruido_vertical_estimado_m"]
+        self.assertIsNotNone(estimado)
+        self.assertAlmostEqual(estimado, sigma, delta=0.15 * sigma)
+
+
+class PruebaCurvaHipsometrica(unittest.TestCase):
+    def test_va_de_area_completa_a_cero(self) -> None:
+        import numpy as np
+
+        cuentas = np.array([10, 20, 30, 40])
+        bordes = np.array([0.0, 25.0, 50.0, 75.0, 100.0])
+        curva = m10.curva_hipsometrica(cuentas, bordes, 100.0)
+        self.assertAlmostEqual(curva[0]["area_relativa"], 1.0)
+        self.assertAlmostEqual(curva[-1]["area_relativa"], 0.0)
+        self.assertAlmostEqual(curva[0]["cota_relativa"], 0.0)
+        self.assertAlmostEqual(curva[-1]["cota_relativa"], 1.0)
+
+    def test_decrece_siempre(self) -> None:
+        import numpy as np
+
+        curva = m10.curva_hipsometrica(
+            np.array([5, 1, 9, 3]), np.array([0.0, 1.0, 2.0, 3.0, 4.0]), 1.0)
+        areas = [p["area_relativa"] for p in curva]
+        self.assertEqual(areas, sorted(areas, reverse=True))
+
+    def test_sin_celdas_no_hay_curva(self) -> None:
+        import numpy as np
+
+        self.assertEqual(
+            m10.curva_hipsometrica(np.zeros(3), np.arange(4.0), 1.0), [])
+
+
+@unittest.skipUnless(HAY_CUENCA and HAY_DEM, "no hay cuenca o DEM")
+class PruebaRelieveReal(unittest.TestCase):
+    """
+    Sobre el DEM del estudio. Son lentas (medio minuto) porque recorren
+    456 MB de terreno, y no se sustituyen por una versión reducida: el
+    contraste entre el área contada del ráster y la del polígono solo tiene
+    valor si se hace sobre los insumos reales.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.relieve = m10.estadisticas_de_relieve(
+            _DEM, shapefile.leer_geometrias(_CUENCA),
+            intervalo_m=float(_CFG.obtener(
+                "morfometria.relieve.intervalo_hipsometrico_m")),
+            escalas=_CFG.obtener("morfometria.relieve.escalas_diagnostico"),
+            pendiente_llana=float(_CFG.obtener(
+                "morfometria.relieve.pendiente_llana_mm")))
+
+    def test_el_area_del_raster_coincide_con_la_del_poligono(self) -> None:
+        # Contrasta dos caminos independientes: el barrido del ráster y la
+        # fórmula del área del polígono. Que coincidan valida los dos.
+        del_poligono = shapefile.area_poligonos(_CUENCA) / 1e6
+        self.assertAlmostEqual(
+            self.relieve["area_por_dem_km2"], del_poligono,
+            delta=0.001 * del_poligono)
+
+    def test_las_cotas_son_coherentes_entre_si(self) -> None:
+        r = self.relieve
+        self.assertLess(r["cota_min"], r["cota_p1"])
+        self.assertLess(r["cota_p1"], r["cota_mediana"])
+        self.assertLess(r["cota_mediana"], r["cota_p99"])
+        self.assertLess(r["cota_p99"], r["cota_max"])
+        self.assertAlmostEqual(
+            r["desnivel_altitudinal"], r["cota_max"] - r["cota_min"], places=2)
+
+    def test_la_integral_hipsometrica_esta_en_su_rango(self) -> None:
+        self.assertTrue(0.0 <= self.relieve["integral_hipsometrica"] <= 1.0)
+
+    def test_la_pendiente_baja_al_agregar(self) -> None:
+        # Es la propiedad que da sentido al diagnóstico: si no bajara, la
+        # comparación entre resoluciones no diría nada.
+        escalas = self.relieve["pendiente_por_escala"]
+        medias = ([self.relieve["pendiente_media_cuenca"]]
+                  + [e["pendiente_media_mm"] for e in escalas])
+        self.assertEqual(medias, sorted(medias, reverse=True))
+
+    def test_el_dem_esta_en_el_crs_de_calculo(self) -> None:
+        self.assertEqual(self.relieve["crs_dem"], _CFG.obtener("crs.calculo"))
 
 
 class PruebaModoDeAnalisis(unittest.TestCase):

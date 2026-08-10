@@ -794,6 +794,25 @@ morfometria:
     respuesta: [tiempo_concentracion, tiempo_rezago, numero_curva,
                 grupo_hidrologico, tiempo_viaje]
 
+  relieve:
+    # El DEM es el mismo que recorta el M02. No se declara aquí de nuevo para
+    # que no puedan divergir.
+    intervalo_hipsometrico_m: 25.0
+    # Resoluciones de contraste, como múltiplo de la celda del DEM. Con celda de
+    # 12,5 m dan 50, 100 y 200 m. Existen para MEDIR, y no suponer, cuánto de la
+    # pendiente calculada celda a celda es relieve y cuánto es error del DEM:
+    # sobre terreno real la pendiente media baja poco al agregar, mientras que
+    # la que produce el ruido se desploma.
+    escalas_diagnostico: [4, 8, 16]
+    # Umbral de pendiente, en m/m, bajo el cual una celda de la malla más
+    # gruesa se considera LLANA. Sobre ese subconjunto se mide el ruido
+    # vertical del DEM, porque ahí la señal de relieve es despreciable.
+    pendiente_llana_mm: 0.005
+    # Por encima de esta relación entre la pendiente calculada a resolución
+    # nativa y la de la malla más gruesa, se advierte: la cifra nativa no
+    # describe el terreno sino el error del DEM.
+    razon_maxima_nativa_gruesa: 2.0
+
 tiempo_concentracion:
   tabla_aplicabilidad: "data/referencia/tc_aplicabilidad.csv"
   filtrar_por_tipo_cuenca: true
