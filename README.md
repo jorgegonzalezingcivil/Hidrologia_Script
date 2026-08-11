@@ -200,6 +200,44 @@ anteriores conviene.
 
 ## 5. Cómo se ejecuta
 
+### La cadena completa
+
+```
+.venv\Scripts\python.exe ejecutar_cadena.py --raiz D:\Estudios\mi_proyecto
+```
+
+Corre los módulos en orden, cada uno con su intérprete. El orden, los
+argumentos y el entorno de cada paso se declaran en
+[config/cadena.yaml](config/cadena.yaml), no en el programa: cambiar la cadena
+no debería exigir tocar código.
+
+Conviene ver antes qué haría, sin ejecutar nada:
+
+```
+.venv\Scripts\python.exe ejecutar_cadena.py --raiz D:\Estudios\mi_proyecto --simular
+```
+
+Para un tramo, o para módulos sueltos:
+
+```
+.venv\Scripts\python.exe ejecutar_cadena.py --raiz ... --desde M05 --hasta M08
+.venv\Scripts\python.exe ejecutar_cadena.py --raiz ... --solo M10
+```
+
+La cadena se detiene en tres sitios, y en los tres dice por qué:
+
+| Se detiene en | Motivo |
+|---|---|
+| Un hallazgo bloqueante | El módulo declara su producto inutilizable. Seguir sería construir sobre él |
+| El paso manual | La delimitación asistida de HEC-HMS, el único paso con intervención obligatoria |
+| Un módulo pendiente | La cadena llega hasta donde llega la herramienta hoy |
+
+El orquestador no añade capacidad: los módulos siguen siendo ejecutables
+independientes y se pueden lanzar uno a uno. Lo que quita es la posibilidad de
+equivocarse de intérprete, que produce un `ImportError` que no explica nada.
+
+### Un módulo suelto
+
 Un módulo, un script independiente. Se invocan por separado y se comunican por
 archivos, nunca por estado en memoria.
 

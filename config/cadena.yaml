@@ -1,0 +1,258 @@
+# =============================================================================
+# CADENA DE EJECUCIÓN
+# -----------------------------------------------------------------------------
+# Declara el orden de los módulos, con qué intérprete corre cada uno y con qué
+# argumentos. La lee 'ejecutar_cadena.py'.
+#
+# Está aquí y no en el código para poder ajustar el orden, saltar un módulo o
+# cambiar sus argumentos sin tocar el programa. Un estudio que necesite una
+# cadena propia pone su copia en config/cadena.yaml y esa manda.
+#
+# CAMPOS DE CADA PASO
+#   modulo       identificador corto, el que se usa en --desde, --hasta y --solo
+#   nombre       descripción legible, la que aparece en el resumen
+#   script       ruta relativa a la raíz del CÓDIGO
+#   entorno      venv | qgis. Las dos rutas de intérprete están en config.yaml
+#   argumentos   los propios del módulo, además de --raiz que se añade siempre
+#   estado       disponible | pendiente
+#   modos        modos de análisis en que aplica. Vacío significa que aplica a
+#                todos
+#   opcional     un fallo no detiene la cadena, solo se reporta
+#   manual       la cadena se detiene aquí y da instrucciones. Es el único paso
+#                con intervención obligatoria (CLAUDE.md, sección 4)
+#
+# LOS PASOS 'pendiente' NO SON UN OLVIDO. Están declarados a propósito: la
+# cadena es a la vez plan de ejecución y hoja de ruta, y así se ve de un vistazo
+# hasta dónde llega hoy la herramienta. El orquestador se detiene al llegar al
+# primero y lo dice.
+# =============================================================================
+
+pasos:
+
+  # --- Preparación ---------------------------------------------------------
+  - modulo: M00
+    nombre: "Configuración, utilidades comunes y logging"
+    script: "src/M00_configuracion.py"
+    entorno: venv
+    estado: disponible
+
+  - modulo: M00c
+    nombre: "Verificación de insumos del usuario"
+    script: "src/M00c_insumos.py"
+    entorno: venv
+    estado: disponible
+
+  # --- Marco geográfico ----------------------------------------------------
+  - modulo: M01
+    nombre: "Punto de descarga y subzona hidrográfica"
+    script: "src/M01_punto_descarga.py"
+    entorno: qgis
+    estado: disponible
+
+  - modulo: M02a
+    nombre: "DEM y recortes acotados por la subzona"
+    script: "src/M02_dem_delimitacion.py"
+    entorno: qgis
+    argumentos: ["--fase", "preliminar"]
+    estado: disponible
+
+  - modulo: M02b
+    nombre: "Red de drenaje topológica"
+    script: "src/M02b_red_drenaje.py"
+    entorno: qgis
+    estado: disponible
+
+  # El área definitiva necesita la red, y la red necesita el DEM: por eso el
+  # M02 va en dos fases y la segunda cae DESPUÉS del M02b.
+  - modulo: M02c
+    nombre: "Área de influencia acotada por trazado de red"
+    script: "src/M02_dem_delimitacion.py"
+    entorno: qgis
+    argumentos: ["--fase", "area"]
+    estado: disponible
+
+  - modulo: M00b
+    nombre: "Proyecto QGIS"
+    script: "src/M00b_proyecto_qgis.py"
+    entorno: qgis
+    estado: disponible
+    opcional: true
+
+  # --- Datos ----------------------------------------------------------------
+  - modulo: M03
+    nombre: "Selección de estaciones"
+    script: "src/M03_seleccion_estaciones.py"
+    entorno: venv
+    estado: disponible
+
+  - modulo: M04
+    nombre: "Ingesta IDEAM"
+    script: "src/M04_ingesta_ideam.py"
+    entorno: venv
+    argumentos: ["--descargar"]
+    estado: disponible
+
+  - modulo: M04b
+    nombre: "Sensibilidad de longitud de series"
+    script: "src/M04b_sensibilidad_series.py"
+    entorno: venv
+    estado: disponible
+
+  - modulo: M05
+    nombre: "Precipitación mensual: anómalos, consistencia, complemento"
+    script: "src/M05_precipitacion_mensual.py"
+    entorno: venv
+    estado: disponible
+
+  - modulo: M05b
+    nombre: "Clasificación ENSO-ONI"
+    script: "src/M05b_enso.py"
+    entorno: venv
+    estado: disponible
+
+  # --- Precipitación --------------------------------------------------------
+  - modulo: M06
+    nombre: "Isoyetas de precipitación total por fase ENSO"
+    script: "src/M06_isoyetas.py"
+    entorno: qgis
+    estado: disponible
+
+  - modulo: M07
+    nombre: "Pmáx 24 h y análisis de frecuencia"
+    script: "src/M07_frecuencia.py"
+    entorno: venv
+    estado: disponible
+
+  - modulo: M08
+    nombre: "Isoyetas de Pmáx por periodo de retorno"
+    script: "src/M08_isoyetas_pmax.py"
+    entorno: qgis
+    estado: disponible
+
+  # --- Delimitación definitiva ---------------------------------------------
+  - modulo: M09a
+    nombre: "Insumos para HEC-HMS"
+    script: "src/M09_hec_hms.py"
+    entorno: venv
+    argumentos: ["--preparar"]
+    estado: disponible
+    modos: [detallado]
+
+  - modulo: HEC
+    nombre: "Delimitación asistida en HEC-HMS"
+    entorno: manual
+    manual: true
+    estado: disponible
+    modos: [detallado]
+    nombre_largo: >-
+      Abrir HEC-HMS, cargar los insumos que dejó el M09 en el directorio de
+      intercambio y delimitar las subcuencas con el geoprocesamiento asistido.
+      Es el único paso con intervención manual obligatoria (CLAUDE.md,
+      sección 4). Al terminar, exportar y relanzar la cadena desde M09b.
+
+  - modulo: M09b
+    nombre: "Importación de subcuencas y corrientes"
+    script: "src/M09_hec_hms.py"
+    entorno: venv
+    argumentos: ["--importar"]
+    estado: disponible
+    modos: [detallado]
+
+  # --- Caracterización ------------------------------------------------------
+  - modulo: M10
+    nombre: "Caracterización morfométrica e hidrológica"
+    script: "src/M10_morfometria.py"
+    entorno: venv
+    estado: disponible
+
+  - modulo: M11
+    nombre: "Zonificación pluviométrica y precipitación media"
+    script: "src/M11_zonificacion.py"
+    entorno: qgis
+    estado: pendiente
+
+  - modulo: M11c
+    nombre: "Factor de reducción por área"
+    script: "src/M11c_arf.py"
+    entorno: venv
+    estado: pendiente
+
+  # --- Tormenta de diseño ---------------------------------------------------
+  - modulo: M12a
+    nombre: "Curvas IDF y factores de cambio climático"
+    script: "src/M12a_idf.py"
+    entorno: venv
+    estado: pendiente
+
+  - modulo: M12b
+    nombre: "Hietogramas de diseño (Huff)"
+    script: "src/M12b_hietogramas.py"
+    entorno: venv
+    estado: pendiente
+
+  # --- Modelo ---------------------------------------------------------------
+  - modulo: M13
+    nombre: "Escritura del proyecto HEC-HMS"
+    script: "src/M13_hec_hms_proyecto.py"
+    entorno: venv
+    estado: pendiente
+    modos: [detallado]
+
+  - modulo: M14
+    nombre: "Ejecución de simulaciones y extracción de resultados"
+    script: "src/M14_simulacion.py"
+    entorno: venv
+    estado: pendiente
+    modos: [detallado]
+
+  - modulo: M14b
+    nombre: "Calibración"
+    script: "src/M14b_calibracion.py"
+    entorno: venv
+    estado: pendiente
+    modos: [detallado]
+    opcional: true
+
+  # --- Balance y régimen ----------------------------------------------------
+  - modulo: M18
+    nombre: "Balance hídrico a largo plazo (Budyko)"
+    script: "src/M18_balance.py"
+    entorno: venv
+    estado: pendiente
+
+  - modulo: M18a
+    nombre: "Temperatura y evapotranspiración"
+    script: "src/M18a_temperatura.py"
+    entorno: venv
+    estado: pendiente
+
+  - modulo: M18b
+    nombre: "Infiltración"
+    script: "src/M18b_infiltracion.py"
+    entorno: venv
+    estado: pendiente
+
+  - modulo: M19
+    nombre: "Curva de duración, IRH y caudal ambiental"
+    script: "src/M19_duracion.py"
+    entorno: venv
+    estado: pendiente
+
+  # --- Entrega --------------------------------------------------------------
+  - modulo: M15
+    nombre: "Redacción del informe en Word"
+    script: "src/M15_informe.py"
+    entorno: venv
+    estado: pendiente
+
+  - modulo: M16
+    nombre: "Cartografía temática"
+    script: "src/M16_cartografia.py"
+    entorno: qgis
+    estado: pendiente
+
+  - modulo: M17
+    nombre: "Ensamble y verificación de anexos"
+    script: "src/M17_anexos.py"
+    entorno: venv
+    estado: pendiente
