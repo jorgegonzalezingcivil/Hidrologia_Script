@@ -898,6 +898,11 @@ ESQUEMA: dict[str, Campo] = {
         minimo=0.0, maximo=1.0,
     ),
 
+    "sensibilidad_series.dependencias_por_variable": mapa(
+        "modulos que dependen de cada variable; vacio significa imprescindible",
+        lista("modulos", texto("modulo"), no_vacio=False),
+    ),
+
     "red_topologica.resolucion_eje_m": numero(
         "resolución de rasterización para derivar el eje de los cauces dobles",
         minimo=1.0,

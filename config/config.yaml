@@ -535,6 +535,23 @@ sensibilidad_series:
   # Excepciones por variable. El umbral general no sirve para todas: la
   # disponibilidad de cada una es distinta y aplicar 30 años a todas dejaría sin
   # dato a las más escasas. Una variable no listada usa el umbral general.
+  # QUÉ DEPENDE DE CADA VARIABLE. Si una se queda sin estaciones al aplicar el
+  # umbral, el módulo dice qué deja de poder hacerse en lugar de detener la
+  # cadena entera.
+  #
+  # La lista vacía significa IMPRESCINDIBLE: sin ella no hay estudio y el
+  # módulo se detiene. Solo la precipitación lo es.
+  #
+  # El caudal figura aquí porque CLAUDE.md, sección 6, declara la calibración
+  # CONDICIONAL: solo se hace si existen series limnigráficas o limnimétricas
+  # utilizables. Que no las haya es un resultado del estudio, no un fallo, y
+  # detener por ello la cadena de crecientes sería confundir las dos cosas.
+  dependencias_por_variable:
+    precipitacion: []
+    temperatura: ["M18a", "M18"]
+    evaporacion: ["M18", "M18a"]
+    caudal: ["M14b"]
+
   umbrales_por_variable:
     # Con 30 años quedan 11 estaciones, escasas para sostener el gradiente
     # altitudinal con que el M18a calcula la evapotranspiración. Con 20 quedan 18.

@@ -1246,6 +1246,10 @@ def _resumir(resultado, configuracion, ventanas, umbrales) -> list[Hallazgo]:
     criterio = configuracion.obtener("sensibilidad_series.criterio_umbral")
     excepciones = dict(
         configuracion.obtener("sensibilidad_series.umbrales_por_variable") or {})
+    dependencias = {
+        str(k): [str(m) for m in (v or ())]
+        for k, v in dict(configuracion.obtener(
+            "sensibilidad_series.dependencias_por_variable") or {}).items()}
     nombre = etiqueta_de_ventana(
         ventana_adoptada, int(configuracion.obtener("proyecto.anio_estudio")))
 
@@ -1273,10 +1277,24 @@ def _resumir(resultado, configuracion, ventanas, umbrales) -> list[Hallazgo]:
         cuantas = (celda["estaciones_continuas"] if criterio == "racha"
                    else celda["estaciones"])
         if cuantas == 0:
-            severidad = BLOQUEANTE
-            cierre = ("Ninguna estación sobrevive: con este umbral la variable "
-                      "queda sin dato y los módulos que dependen de ella no "
-                      "pueden ejecutarse.")
+            # Quedarse sin estaciones no significa lo mismo en todas las
+            # variables. La precipitación es imprescindible; las demás
+            # desactivan módulos concretos, y decir CUÁLES es más útil que
+            # detener la cadena entera. El caudal es el caso claro: CLAUDE.md,
+            # sección 6, declara la calibración condicional a que existan
+            # series utilizables, de modo que no haberlas es un resultado del
+            # estudio y no un fallo del proceso.
+            dependen = dependencias.get(variable, [])
+            severidad = ADVERTENCIA if dependen else BLOQUEANTE
+            cierre = (
+                "Ninguna estación sobrevive: la variable queda sin dato y con "
+                "ella quedan DESACTIVADOS " + ", ".join(dependen) + ". El "
+                "resto de la cadena continúa, y el informe debe declarar que "
+                "esos análisis no se hicieron por ausencia de dato."
+                if dependen else
+                "Ninguna estación sobrevive, y sin esta variable no hay "
+                "estudio. Revisar el umbral con la matriz de este módulo, o el "
+                "buffer de selección de estaciones del M03.")
         elif cuantas < 3:
             severidad = ADVERTENCIA
             cierre = ("Con menos de tres estaciones no hay interpolación "
