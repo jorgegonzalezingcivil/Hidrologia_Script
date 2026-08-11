@@ -262,14 +262,28 @@ dem:
       escenario_1: "subzona"
       escenario_2: "red"
       escenario_3: "cuenca"
-    # Buffer sobre la red trazada, por escenario. Es la holgura que absorbe la
-    # conectividad imperfecta de la cartografía: medido sobre la subzona, el
-    # 85,1% de los tramos toca a su receptor y el 15% restante está a cientos
-    # de metros, no a unos pocos. No hay tolerancia que lo arregle, de modo que
-    # se compensa con buffer. Un exceso solo cuesta disco; un defecto trunca la
-    # cuenca y contamina todo lo que viene después.
+    # Buffer sobre la red trazada, por escenario. Es la holgura que absorbe dos
+    # cosas distintas. La primera, que la envolvente de la RED no contiene la
+    # DIVISORIA: el parteaguas está en las cumbres, fuera de los cauces. Con la
+    # densidad de drenaje medida en esta subzona, 1,142 km/km2, la distancia
+    # media de un punto cualquiera al cauce más próximo es de unos 0,44 km, y
+    # la máxima en cabeceras difícilmente pasa de 3 o 4 km. La segunda, la
+    # conectividad imperfecta de la cartografía: el 85,1% de los tramos toca a
+    # su receptor y el 15% restante está a cientos de metros, no a unos pocos.
+    # No hay tolerancia que lo arregle, de modo que se compensa con buffer.
+    #
+    # DECISIÓN DEL CONSULTOR, 2026-08-11. Se adoptan 5 km para el escenario 1,
+    # antes 8. Sobre el punto de Refugio del Valle, en el Río Teusacá, la
+    # envolvente de la red trazada mide 275 km2 y la cuenca estimada por
+    # densidad ronda los 241 km2. Con 8 km el área de influencia salía de
+    # 1.066 km2, unas 4,4 veces la cuenca; con 5 km queda en unos 710, algo
+    # menos del triple, que sigue siendo holgura amplia.
+    #
+    # La asimetría se mantiene a propósito: un exceso solo cuesta disco y
+    # tiempo de cálculo, mientras que un defecto trunca la cuenca y contamina
+    # todo lo que viene después sin emitir ninguna señal.
     buffer_red_km:
-      escenario_1: 8.0           # el que más holgura necesita
+      escenario_1: 5.0
       escenario_2: 5.0
     # Solo aplican al escenario 3, que sí analiza terreno.
     umbral_celdas_cauce: 1000    # celdas acumuladas para definir cauce
