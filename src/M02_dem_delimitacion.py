@@ -58,7 +58,9 @@ if str(_DIRECTORIO_SRC) not in sys.path:
 
 import red_drenaje as red  # noqa: E402
 import sig  # noqa: E402
-from comun import asf, campos as mod_campos, entorno, esquema, registro, rutas  # noqa: E402
+from comun import (  # noqa: E402
+    asf, campos as mod_campos, entorno, esquema, registro, rutas, shapefile,
+)
 from comun.campos import CampoSalida  # noqa: E402
 from comun.config import Config, cargar  # noqa: E402
 from comun.errores import (  # noqa: E402
@@ -142,6 +144,7 @@ class ResultadoM02:
     # geográficas en que el catálogo de estaciones publica su ubicación.
     wkt_geografico: dict[str, str] = field(default_factory=dict)
     escenario: Any = None
+    acotado: dict = field(default_factory=dict)
     cota_punto: float | None = None
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -708,12 +711,12 @@ def determinar_area(configuracion, base, logger):
     origen = configuracion.obtener(
         f"dem.delimitacion.origen_area.escenario_{escenario.numero}")
 
-    if origen != "subzona":
+    if origen not in ("subzona", "red"):
         hallazgos.append(Hallazgo(
             BLOQUEANTE, "dem.delimitacion.origen_area",
             f"el escenario {escenario.numero} declara origen {origen!r}, que "
-            "todavía no está implementado en este módulo. Solo 'subzona' lo "
-            "está. Ver red_drenaje para el motor cartográfico.",
+            "todavía no está implementado en este módulo. Están 'subzona' y "
+            "'red'. Ver red_drenaje para el motor cartográfico.",
         ))
         return None, escenario, hallazgos
 
@@ -739,6 +742,122 @@ def determinar_area(configuracion, base, logger):
 
 
 # =============================================================================
+# Fase B: acotar el área con la red del M02b
+# =============================================================================
+def acotar_por_red(configuracion, base, logger):
+    """
+    Reduce el área de influencia a lo que drena al punto, más un buffer.
+
+    SEGUNDA FASE del módulo. La primera descarga el DEM y recorta el drenaje
+    acotados por la subzona; el M02b construye la red sobre esos recortes; y
+    aquí se traza aguas arriba desde el punto para quedarse con la parte que
+    aporta. Esa dependencia circular (el área necesita la red, la red necesita
+    el DEM, el DEM necesita un área) se rompe descargando siempre por subzona:
+    acotar NO ahorra descarga, acota lo que el estudio DECLARA como su área, y
+    con ello la selección de estaciones del M03, la extensión de interpolación
+    del M06 y el M08, y la cartografía del M16.
+
+    La adopción es CONDICIONAL y se mide. Un trazado que apenas arrastra red no
+    acota nada: acota mal. Por debajo de la fracción declarada se conserva la
+    subzona y se dice por qué, en lugar de entregar una envolvente pequeña y
+    plausible construida sobre un trazado que falló.
+
+    Devuelve (geometria o None, diagnostico, hallazgos).
+    """
+    from qgis.core import QgsGeometry, QgsRectangle
+
+    hallazgos: list[Hallazgo] = []
+    ruta_red = rutas.resolver(
+        configuracion.obtener("red_topologica.salida_red"), base)
+    if not ruta_red.is_file():
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "dem.delimitacion.acotar",
+            f"no existe la red del M02b en {rutas.relativa(ruta_red, base)}: no "
+            "se puede acotar el área. Ejecutar el M02b y volver a lanzar la "
+            "segunda fase.",
+        ))
+        return None, {}, hallazgos
+
+    registros = list(shapefile.leer_registros(
+        ruta_red, ["id_tramo", "receptor", "long_m", "nombre"]))
+    geometrias = shapefile.leer_geometrias(ruta_red)
+    afluentes: dict[int, list[int]] = {}
+    longitudes: dict[int, float] = {}
+    vertices: dict[int, list[tuple[float, float]]] = {}
+    for registro_tramo, entidad in zip(registros, geometrias):
+        identificador = int(registro_tramo["id_tramo"])
+        longitudes[identificador] = float(registro_tramo["long_m"])
+        vertices[identificador] = [p for parte in entidad for p in parte]
+        receptor = int(registro_tramo["receptor"])
+        if receptor >= 0:
+            afluentes.setdefault(receptor, []).append(identificador)
+
+    x, y = _punto_de_descarga(configuracion, base)
+    diagnostico = red.enganchar_punto(
+        afluentes, longitudes, vertices, x, y,
+        float(configuracion.obtener("dem.delimitacion.enganche_punto_m")))
+
+    if diagnostico.get("tramo") is None:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "dem.delimitacion.acotar",
+            f"no se pudo enganchar el punto a la red: {diagnostico['motivo']}. "
+            "Se conserva la subzona como área de influencia.",
+        ))
+        return None, diagnostico, hallazgos
+
+    red_total_km = sum(longitudes.values()) / 1000.0
+    fraccion = (diagnostico["red_arriba_km"] / red_total_km
+                if red_total_km else 0.0)
+    diagnostico["fraccion_de_la_red"] = round(fraccion, 5)
+    minima = float(configuracion.obtener("dem.delimitacion.fraccion_minima_red"))
+
+    logger.info("Punto enganchado al tramo %d, a %.1f m | %d tramos y %.1f km "
+                "aguas arriba (%.2f %% de la red)",
+                diagnostico["tramo"], diagnostico["distancia_m"],
+                diagnostico["tramos_arriba"], diagnostico["red_arriba_km"],
+                100 * fraccion)
+
+    if diagnostico["descartado_el_mas_cercano"]:
+        hallazgos.append(Hallazgo(
+            INFORMATIVO, "dem.delimitacion.enganche",
+            f"el punto NO se engancho al tramo mas cercano. El mas cercano es "
+            f"el {diagnostico['mas_cercano']}, que arrastra "
+            f"{diagnostico['red_del_mas_cercano_km']:.2f} km; se adopto el "
+            f"{diagnostico['tramo']}, a {diagnostico['distancia_m']:.1f} m, que "
+            f"arrastra {diagnostico['red_arriba_km']:.1f} km. El eje derivado "
+            "por adelgazamiento deja hebras paralelas y munones donde el cauce "
+            "se ensancha, y engancharse al mas cercano puede devolver un area "
+            "pequena y plausible construida sobre un trazado que no arrastra "
+            "nada.",
+        ))
+
+    if fraccion < minima:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "dem.delimitacion.acotar",
+            f"el trazado aguas arriba solo arrastra "
+            f"{diagnostico['red_arriba_km']:.2f} km, el {100 * fraccion:.2f} % "
+            f"de la red, por debajo del minimo de {100 * minima:.2f} %. NO se "
+            "acota: se conserva la subzona. Un trazado asi no acota el area, la "
+            "acota mal, y su envolvente tendria la misma apariencia que una "
+            "buena.",
+        ))
+        return None, diagnostico, hallazgos
+
+    buffer_km = float(configuracion.obtener(
+        f"dem.delimitacion.buffer_red_km.escenario_1"))
+    xmin, ymin, xmax, ymax = diagnostico["envolvente"]
+    margen = buffer_km * 1000.0
+    caja = QgsRectangle(xmin - margen, ymin - margen, xmax + margen, ymax + margen)
+    area = QgsGeometry.fromRect(caja)
+
+    diagnostico["buffer_km"] = buffer_km
+    diagnostico["area_acotada_km2"] = round(area.area() / 1e6, 3)
+    logger.info("Área acotada: %.1f km2 (envolvente de la red trazada mas "
+                "buffer de %.1f km)", area.area() / 1e6, buffer_km)
+    return area, diagnostico, hallazgos
+
+
+# =============================================================================
 # Orquestación
 # =============================================================================
 def ejecutar(
@@ -746,6 +865,7 @@ def ejecutar(
     ruta_config: Path | None = None,
     solo_planificar: bool = False,
     sin_descarga: bool = False,
+    fase: str = "completa",
     ruta_json: Path | None = None,
     consola: bool = True,
 ) -> tuple[int, list[Hallazgo]]:
@@ -799,44 +919,74 @@ def ejecutar(
             return _cerrar(logger, resultado, base, ruta_json, inicio,
                            SALIDA_BLOQUEANTE)
 
-    with registro.bloque(logger, "Consulta del catálogo y selección de escenas"):
-        resultado.plan, hallazgos_plan = planificar(
-            configuracion, wkt_geografico, logger
-        )
-        resultado.hallazgos.extend(hallazgos_plan)
-
-    if solo_planificar:
-        logger.info("Modo solo planificar: no se descarga ni se procesa.")
-        return _cerrar(logger, resultado, base, ruta_json, inicio,
-                       SALIDA_BLOQUEANTE if esquema.hay_bloqueantes(resultado.hallazgos)
-                       else SALIDA_CORRECTA)
-
-    if esquema.hay_bloqueantes(resultado.hallazgos):
-        logger.error("El plan de descarga no es admisible. Se detiene.")
-        return _cerrar(logger, resultado, base, ruta_json, inicio, SALIDA_BLOQUEANTE)
-
-    if not sin_descarga:
-        if not disponibles:
-            resultado.hallazgos.append(Hallazgo(
-                BLOQUEANTE, "dem.earthdata",
-                f"no hay credenciales de Earthdata utilizables: {motivo} "
-                "Crear el archivo netrc y volver a ejecutar, o usar "
-                "--sin-descarga si las escenas ya están en disco.",
-            ))
-            return _cerrar(logger, resultado, base, ruta_json, inicio,
-                           SALIDA_BLOQUEANTE)
-
-        with registro.bloque(logger, "Descarga de escenas"):
-            resultado.descargadas = _descargar_escenas(
-                configuracion, base, resultado.plan, logger
-            )
-
-    with registro.bloque(logger, "Extracción del modelo de elevación"):
-        _extraer_escenas(configuracion, base, logger)
-
-    with registro.bloque(logger, "Mosaico, reproyección y recorte"):
-        ruta_dem = preparar_dem(configuracion, base, objetivo, crs_calculo, logger)
+    # La segunda fase solo reemplaza el área: el DEM y los recortes ya están.
+    solo_area = fase == "area"
+    if solo_area:
+        ruta_dem = rutas.resolver(
+            configuracion.obtener("dem.delimitacion.salida_dem"), base)
         resultado.dem = rutas.relativa(ruta_dem, base)
+
+    if not solo_area:
+        with registro.bloque(logger, "Consulta del catálogo y selección de escenas"):
+            resultado.plan, hallazgos_plan = planificar(
+                configuracion, wkt_geografico, logger
+            )
+            resultado.hallazgos.extend(hallazgos_plan)
+
+        if solo_planificar:
+            logger.info("Modo solo planificar: no se descarga ni se procesa.")
+            return _cerrar(logger, resultado, base, ruta_json, inicio,
+                           SALIDA_BLOQUEANTE if esquema.hay_bloqueantes(resultado.hallazgos)
+                           else SALIDA_CORRECTA)
+
+        if esquema.hay_bloqueantes(resultado.hallazgos):
+            logger.error("El plan de descarga no es admisible. Se detiene.")
+            return _cerrar(logger, resultado, base, ruta_json, inicio, SALIDA_BLOQUEANTE)
+
+        if not sin_descarga:
+            if not disponibles:
+                resultado.hallazgos.append(Hallazgo(
+                    BLOQUEANTE, "dem.earthdata",
+                    f"no hay credenciales de Earthdata utilizables: {motivo} "
+                    "Crear el archivo netrc y volver a ejecutar, o usar "
+                    "--sin-descarga si las escenas ya están en disco.",
+                ))
+                return _cerrar(logger, resultado, base, ruta_json, inicio,
+                               SALIDA_BLOQUEANTE)
+
+            with registro.bloque(logger, "Descarga de escenas"):
+                resultado.descargadas = _descargar_escenas(
+                    configuracion, base, resultado.plan, logger
+                )
+
+        with registro.bloque(logger, "Extracción del modelo de elevación"):
+            _extraer_escenas(configuracion, base, logger)
+
+        with registro.bloque(logger, "Mosaico, reproyección y recorte"):
+            ruta_dem = preparar_dem(configuracion, base, objetivo, crs_calculo, logger)
+            resultado.dem = rutas.relativa(ruta_dem, base)
+
+    if fase != "preliminar":
+        with registro.bloque(logger, "Acotado del área con la red del M02b"):
+            acotada, diagnostico, hallazgos_acotar = acotar_por_red(
+                configuracion, base, logger)
+            resultado.hallazgos.extend(hallazgos_acotar)
+            resultado.acotado = diagnostico
+            if acotada is not None:
+                previa = area.area() / 1e6
+                area = acotada
+                resultado.hallazgos.append(Hallazgo(
+                    INFORMATIVO, "dem.delimitacion.acotada",
+                    f"area de influencia acotada de {previa:.0f} a "
+                    f"{area.area()/1e6:.0f} km2, una reduccion de "
+                    f"{previa / (area.area()/1e6):.1f} veces, trazando aguas "
+                    f"arriba desde el punto sobre la red del M02b: "
+                    f"{diagnostico['tramos_arriba']} tramos y "
+                    f"{diagnostico['red_arriba_km']:.1f} km de cauce que "
+                    "aportan al punto, mas el buffer declarado. Sigue siendo "
+                    "PRELIMINAR: la delimitacion definitiva es la asistida del "
+                    "M09.",
+                ))
 
     with registro.bloque(logger, "Escritura del área de influencia"):
         _escribir_area(configuracion, base, area, escenario, ruta_dem,
@@ -1175,6 +1325,7 @@ def _cerrar(logger, resultado: ResultadoM02, base: Path, ruta_json: Path | None,
         "escenas_descargadas": resultado.descargadas,
         "dem": resultado.dem,
         "punto": {"cota_m": resultado.cota_punto},
+        "acotado": resultado.acotado,
         "escenario": (resultado.escenario.como_dict()
                       if resultado.escenario else None),
         "area_influencia": {
@@ -1223,6 +1374,11 @@ def _analizar_argumentos(argv: Sequence[str] | None = None) -> argparse.Namespac
     analizador.add_argument("--sin-descarga", action="store_true",
                             dest="sin_descarga",
                             help="Usa solo las escenas ya presentes en disco.")
+    analizador.add_argument(
+        "--fase", choices=("preliminar", "area", "completa"),
+        default="completa",
+        help="preliminar: DEM y recortes acotados por la subzona. "
+             "area: acota con la red del M02b. completa: las dos.")
     analizador.add_argument("--json", type=Path, default=None, dest="json_salida")
     analizador.add_argument("--silencioso", action="store_true")
     return analizador.parse_args(argv)
@@ -1237,6 +1393,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raiz=argumentos.raiz, ruta_config=argumentos.config,
             solo_planificar=argumentos.solo_planificar,
             sin_descarga=argumentos.sin_descarga,
+            fase=argumentos.fase,
             ruta_json=argumentos.json_salida,
             consola=not argumentos.silencioso,
         )

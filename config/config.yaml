@@ -234,6 +234,16 @@ dem:
     umbral_drenaje_doble_m: 50.0   # distancia máxima para declarar escenario 1
     umbral_drenaje_sencillo_m: 150.0  # ídem para escenario 2
     tolerancia_empalme_eje_m: 200.0   # unión del eje con el drenaje sencillo
+    # Radio dentro del cual se busca a qué tramo de la red pertenece el punto.
+    # Entre los candidatos NO se adopta el más cercano sino el que más red
+    # arrastra aguas arriba: el eje derivado deja hebras paralelas y muñones
+    # donde el cauce se ensancha, y el más cercano puede ser uno de ellos.
+    enganche_punto_m: 150.0
+    # Fracción mínima de la red total que debe arrastrar el trazado para que se
+    # acepte acotar el área. Por debajo se conserva la subzona y se declara: un
+    # trazado que apenas arrastra red no acota el área, la acota mal, y su
+    # envolvente tiene la misma apariencia que una buena.
+    fraccion_minima_red: 0.01
     # Origen del área de influencia por escenario.
     #   subzona    la subzona hidrográfica del M01, tal cual
     #   red        envolvente de la red trazada más buffer

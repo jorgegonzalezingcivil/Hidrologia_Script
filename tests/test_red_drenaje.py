@@ -202,5 +202,85 @@ class PruebaCaminoMasLargo(unittest.TestCase):
         self.assertTrue(camino)
 
 
+class PruebaEngancheDelPunto(unittest.TestCase):
+    """
+    El punto NO se engancha al tramo más cercano.
+
+    Es el defecto que este proyecto destapó: el eje derivado por adelgazamiento
+    deja hebras paralelas y muñones de una o dos celdas donde el cauce se
+    ensancha. Sobre el punto real, el tramo más cercano estaba a 26,5 m y no
+    arrastraba nada; el que lleva la red estaba a 62,6 m y arrastraba 275 km.
+    """
+
+    # Un muñón corto justo al lado del punto, y la hebra buena un poco más
+    # lejos, con una cadena colgando de ella.
+    VERTICES = {
+        1: [(0.0, 0.0), (10.0, 0.0)],          # muñón, a 5 m del punto
+        2: [(0.0, 20.0), (40.0, 20.0)],        # hebra buena, a 15 m
+        3: [(0.0, 60.0), (0.0, 20.0)],         # cuelga de la 2
+        4: [(-40.0, 90.0), (0.0, 60.0)],       # cuelga de la 3
+        9: [(200.0, 200.0), (260.0, 200.0)],   # lejos, fuera de tolerancia
+    }
+    AFLUENTES = {2: [3], 3: [4]}
+    LONGITUDES = {1: 10.0, 2: 40.0, 3: 40.0, 4: 50.0, 9: 60.0}
+    PUNTO = (5.0, 5.0)
+
+    def _enganchar(self, tolerancia=50.0):
+        return red.enganchar_punto(
+            self.AFLUENTES, self.LONGITUDES, self.VERTICES,
+            self.PUNTO[0], self.PUNTO[1], tolerancia)
+
+    def test_adopta_la_hebra_que_arrastra_la_red(self) -> None:
+        resultado = self._enganchar()
+        self.assertEqual(resultado["tramo"], 2)
+        self.assertEqual(resultado["tramos_arriba"], 3)
+
+    def test_declara_que_descarto_el_mas_cercano(self) -> None:
+        # Sin esta declaración, el informe no podría explicar por qué el área
+        # no se apoya en el tramo que cualquiera habría elegido.
+        resultado = self._enganchar()
+        self.assertTrue(resultado["descartado_el_mas_cercano"])
+        self.assertEqual(resultado["mas_cercano"], 1)
+        self.assertEqual(resultado["red_del_mas_cercano_km"], 0.01)
+
+    def test_la_envolvente_cubre_lo_trazado(self) -> None:
+        xmin, ymin, xmax, ymax = self._enganchar()["envolvente"]
+        self.assertLessEqual(xmin, -40.0)
+        self.assertGreaterEqual(xmax, 40.0)
+        self.assertGreaterEqual(ymax, 90.0)
+
+    def test_lo_que_esta_fuera_de_tolerancia_no_compite(self) -> None:
+        claves = {c["tramo"] for c in self._enganchar()["candidatos"]}
+        self.assertNotIn(9, claves)
+
+    def test_sin_red_cerca_lo_dice(self) -> None:
+        resultado = self._enganchar(tolerancia=1.0)
+        self.assertIsNone(resultado["tramo"])
+        self.assertIn("ningún tramo", resultado["motivo"])
+
+    def test_con_un_solo_candidato_no_hay_descarte(self) -> None:
+        resultado = red.enganchar_punto(
+            self.AFLUENTES, self.LONGITUDES, self.VERTICES,
+            5.0, 5.0, 6.0)
+        self.assertEqual(resultado["tramo"], 1)
+        self.assertFalse(resultado["descartado_el_mas_cercano"])
+
+    def test_a_igualdad_de_red_manda_la_distancia(self) -> None:
+        vertices = {1: [(0.0, 0.0), (10.0, 0.0)],
+                    2: [(0.0, 30.0), (10.0, 30.0)]}
+        resultado = red.enganchar_punto(
+            {}, {1: 10.0, 2: 10.0}, vertices, 5.0, 5.0, 50.0)
+        self.assertEqual(resultado["tramo"], 1)
+
+    def test_la_distancia_es_al_segmento_y_no_a_sus_extremos(self) -> None:
+        # Un punto frente al centro de un segmento largo está cerca de él,
+        # aunque sus vértices queden lejos.
+        vertices = {1: [(-500.0, 10.0), (500.0, 10.0)]}
+        resultado = red.enganchar_punto({}, {1: 1000.0}, vertices,
+                                        0.0, 0.0, 20.0)
+        self.assertEqual(resultado["tramo"], 1)
+        self.assertAlmostEqual(resultado["distancia_m"], 10.0, places=6)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

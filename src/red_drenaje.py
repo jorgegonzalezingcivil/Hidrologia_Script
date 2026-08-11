@@ -470,6 +470,97 @@ def razon_bifurcacion(corrientes: dict[int, int]) -> dict[str, Any]:
     }
 
 
+def enganchar_punto(
+    afluentes: dict[int, list[int]],
+    longitudes: dict[int, float],
+    vertices: dict[int, Sequence[tuple[float, float]]],
+    x: float,
+    y: float,
+    tolerancia_m: float,
+) -> dict[str, Any]:
+    """
+    Elige a qué tramo de la red pertenece un punto, y traza aguas arriba.
+
+    NO se engancha al tramo más cercano. Entre los que caen dentro de la
+    tolerancia se adopta el que MÁS RED arrastra aguas arriba.
+
+    La diferencia no es sutil. El eje derivado por adelgazamiento produce hebras
+    paralelas allí donde el cauce se ensancha, y muchas de ellas son muñones de
+    una o dos celdas. Medido sobre el punto de este estudio: el tramo más
+    cercano, a 26,5 m, es un muñón de 37,5 m del que no cuelga nada; el que
+    lleva la red está a 62,6 m y arrastra 275 km. Engancharse al primero y
+    aplicar el buffer declarado produciría un área de 257 km2, una cifra
+    perfectamente plausible para esa cuenca y completamente equivocada, sin
+    ninguna señal de error.
+
+    Devuelve el tramo adoptado, el conjunto aguas arriba, la envolvente de ese
+    conjunto y los candidatos evaluados, que es lo que permite auditar la
+    elección en lugar de tener que confiar en ella.
+    """
+    candidatos: list[dict[str, Any]] = []
+    for identificador, puntos in vertices.items():
+        if len(puntos) < 2:
+            continue
+        distancia = min(
+            _distancia_a_segmento(x, y, uno[0], uno[1], otro[0], otro[1])
+            for uno, otro in zip(puntos, puntos[1:]))
+        if distancia > tolerancia_m:
+            continue
+        arriba = trazar_aguas_arriba(afluentes, identificador)
+        candidatos.append({
+            "tramo": identificador,
+            "distancia_m": round(distancia, 2),
+            "tramos_arriba": len(arriba),
+            "red_arriba_m": round(
+                sum(longitudes.get(t, 0.0) for t in arriba), 2),
+            "_arriba": arriba,
+        })
+
+    if not candidatos:
+        return {"tramo": None, "candidatos": [],
+                "motivo": f"ningún tramo de la red a menos de {tolerancia_m:.0f} m"}
+
+    candidatos.sort(key=lambda c: (-c["red_arriba_m"], c["distancia_m"]))
+    adoptado = candidatos[0]
+    mas_cercano = min(candidatos, key=lambda c: c["distancia_m"])
+    arriba = adoptado.pop("_arriba")
+    for candidato in candidatos:
+        candidato.pop("_arriba", None)
+
+    equis = [p[0] for t in arriba for p in vertices.get(t, ())]
+    griegas = [p[1] for t in arriba for p in vertices.get(t, ())]
+    envolvente = ((min(equis), min(griegas), max(equis), max(griegas))
+                  if equis else None)
+
+    return {
+        "tramo": adoptado["tramo"],
+        "distancia_m": adoptado["distancia_m"],
+        "tramos_arriba": len(arriba),
+        "red_arriba_km": round(adoptado["red_arriba_m"] / 1000.0, 3),
+        "aguas_arriba": sorted(arriba),
+        "envolvente": envolvente,
+        "tolerancia_m": tolerancia_m,
+        "candidatos": candidatos[:8],
+        # Se declara cuando el más cercano NO es el adoptado: es el caso en que
+        # el criterio ingenuo habría fallado, y el informe debe poder decirlo.
+        "descartado_el_mas_cercano": mas_cercano["tramo"] != adoptado["tramo"],
+        "mas_cercano": mas_cercano["tramo"],
+        "red_del_mas_cercano_km": round(mas_cercano["red_arriba_m"] / 1000.0, 3),
+        "motivo": "",
+    }
+
+
+def _distancia_a_segmento(px: float, py: float, ax: float, ay: float,
+                          bx: float, by: float) -> float:
+    """Distancia de un punto al segmento AB, no a la recta que lo contiene."""
+    dx, dy = bx - ax, by - ay
+    if dx == 0.0 and dy == 0.0:
+        return math.hypot(px - ax, py - ay)
+    t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
+    t = max(0.0, min(1.0, t))
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
 def camino_mas_largo(
     afluentes: dict[int, list[int]],
     longitudes: dict[int, float],

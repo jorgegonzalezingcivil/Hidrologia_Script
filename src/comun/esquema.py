@@ -890,6 +890,14 @@ ESQUEMA: dict[str, Campo] = {
     ),
 
     # --- M02b, red de drenaje topológica -------------------------------------
+    "dem.delimitacion.enganche_punto_m": numero(
+        "radio de enganche del punto de descarga a la red", minimo=0.0,
+    ),
+    "dem.delimitacion.fraccion_minima_red": numero(
+        "fracción mínima de la red que debe arrastrar el trazado",
+        minimo=0.0, maximo=1.0,
+    ),
+
     "red_topologica.resolucion_eje_m": numero(
         "resolución de rasterización para derivar el eje de los cauces dobles",
         minimo=1.0,
