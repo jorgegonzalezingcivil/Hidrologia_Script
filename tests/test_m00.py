@@ -73,6 +73,32 @@ class PruebaRutas(unittest.TestCase):
         ]
         self.assertEqual(faltantes, [], "Ejecutar setup_estructura.py")
 
+    def test_las_dos_definiciones_de_la_estructura_coinciden(self) -> None:
+        """
+        SUBDIRECTORIOS y ESTRUCTURA describen el mismo árbol en dos archivos.
+
+        Mientras coexistan pueden derivar, y la deriva no se nota al ejecutar:
+        el módulo que escribe en una carpeta que setup_estructura no crea
+        simplemente la crea al vuelo, y el M00 la reporta como ausente en cada
+        estudio nuevo. Ya ocurrió con data/02_procesado/enso.
+        """
+        import ast
+
+        arbol = ast.parse(
+            (_RAIZ_REPO / "setup_estructura.py").read_text(encoding="utf-8"))
+        declarada: dict = {}
+        for nodo in ast.walk(arbol):
+            if (isinstance(nodo, ast.AnnAssign)
+                    and getattr(nodo.target, "id", "") == "ESTRUCTURA"):
+                declarada = ast.literal_eval(nodo.value)
+        self.assertTrue(declarada, "no se pudo leer ESTRUCTURA")
+
+        # Los directorios que crea el estudio deben estar en las dos. Los que
+        # son solo del código pueden faltar en el árbol de un estudio nuevo.
+        del_estudio = {r for r in rutas.SUBDIRECTORIOS.values()
+                       if not rutas.es_de_codigo(r)}
+        self.assertEqual(sorted(del_estudio - set(declarada)), [])
+
 
 class PruebaLecturaYaml(unittest.TestCase):
     def setUp(self) -> None:
@@ -385,6 +411,87 @@ class PruebaCargaEstricta(unittest.TestCase):
         self.assertIn("enso.elimina_registros", str(contexto.exception))
 
 
+class PruebaDosRaices(unittest.TestCase):
+    """
+    La herramienta y el estudio son cosas distintas y viven en directorios
+    distintos. La misma instalación debe poder correr varios proyectos sin que
+    los resultados de uno aparezcan en el otro.
+    """
+
+    def setUp(self) -> None:
+        self.estudio = Path(tempfile.mkdtemp())
+        (self.estudio / "config").mkdir()
+        (self.estudio / "config" / "config.yaml").write_text(
+            "proyecto:\n  nombre: prueba\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.estudio, ignore_errors=True)
+
+    def test_la_raiz_del_codigo_no_depende_del_estudio(self) -> None:
+        # Se deduce de la ubicación del propio archivo, de modo que no la
+        # pueden mover ni el directorio de trabajo ni una variable de entorno.
+        self.assertEqual(rutas.raiz_codigo(), _RAIZ_REPO)
+
+    def test_un_directorio_con_config_es_un_estudio(self) -> None:
+        self.assertEqual(rutas.raiz_proyecto(self.estudio), self.estudio)
+
+    def test_un_directorio_sin_config_no_es_un_estudio(self) -> None:
+        vacio = Path(tempfile.mkdtemp())
+        try:
+            with self.assertRaises(ErrorRutas):
+                rutas.raiz_proyecto(vacio)
+        finally:
+            shutil.rmtree(vacio, ignore_errors=True)
+
+    def test_los_datos_se_resuelven_contra_el_estudio(self) -> None:
+        destino = rutas.resolver("data/02_procesado/x.csv", self.estudio)
+        self.assertTrue(destino.is_relative_to(self.estudio))
+
+    def test_la_doctrina_cae_a_la_herramienta(self) -> None:
+        # El estudio no trae la matriz de Tc, de modo que se usa la de la
+        # herramienta: la doctrina se mantiene en un solo sitio.
+        destino = rutas.resolver("data/referencia/tc_aplicabilidad.csv",
+                                 self.estudio)
+        self.assertTrue(destino.is_relative_to(_RAIZ_REPO), str(destino))
+        self.assertTrue(destino.is_file())
+
+    def test_el_estudio_puede_sobrescribir_la_doctrina(self) -> None:
+        propia = self.estudio / "data" / "referencia" / "tc_aplicabilidad.csv"
+        propia.parent.mkdir(parents=True)
+        propia.write_text("formula;nombre\n", encoding="utf-8")
+        destino = rutas.resolver("data/referencia/tc_aplicabilidad.csv",
+                                 self.estudio)
+        self.assertEqual(destino, propia.resolve())
+
+    def test_una_salida_inexistente_no_cae_a_la_herramienta(self) -> None:
+        # Un producto que aún no existe debe apuntar al estudio, nunca al
+        # repositorio: escribirlo ahí contaminaría la herramienta.
+        destino = rutas.resolver("data/03_SIG/raster/dem_recortado.tif",
+                                 self.estudio)
+        self.assertTrue(destino.is_relative_to(self.estudio))
+
+    def test_la_clasificacion_de_prefijos(self) -> None:
+        for ruta in ("data/referencia/x.csv", "templates/informe.dotx",
+                     "config/anexos.yaml", "docs/referencia/x.docx"):
+            with self.subTest(ruta=ruta):
+                self.assertTrue(rutas.es_de_codigo(ruta))
+        for ruta in ("data/01_crudos/x.csv", "data/05_resultados/g.png",
+                     "logs/M10.log", "data/00_insumos_usuario/MANIFIESTO.yaml"):
+            with self.subTest(ruta=ruta):
+                self.assertFalse(rutas.es_de_codigo(ruta))
+
+    def test_una_ruta_absoluta_se_respeta(self) -> None:
+        absoluta = Path(tempfile.gettempdir()).resolve() / "fuera.tif"
+        self.assertEqual(rutas.resolver(absoluta, self.estudio),
+                         absoluta.resolve())
+
+    def test_el_config_del_estudio_nunca_cae_a_la_herramienta(self) -> None:
+        # Si cayera, un estudio sin configuración se ejecutaría con la de la
+        # herramienta y escribiría sus productos en el sitio equivocado.
+        self.assertEqual(rutas.ruta_config(self.estudio),
+                         self.estudio / "config" / "config.yaml")
+
+
 class PruebaSuperposicionLocal(unittest.TestCase):
     """
     La superposición existe para que varias personas ejecuten el mismo estudio
@@ -522,7 +629,9 @@ class PruebaRegistro(unittest.TestCase):
         self.temporal = Path(tempfile.mkdtemp())
         (self.temporal / "logs").mkdir()
         for marcador in rutas.MARCADORES_RAIZ:
-            (self.temporal / marcador).write_text("marcador", encoding="utf-8")
+            destino = self.temporal / marcador
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            destino.write_text("marcador", encoding="utf-8")
 
     def tearDown(self) -> None:
         import logging

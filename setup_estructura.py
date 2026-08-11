@@ -58,6 +58,7 @@ ESTRUCTURA: dict[str, str] = {
     "data/02_procesado": "Productos intermedios versionados de cada módulo.",
     "data/02_procesado/series": "Series normalizadas: diaria, mensual, máximos anuales.",
     "data/02_procesado/estaciones": "Catálogo filtrado y matrices de sensibilidad.",
+    "data/02_procesado/enso": "Clasificación ENSO-ONI y agregaciones por fase.",
     "data/02_procesado/frecuencia": "Ajustes de distribución y valores por periodo de retorno.",
     "data/02_procesado/tormenta": "Curvas IDF y hietogramas por hipótesis y escenario.",
 

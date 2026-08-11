@@ -27,8 +27,10 @@ from .errores import ErrorRutas
 
 __all__ = [
     "MARCADORES_RAIZ",
+    "PREFIJOS_DE_CODIGO",
     "SUBDIRECTORIOS",
     "VARIABLE_ENTORNO_RAIZ",
+    "raiz_codigo",
     "raiz_proyecto",
     "ruta_config",
     "directorio",
@@ -42,8 +44,44 @@ __all__ = [
 # ejecutar desde OSGeo4W Shell o desde un programador de tareas.
 VARIABLE_ENTORNO_RAIZ = "HIDROLOGIA_RAIZ"
 
-# Archivos que identifican de forma inequívoca la raíz del repositorio.
-MARCADORES_RAIZ: tuple[str, ...] = ("CLAUDE.md", "setup_estructura.py")
+# Archivo que identifica un ESTUDIO. Es el que lo define: un directorio con
+# config/config.yaml es un estudio, con independencia de dónde esté el código.
+MARCADORES_RAIZ: tuple[str, ...] = ("config/config.yaml",)
+
+# =============================================================================
+# Dos raíces
+# =============================================================================
+# El repositorio es la HERRAMIENTA: código, pruebas, doctrina técnica y
+# plantillas. Un ESTUDIO es un directorio aparte con su configuración, sus
+# datos y sus productos. La separación es la que permite que la misma
+# instalación corra varios proyectos sin que se pisen los resultados.
+#
+# Estos prefijos pertenecen a la herramienta. Una ruta declarada bajo ellos se
+# busca primero en el estudio y, si no está, en el código. Ese orden no es un
+# detalle de implementación: es lo que permite que un estudio SOBRESCRIBA una
+# tabla de doctrina poniendo la suya en la misma ruta, sin tocar la herramienta
+# ni el resto de los estudios. Cuando lo hace, el módulo que la lea debe
+# declararlo, porque cambiar una tabla de doctrina es una decisión con margen.
+PREFIJOS_DE_CODIGO: tuple[str, ...] = (
+    "data/referencia",
+    "templates",
+    "docs",
+    "legacy",
+    "config",
+    # El entorno virtual es de la instalacion, no del estudio.
+    ".venv",
+)
+
+
+def raiz_codigo() -> Path:
+    """
+    Devuelve la raíz de la HERRAMIENTA, donde vive el código.
+
+    Se deduce de la ubicación de este archivo y de nada más. No depende del
+    directorio de trabajo ni de variables de entorno, porque el código sabe
+    siempre dónde está: 'src/comun/rutas.py' cuelga de la raíz.
+    """
+    return Path(__file__).resolve().parents[2]
 
 # Directorios del repositorio a los que el código necesita referirse por nombre
 # lógico. La clave es el nombre lógico y el valor la ruta relativa a la raíz.
@@ -140,18 +178,30 @@ def raiz_proyecto(inicio: str | os.PathLike | None = None) -> Path:
             )
         return candidato
 
-    partida = Path(inicio).resolve() if inicio is not None else Path(__file__).resolve()
-    if partida.is_file():
-        partida = partida.parent
+    # Se asciende primero desde el DIRECTORIO DE TRABAJO y solo después desde
+    # la ubicación del código. Ese orden es el que permite situarse dentro de
+    # un estudio y ejecutar sin declarar la raíz: si se buscara primero junto
+    # al código, la herramienta encontraría su propia configuración y el
+    # estudio se escribiría en el sitio equivocado sin avisar.
+    puntos_de_partida = []
+    if inicio is not None:
+        puntos_de_partida.append(Path(inicio).resolve())
+    else:
+        puntos_de_partida.append(Path.cwd().resolve())
+        puntos_de_partida.append(Path(__file__).resolve())
 
-    for candidato in (partida, *partida.parents):
-        if _es_raiz(candidato):
-            return candidato
+    for partida in puntos_de_partida:
+        if partida.is_file():
+            partida = partida.parent
+        for candidato in (partida, *partida.parents):
+            if _es_raiz(candidato):
+                return candidato
 
     raise ErrorRutas(
-        f"No se encontró la raíz del repositorio ascendiendo desde {partida}. "
-        f"Se buscaron los marcadores: {', '.join(MARCADORES_RAIZ)}. "
-        f"Definir {VARIABLE_ENTORNO_RAIZ} para fijarla de forma explícita."
+        f"No se encontró ningún estudio ascendiendo desde "
+        f"{puntos_de_partida[0]}. Un estudio es un directorio que contiene "
+        f"{', '.join(MARCADORES_RAIZ)}. Crear uno con nuevo_estudio.py, "
+        f"pasar --raiz, o definir {VARIABLE_ENTORNO_RAIZ}."
     )
 
 
@@ -210,12 +260,34 @@ def resolver(
     Una ruta absoluta se devuelve tal cual, resuelta. Esto permite que el
     consultor apunte a un insumo fuera del repositorio de forma deliberada, pero
     el módulo que la reciba debe advertirlo en su log.
+
+    Las rutas bajo los PREFIJOS_DE_CODIGO (doctrina técnica, plantillas,
+    declaraciones) se buscan primero en el estudio y, si no están, en la
+    herramienta. Así la doctrina se mantiene en un solo sitio y un estudio que
+    necesite apartarse de ella solo tiene que poner su propia copia en la misma
+    ruta relativa.
     """
     candidata = Path(ruta_relativa)
     if candidata.is_absolute():
         return candidata.resolve()
+
     base = Path(raiz).resolve() if raiz is not None else raiz_proyecto()
-    return (base / candidata).resolve()
+    destino = (base / candidata).resolve()
+    if destino.exists() or not es_de_codigo(candidata):
+        return destino
+
+    codigo = raiz_codigo()
+    if codigo == base:
+        return destino
+    alterna = (codigo / candidata).resolve()
+    return alterna if alterna.exists() else destino
+
+
+def es_de_codigo(ruta_relativa: str | os.PathLike) -> bool:
+    """Indica si una ruta relativa pertenece a la herramienta y no al estudio."""
+    partes = Path(ruta_relativa).as_posix()
+    return any(partes == prefijo or partes.startswith(prefijo + "/")
+               for prefijo in PREFIJOS_DE_CODIGO)
 
 
 def resolver_desde(

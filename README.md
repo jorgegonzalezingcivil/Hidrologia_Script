@@ -142,7 +142,63 @@ Las 17 suites deben terminar en `OK`. Qué significa cada fallo típico:
 
 ---
 
-## 4. Cómo se ejecuta
+## 4. Un estudio nuevo
+
+Este repositorio es la **herramienta**: código, pruebas, doctrina técnica de
+`data/referencia/` y plantillas. Un **estudio** es un directorio aparte con su
+`config/config.yaml`, sus datos y sus productos. La misma instalación corre así
+varios proyectos sin que los resultados de uno aparezcan en el otro.
+
+```
+py -3.12 C:\Hidrologia_Script\nuevo_estudio.py
+```
+
+Pregunta lo imprescindible, lo valida antes de escribir nada y crea el árbol
+del estudio con su configuración. Las dos validaciones que importan: que el
+código EPSG exista, y que el punto caiga dentro de Colombia una vez
+reproyectado. La segunda atrapa el error más común al declarar una coordenada,
+que es escribir la latitud antes que la longitud.
+
+La configuración del estudio se deriva de la de la herramienta con los
+comentarios intactos. Todo lo que no sea propio del proyecto se hereda tal cual,
+de modo que dos estudios de la misma versión parten de la misma doctrina y las
+diferencias entre sus resultados son atribuibles a la cuenca.
+
+### Cómo se resuelven las rutas
+
+| Qué | Dónde se busca |
+|---|---|
+| `data/00_insumos_usuario/`, `data/01_crudos/` … `data/05_resultados/`, `logs/` | siempre en el estudio |
+| `data/referencia/`, `templates/`, `docs/`, `config/` | primero en el estudio, si no está en la herramienta |
+| `config/config.yaml` | **siempre** en el estudio, nunca cae a la herramienta |
+
+Ese descenso es lo que permite mantener la doctrina en un solo sitio y, a la
+vez, que un estudio que necesite apartarse de ella ponga su propia copia en la
+misma ruta relativa. Cuando lo haga, debe declararlo en el informe: cambiar una
+tabla de doctrina es una decisión con margen.
+
+### Ejecutar contra un estudio
+
+Basta situarse dentro de él:
+
+```
+cd D:\Estudios\mi_proyecto
+C:\Hidrologia_Script\.venv\Scripts\python.exe C:\Hidrologia_Script\src\M00_configuracion.py
+```
+
+O declararlo de forma explícita, que es lo preferible en un script:
+
+```
+C:\Hidrologia_Script\.venv\Scripts\python.exe C:\Hidrologia_Script\src\M10_morfometria.py --raiz D:\Estudios\mi_proyecto
+```
+
+Un directorio es un estudio si contiene `config/config.yaml`. La variable
+`HIDROLOGIA_RAIZ` lo fija de forma explícita cuando ninguna de las dos formas
+anteriores conviene.
+
+---
+
+## 5. Cómo se ejecuta
 
 Un módulo, un script independiente. Se invocan por separado y se comunican por
 archivos, nunca por estado en memoria.
@@ -181,7 +237,7 @@ La delimitación asistida en HEC-HMS. El M09 prepara los insumos con
 
 ---
 
-## 5. Estructura
+## 6. Estructura
 
 ```
 config/         config.yaml compartido y la plantilla de configuración local
@@ -206,7 +262,7 @@ repositorio. El criterio completo está comentado en [.gitignore](.gitignore).
 
 ---
 
-## 6. Al trabajar en equipo
+## 7. Al trabajar en equipo
 
 - **El código y la configuración compartida viajan por Git.** Nunca por carpeta
   sincronizada: Git escribe cientos de archivos pequeños con renombrados

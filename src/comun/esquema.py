@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
+from . import rutas as _rutas
+
 __all__ = [
     "BLOQUEANTE",
     "ADVERTENCIA",
@@ -2047,8 +2049,11 @@ def validar_rutas(
         valor = obtener(datos, clave)
         if not isinstance(valor, str) or not valor.strip():
             continue
-        candidata = Path(valor)
-        destino = candidata if candidata.is_absolute() else base / candidata
+        # Se resuelve con el mismo criterio que usan los módulos, de modo que
+        # la doctrina que el estudio no trae y hereda de la herramienta no se
+        # reporte como ausente: si el módulo la va a encontrar, el M00 no puede
+        # decir que falta.
+        destino = _rutas.resolver(valor, base)
         if destino.exists():
             continue
 

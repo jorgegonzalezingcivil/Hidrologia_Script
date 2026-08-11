@@ -26,6 +26,12 @@ Reglas de interacción:
 
 ## 2. Principios de programación
 
+- **La herramienta y el estudio son cosas distintas.** El repositorio contiene
+  código, pruebas, doctrina de `data/referencia/` y plantillas. Cada estudio
+  vive en su propio directorio, identificado por su `config/config.yaml`, y se
+  ejecuta con `--raiz` o situándose dentro de él. Las rutas de doctrina se
+  buscan primero en el estudio y, si no están, en la herramienta: así un
+  estudio puede apartarse de una tabla poniendo la suya, y debe declararlo.
 - Un módulo, un script independiente y ejecutable.
 - Sin rutas absolutas ni parámetros embebidos: todo va en `config/config.yaml`.
 - Sin estado compartido en memoria entre módulos: la comunicación es por archivos.
