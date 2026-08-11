@@ -188,6 +188,24 @@ def registrar_cabecera(
         if huella:
             logger.info("sha256 config      : %s", huella)
 
+        # Superposición local. Se registra clave por clave, con el valor
+        # compartido y el de esta máquina, porque sin ese rastro dos
+        # ejecuciones en equipos distintos serían indistinguibles en los
+        # anexos del estudio.
+        ruta_local = getattr(config, "ruta_local", None)
+        if ruta_local is not None:
+            logger.info("Config local       : %s", ruta_local)
+            huella_local = getattr(config, "sha256_local", None)
+            if huella_local:
+                logger.info("sha256 local       : %s", huella_local)
+            superpuestas = getattr(config, "superpuestas", ())
+            if superpuestas:
+                logger.info("Claves de máquina sustituidas (%d)", len(superpuestas))
+                for clave, compartido, propio in superpuestas:
+                    logger.info("  %-28s %r -> %r", clave, compartido, propio)
+            else:
+                logger.info("Claves de máquina sustituidas: ninguna")
+
     archivo_log = ruta_log(logger)
     if archivo_log is not None:
         logger.info("Archivo de log     : %s", archivo_log)

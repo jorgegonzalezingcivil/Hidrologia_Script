@@ -1,0 +1,92 @@
+# =============================================================================
+# config.local.yaml - PLANTILLA
+# -----------------------------------------------------------------------------
+# Copiar este archivo como config/config.local.yaml y ajustar los valores a
+# esta máquina. La copia NO se versiona: cada equipo mantiene la suya.
+#
+#     copy config\config.local.ejemplo.yaml config\config.local.yaml
+#
+# Qué hace. Sus claves se superponen sobre config/config.yaml antes de validar,
+# de modo que lo que se valida es lo que se ejecuta. Todo lo que no se declare
+# aquí conserva el valor compartido.
+#
+# Qué NO hace. Solo admite las claves de máquina que se listan abajo. Cualquier
+# otra detiene la carga con un mensaje explícito. Esa restricción es
+# deliberada: un umbral, un periodo de retorno o un método de interpolación
+# distinto en cada equipo produciría resultados distintos del mismo estudio sin
+# dejar rastro en el repositorio, y un estudio que no puede explicar sus
+# decisiones no es defendible ante interventoría (CLAUDE.md, sección 7).
+# Si el cambio es del estudio, va en config/config.yaml y se versiona.
+#
+# Todo lo que se sustituya queda escrito en el log de cada módulo, con el valor
+# compartido y el de esta máquina, uno al lado del otro.
+#
+# Se pueden borrar los bloques que no hagan falta: no declarar una clave es
+# quedarse con el valor compartido, que es lo correcto cuando coincide.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# QGIS. Lo usan los módulos M00b, M01, M02, M06, M08, M11 y M16.
+#
+# Verificar la ruta real del intérprete: no todas las instalaciones traen el
+# mismo nombre de archivo. En OSGeo4W suele ser python-qgis-ltr.bat.
+#
+# Si la versión instalada no coincide con la del estudio, declararla aquí en
+# lugar de editar el archivo compartido, y tener presente que los productos de
+# interpolación pueden diferir entre versiones.
+# -----------------------------------------------------------------------------
+entornos:
+  qgis:
+    version: "4.2.0"
+    es_ltr: false
+    python: "C:/Program Files/QGIS 4.2.0/bin/python-qgis.bat"
+    prefix_path: "C:/Program Files/QGIS 4.2.0/apps/qgis"
+  venv:
+    # Solo si el venv se creó en otra ruta distinta de .venv en la raíz.
+    python: ".venv/Scripts/python.exe"
+
+# -----------------------------------------------------------------------------
+# HEC-HMS. Lo usan el M09 y el M13. Solo hace falta en modo de análisis
+# detallado: en modo general no se construye modelo.
+# -----------------------------------------------------------------------------
+software:
+  hec_hms:
+    ruta: "C:/Program Files/HEC/HEC-HMS/4.13"
+    version: "4.13"
+
+# -----------------------------------------------------------------------------
+# Capas nacionales de referencia. No caben en el repositorio: son cerca de
+# 4 GB entre el drenaje del IGAC, la cobertura Corine y el ráster de grupo
+# hidrológico de suelo. Se copian una vez y se declara aquí dónde quedaron.
+#
+# Sin esta ruta, el M00c reporta bloqueante en 'suelos.usa_capa_base'.
+# -----------------------------------------------------------------------------
+referencia_nacional:
+  directorio: "C:/SIG_Referencia_Nacional"
+
+# -----------------------------------------------------------------------------
+# Credenciales. Nunca van al archivo compartido.
+#
+# El token de Socrata es gratuito y opcional: sin él la API de datos.gov.co
+# aplica un límite de peticiones más estricto. Las credenciales de Earthdata,
+# que el M02 necesita para descargar el DEM, NO se declaran aquí sino en un
+# archivo netrc; lo que se declara es dónde está, y null significa el ~/.netrc
+# estándar, que es también el que leen curl, wget y GDAL.
+#
+# La ruta del netrc debe quedar FUERA del repositorio: la carpeta del proyecto
+# se comprime y se entrega como anexo, y ninguna regla de git alcanza a un .zip.
+# -----------------------------------------------------------------------------
+ideam:
+  socrata:
+    token: ""
+
+dem:
+  earthdata:
+    ruta_netrc: null
+
+# -----------------------------------------------------------------------------
+# Preferencia personal. No afecta al resultado, solo al detalle del log.
+# Valores: DEBUG, INFO, WARNING, ERROR.
+# -----------------------------------------------------------------------------
+ejecucion:
+  nivel_log: "INFO"

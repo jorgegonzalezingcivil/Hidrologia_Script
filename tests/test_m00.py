@@ -385,6 +385,138 @@ class PruebaCargaEstricta(unittest.TestCase):
         self.assertIn("enso.elimina_registros", str(contexto.exception))
 
 
+class PruebaSuperposicionLocal(unittest.TestCase):
+    """
+    La superposición existe para que varias personas ejecuten el mismo estudio
+    desde equipos distintos sin editar el archivo compartido.
+
+    Lo que la hace defendible no es que funcione, sino que esté ACOTADA: solo
+    puede tocar dónde está instalado el software y dónde viven las capas
+    nacionales. Si pudiera cambiar un umbral o un periodo de retorno, dos
+    equipos obtendrían resultados distintos del mismo estudio sin que quedara
+    rastro en el repositorio.
+    """
+
+    def setUp(self) -> None:
+        self.temporal = Path(tempfile.mkdtemp())
+        self.compartido = self.temporal / "config.yaml"
+        self.local = self.temporal / mod_config.NOMBRE_LOCAL
+        import yaml
+
+        self.compartido.write_text(
+            yaml.safe_dump(_config_valida(), allow_unicode=True),
+            encoding="utf-8")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.temporal, ignore_errors=True)
+
+    def _cargar(self, texto: str | None = None):
+        if texto is not None:
+            self.local.write_text(texto, encoding="utf-8")
+        return mod_config.cargar(ruta=self.compartido, raiz=_RAIZ_REPO)
+
+    def test_sin_archivo_local_no_pasa_nada(self) -> None:
+        configuracion = self._cargar()
+        self.assertIsNone(configuracion.ruta_local)
+        self.assertEqual(configuracion.superpuestas, ())
+
+    def test_sustituye_la_clave_declarada(self) -> None:
+        configuracion = self._cargar(
+            'referencia_nacional:\n  directorio: "D:/Otro"\n')
+        self.assertEqual(
+            configuracion.obtener("referencia_nacional.directorio"), "D:/Otro")
+        self.assertEqual(configuracion.ruta_local, self.local)
+        self.assertIsNotNone(configuracion.sha256_local)
+
+    def test_lo_no_declarado_conserva_el_valor_compartido(self) -> None:
+        antes = self._cargar().obtener("entornos.qgis.prefix_path")
+        despues = self._cargar(
+            'entornos:\n  qgis:\n    python: "D:/x.bat"\n'
+        ).obtener("entornos.qgis.prefix_path")
+        self.assertEqual(antes, despues)
+
+    def test_deja_rastro_de_lo_sustituido(self) -> None:
+        # Sin este rastro, dos ejecuciones en equipos distintos serían
+        # indistinguibles en los anexos del estudio.
+        configuracion = self._cargar(
+            'referencia_nacional:\n  directorio: "D:/Otro"\n')
+        claves = [c for c, _, _ in configuracion.superpuestas]
+        self.assertIn("referencia_nacional.directorio", claves)
+        _, compartido, propio = configuracion.superpuestas[0]
+        self.assertNotEqual(compartido, propio)
+        self.assertEqual(propio, "D:/Otro")
+
+    def test_un_valor_identico_no_cuenta_como_sustitucion(self) -> None:
+        actual = self._cargar().obtener("referencia_nacional.directorio")
+        configuracion = self._cargar(
+            f'referencia_nacional:\n  directorio: "{actual}"\n')
+        self.assertEqual(configuracion.superpuestas, ())
+
+    def test_la_doctrina_del_estudio_no_se_puede_sobrescribir(self) -> None:
+        with self.assertRaises(ErrorConfiguracion) as contexto:
+            self._cargar("frecuencia:\n  periodos_retorno: [2, 5]\n")
+        mensaje = str(contexto.exception)
+        self.assertIn("frecuencia.periodos_retorno", mensaje)
+        self.assertIn("doctrina", mensaje)
+
+    def test_una_clave_mal_escrita_detiene_la_carga(self) -> None:
+        # Sin este control quedaría un valor que ningún módulo lee, y la
+        # máquina seguiría usando el compartido sin avisar.
+        with self.assertRaises(ErrorConfiguracion):
+            self._cargar('entornos:\n  qgis:\n    pyton: "D:/x.bat"\n')
+
+    def test_una_clave_admitida_pero_ausente_del_compartido(self) -> None:
+        datos = _config_valida()
+        del datos["referencia_nacional"]["directorio"]
+        import yaml
+
+        self.compartido.write_text(
+            yaml.safe_dump(datos, allow_unicode=True), encoding="utf-8")
+        with self.assertRaises(ErrorConfiguracion) as contexto:
+            self._cargar('referencia_nacional:\n  directorio: "D:/Otro"\n')
+        self.assertIn("no existen", str(contexto.exception))
+
+    def test_se_puede_desactivar(self) -> None:
+        self.local.write_text(
+            'referencia_nacional:\n  directorio: "D:/Otro"\n', encoding="utf-8")
+        configuracion = mod_config.cargar(
+            ruta=self.compartido, raiz=_RAIZ_REPO, usar_local=False)
+        self.assertIsNone(configuracion.ruta_local)
+        self.assertNotEqual(
+            configuracion.obtener("referencia_nacional.directorio"), "D:/Otro")
+
+    def test_toda_clave_admitida_existe_en_el_config_del_repositorio(self) -> None:
+        # Si alguien renombra una clave en config.yaml y olvida la lista, la
+        # superposición dejaría de tener efecto en silencio.
+        real = mod_config.cargar(raiz=_RAIZ_REPO, usar_local=False)
+        for clave in mod_config.CLAVES_LOCALES:
+            with self.subTest(clave=clave):
+                real.obtener(clave)
+
+    def test_la_plantilla_solo_declara_claves_admitidas(self) -> None:
+        plantilla = _RAIZ_REPO / "config" / "config.local.ejemplo.yaml"
+        self.assertTrue(plantilla.is_file(), str(plantilla))
+        declaradas = {c for c, _ in mod_config._hojas(
+            mod_config.leer_yaml(plantilla))}
+        self.assertEqual(declaradas - set(mod_config.CLAVES_LOCALES), set())
+
+    def test_la_plantilla_se_aplica_sin_error(self) -> None:
+        # La plantilla es documentación ejecutable: si no cargara, el primer
+        # miembro del equipo que la copiara quedaría bloqueado.
+        plantilla = _RAIZ_REPO / "config" / "config.local.ejemplo.yaml"
+        shutil.copy(plantilla, self.local)
+        self.assertIsNotNone(self._cargar().ruta_local)
+
+    def test_la_copia_real_no_esta_versionada(self) -> None:
+        import subprocess
+
+        salida = subprocess.run(
+            ["git", "check-ignore", "config/config.local.yaml"],
+            cwd=_RAIZ_REPO, capture_output=True, text=True)
+        self.assertEqual(salida.returncode, 0,
+                         "config/config.local.yaml debe estar en .gitignore")
+
+
 class PruebaRegistro(unittest.TestCase):
     def setUp(self) -> None:
         self.temporal = Path(tempfile.mkdtemp())

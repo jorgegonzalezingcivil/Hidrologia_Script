@@ -343,12 +343,28 @@ def guardar(fig: Any, destino_sin_extension: Path, estilo: Estilo) -> list[Path]
 
     El destino se da sin extensión porque el conjunto de formatos es una
     decisión de configuración, no del módulo que dibuja.
+
+    La escritura es REPRODUCIBLE: dos ejecuciones con los mismos datos producen
+    archivos byte a byte idénticos. Por defecto matplotlib incrusta en el SVG la
+    fecha de creación y unos identificadores aleatorios, de modo que cada
+    corrida marcaba como modificadas las cuatrocientas y pico figuras del
+    entregable aunque ninguna hubiera cambiado. Con varias personas ejecutando,
+    ese ruido esconde el cambio real y termina confirmándose sin revisar.
     """
     destino_sin_extension.parent.mkdir(parents=True, exist_ok=True)
     escritas: list[Path] = []
     for formato in estilo.formatos:
         ruta = destino_sin_extension.with_suffix(f".{formato}")
-        fig.savefig(ruta, format=formato, dpi=estilo.dpi, bbox_inches="tight")
+        argumentos: dict[str, Any] = {}
+        if formato == "svg":
+            # La sal fija los identificadores internos; el nombre del archivo
+            # la hace distinta entre figuras y estable entre ejecuciones.
+            plt.rcParams["svg.hashsalt"] = destino_sin_extension.name
+            argumentos["metadata"] = {"Date": None}
+        elif formato == "pdf":
+            argumentos["metadata"] = {"CreationDate": None}
+        fig.savefig(ruta, format=formato, dpi=estilo.dpi, bbox_inches="tight",
+                    **argumentos)
         escritas.append(ruta)
     return escritas
 

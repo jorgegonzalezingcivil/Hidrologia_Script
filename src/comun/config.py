@@ -30,7 +30,7 @@ import os
 from pathlib import Path
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 try:
     import yaml
@@ -44,9 +44,56 @@ from . import esquema as _esquema
 from . import rutas as _rutas
 from .errores import ErrorClaveInexistente, ErrorConfiguracion, ErrorValidacion
 
-__all__ = ["Config", "cargar", "leer_yaml", "huella_sha256"]
+__all__ = [
+    "CLAVES_LOCALES",
+    "Config",
+    "NOMBRE_LOCAL",
+    "cargar",
+    "huella_sha256",
+    "leer_yaml",
+    "superponer",
+]
 
 _AUSENTE = object()
+
+# =============================================================================
+# Superposición local
+# =============================================================================
+# Nombre del archivo que cada equipo mantiene sin versionar, junto al
+# config.yaml compartido.
+NOMBRE_LOCAL = "config.local.yaml"
+
+# ÚNICAS claves que la superposición local puede sobrescribir.
+#
+# La lista es cerrada a propósito. Si cualquier clave pudiera sobrescribirse en
+# local, un miembro del equipo podría cambiar un periodo de retorno, un umbral
+# de completitud o el método de interpolación sin que quedara rastro en el
+# repositorio, y dos ejecuciones del mismo estudio darían resultados distintos
+# sin explicación. Eso es exactamente lo que la sección 7 de CLAUDE.md prohíbe:
+# un estudio que no puede explicar sus decisiones no es defendible.
+#
+# Lo que sí varía de una máquina a otra es dónde está instalado el software,
+# dónde viven las capas nacionales y qué credenciales usa cada quien. Nada de
+# eso es doctrina del estudio.
+CLAVES_LOCALES: tuple[str, ...] = (
+    # Dónde está instalado QGIS y qué versión es
+    "entornos.qgis.version",
+    "entornos.qgis.es_ltr",
+    "entornos.qgis.python",
+    "entornos.qgis.prefix_path",
+    # Intérprete del venv, por si el equipo lo crea en otra ruta
+    "entornos.venv.python",
+    # Dónde está instalado HEC-HMS y qué versión es
+    "software.hec_hms.ruta",
+    "software.hec_hms.version",
+    # Dónde viven las capas nacionales, que no caben en el repositorio
+    "referencia_nacional.directorio",
+    # Credenciales propias de cada quien, que nunca se versionan
+    "ideam.socrata.token",
+    "dem.earthdata.ruta_netrc",
+    # Preferencia personal, sin efecto sobre el resultado
+    "ejecucion.nivel_log",
+)
 
 
 # =============================================================================
@@ -132,6 +179,94 @@ def huella_sha256(ruta: str | os.PathLike) -> str:
     return digestor.hexdigest()
 
 
+def _hojas(datos: Mapping, prefijo: str = "") -> Iterator[tuple[str, Any]]:
+    """Recorre un YAML anidado y entrega (clave con puntos, valor) de cada hoja."""
+    for clave, valor in datos.items():
+        ruta = f"{prefijo}.{clave}" if prefijo else str(clave)
+        if isinstance(valor, dict) and valor:
+            yield from _hojas(valor, ruta)
+        else:
+            yield ruta, valor
+
+
+def _leer_anidado(datos: Mapping, clave: str) -> Any:
+    """Lee una clave con puntos. Devuelve _AUSENTE si no existe."""
+    actual: Any = datos
+    for parte in clave.split("."):
+        if not isinstance(actual, Mapping) or parte not in actual:
+            return _AUSENTE
+        actual = actual[parte]
+    return actual
+
+
+def _fijar_anidado(datos: dict, clave: str, valor: Any) -> None:
+    """Escribe una clave con puntos sobre un diccionario mutable."""
+    partes = clave.split(".")
+    actual = datos
+    for parte in partes[:-1]:
+        actual = actual[parte]
+    actual[partes[-1]] = valor
+
+
+def superponer(
+    datos: dict, local: Mapping, permitidas: Iterable[str] = CLAVES_LOCALES
+) -> tuple[tuple[str, Any, Any], ...]:
+    """
+    Aplica sobre `datos` las claves de `local`, en el sitio.
+
+    Devuelve lo sustituido como (clave, valor compartido, valor local), que es
+    lo que el log registra: sin ese rastro, dos ejecuciones de máquinas
+    distintas serían indistinguibles en los anexos del estudio.
+
+    Se rechaza toda clave fuera de `permitidas` y toda clave que no exista ya
+    en la configuración compartida. Lo primero impide que la doctrina del
+    estudio se altere por máquina; lo segundo atrapa el error de escritura, que
+    de otro modo crearía en silencio un parámetro que ningún módulo lee.
+
+    Excepciones
+    -----------
+    ErrorConfiguracion
+        Si el archivo local declara una clave no permitida o inexistente.
+    """
+    admitidas = set(permitidas)
+    sustituidas: list[tuple[str, Any, Any]] = []
+    rechazadas: list[str] = []
+    desconocidas: list[str] = []
+
+    for clave, valor in _hojas(local):
+        if clave not in admitidas:
+            rechazadas.append(clave)
+            continue
+        previo = _leer_anidado(datos, clave)
+        if previo is _AUSENTE:
+            desconocidas.append(clave)
+            continue
+        if previo != valor:
+            sustituidas.append((clave, previo, valor))
+        _fijar_anidado(datos, clave, valor)
+
+    if rechazadas:
+        raise ErrorConfiguracion(
+            f"{NOMBRE_LOCAL} intenta sobrescribir claves que no son de "
+            f"máquina: {', '.join(sorted(rechazadas))}. La superposición local "
+            "existe para declarar dónde está instalado el software y dónde "
+            "viven las capas nacionales, no para cambiar la doctrina del "
+            "estudio. Un parámetro técnico distinto en cada equipo produciría "
+            "resultados distintos sin dejar rastro en el repositorio. Si el "
+            "cambio es del estudio, va en config/config.yaml y se versiona. "
+            f"Claves admitidas: {', '.join(CLAVES_LOCALES)}."
+        )
+    if desconocidas:
+        raise ErrorConfiguracion(
+            f"{NOMBRE_LOCAL} declara claves que no existen en config.yaml: "
+            f"{', '.join(sorted(desconocidas))}. Suele ser un error de "
+            "escritura; sin este control quedaría un valor que ningún módulo "
+            "lee y la máquina seguiría usando el de la configuración "
+            "compartida."
+        )
+    return tuple(sustituidas)
+
+
 def _congelar(valor: Any) -> Any:
     """Convierte diccionarios en mapas de solo lectura y listas en tuplas."""
     if isinstance(valor, dict):
@@ -168,9 +303,13 @@ class Config(Mapping):
     sha256:       huella del archivo, para trazabilidad.
     fecha_carga:  instante de la lectura.
     hallazgos:    hallazgos de la validación, incluidas advertencias.
+    ruta_local:   archivo de superposición aplicado, o None.
+    sha256_local: huella de ese archivo, o None.
+    superpuestas: (clave, valor compartido, valor local) de lo sustituido.
     """
 
-    __slots__ = ("_datos", "ruta", "raiz", "sha256", "fecha_carga", "hallazgos")
+    __slots__ = ("_datos", "ruta", "raiz", "sha256", "fecha_carga", "hallazgos",
+                 "ruta_local", "sha256_local", "superpuestas")
 
     def __init__(
         self,
@@ -179,6 +318,9 @@ class Config(Mapping):
         raiz: Path,
         sha256: str,
         hallazgos: tuple = (),
+        ruta_local: Path | None = None,
+        sha256_local: str | None = None,
+        superpuestas: tuple = (),
     ) -> None:
         object.__setattr__(self, "_datos", _congelar(datos))
         object.__setattr__(self, "ruta", ruta)
@@ -186,6 +328,9 @@ class Config(Mapping):
         object.__setattr__(self, "sha256", sha256)
         object.__setattr__(self, "fecha_carga", _dt.datetime.now())
         object.__setattr__(self, "hallazgos", tuple(hallazgos))
+        object.__setattr__(self, "ruta_local", ruta_local)
+        object.__setattr__(self, "sha256_local", sha256_local)
+        object.__setattr__(self, "superpuestas", tuple(superpuestas))
 
     # --- protocolo Mapping ---------------------------------------------------
     def __getitem__(self, clave: str) -> Any:
@@ -309,9 +454,18 @@ def cargar(
     raiz: str | os.PathLike | None = None,
     validar: bool = True,
     estricto: bool = False,
+    usar_local: bool = True,
+    ruta_local: str | os.PathLike | None = None,
 ) -> Config:
     """
     Lee y valida config/config.yaml y devuelve un objeto Config congelado.
+
+    Si junto al archivo compartido existe 'config.local.yaml', sus claves se
+    superponen ANTES de validar, de modo que lo que se valida y lo que se
+    ejecuta son lo mismo. Ese archivo no se versiona: declara dónde está
+    instalado el software de cada equipo, dónde viven las capas nacionales y
+    qué credenciales usa cada quien. Solo puede sobrescribir las claves de
+    CLAVES_LOCALES; cualquier otra detiene la carga.
 
     Parámetros
     ----------
@@ -325,11 +479,18 @@ def cargar(
     estricto:
         Si es True, las advertencias también detienen la carga. Corresponde a
         `ejecucion.detener_en_advertencia` cuando el módulo así lo decida.
+    usar_local:
+        Si es False se ignora la superposición. Sirve para comprobar qué haría
+        el estudio con la configuración compartida sola.
+    ruta_local:
+        Archivo de superposición. Si es None se busca 'config.local.yaml'
+        junto al archivo compartido.
 
     Excepciones
     -----------
     ErrorConfiguracion
-        Si el archivo no se puede leer o interpretar.
+        Si el archivo no se puede leer o interpretar, o si la superposición
+        local declara claves que no son de máquina.
     ErrorValidacion
         Si la configuración incumple el esquema o una invariante bloqueante.
     """
@@ -338,6 +499,16 @@ def cargar(
 
     datos = leer_yaml(destino)
     huella = huella_sha256(destino)
+
+    local = (Path(ruta_local).resolve() if ruta_local is not None
+             else destino.with_name(NOMBRE_LOCAL))
+    aplicado: Path | None = None
+    huella_local: str | None = None
+    superpuestas: tuple = ()
+    if usar_local and local.is_file():
+        superpuestas = superponer(datos, leer_yaml(local))
+        aplicado = local
+        huella_local = huella_sha256(local)
 
     hallazgos: tuple = ()
     if validar:
@@ -348,4 +519,5 @@ def cargar(
         if detener:
             raise ErrorValidacion(hallazgos, str(destino))
 
-    return Config(datos, destino, base, huella, hallazgos)
+    return Config(datos, destino, base, huella, hallazgos,
+                  aplicado, huella_local, superpuestas)

@@ -126,6 +126,17 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
+# --- Configuración propia de cada máquina ------------------------------------
+# config/config.yaml es doctrina del estudio y se versiona. Junto a él, cada
+# equipo mantiene su config.local.yaml con dónde tiene instalado QGIS y
+# HEC-HMS, dónde dejó las capas nacionales y qué credenciales usa. Ese archivo
+# NO se versiona: si lo hiciera, cada 'pull' produciría conflicto en él y tarde
+# o temprano alguien confirmaría su ruta local y rompería a los demás.
+#
+# La plantilla config.local.ejemplo.yaml sí se versiona: es la documentación de
+# qué se puede declarar.
+config/config.local.yaml
+
 # --- Credenciales ------------------------------------------------------------
 # El token de Socrata y las credenciales de Earthdata nunca van al repositorio.
 .netrc
