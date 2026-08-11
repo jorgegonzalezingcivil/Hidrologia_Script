@@ -103,17 +103,30 @@ class PruebaAdopcion(unittest.TestCase):
     """
 
     def test_con_suficientes_procede(self) -> None:
-        evaluadas = [{"formula": f"f{i}", "aplicable": True} for i in range(6)]
+        evaluadas = [{"formula": f"f{i}", "aplicable": True, "tc_horas": 2.0 + i}
+                     for i in range(6)]
         self.assertTrue(m10.resumir_adopcion(evaluadas, 5)["procede_adoptar"])
 
+    def test_aplicable_sin_calcular_no_basta(self) -> None:
+        # Ser aplicable y haberse podido calcular son cosas distintas. Una
+        # formula dentro de su rango a la que le falta una magnitud no aporta
+        # nada a la mediana, y contarla daria un subconjunto ficticio.
+        evaluadas = [{"formula": f"f{i}", "aplicable": True, "tc_horas": None}
+                     for i in range(6)]
+        resumen = m10.resumir_adopcion(evaluadas, 5)
+        self.assertEqual(resumen["formulas_aplicables"], 6)
+        self.assertEqual(resumen["formulas_adoptables"], 0)
+        self.assertFalse(resumen["procede_adoptar"])
+
     def test_con_pocas_no_procede(self) -> None:
-        evaluadas = [{"formula": f"f{i}", "aplicable": i < 3} for i in range(6)]
+        evaluadas = [{"formula": f"f{i}", "aplicable": i < 3, "tc_horas": 2.0}
+                     for i in range(6)]
         resumen = m10.resumir_adopcion(evaluadas, 5)
         self.assertFalse(resumen["procede_adoptar"])
         self.assertEqual(resumen["formulas_aplicables"], 3)
 
     def test_sin_ninguna_aplicable(self) -> None:
-        evaluadas = [{"formula": "f", "aplicable": False}]
+        evaluadas = [{"formula": "f", "aplicable": False, "tc_horas": 2.0}]
         self.assertEqual(
             m10.resumir_adopcion(evaluadas, 5)["formulas_aplicables"], 0)
 
@@ -466,6 +479,124 @@ class PruebaDrenajeReal(unittest.TestCase):
         self.assertGreater(self.drenaje["cota_nacimiento"],
                            self.drenaje["cota_cierre"])
         self.assertGreater(self.drenaje["pendiente_media_cauce"], 0.0)
+
+
+class PruebaTiempoDeRezago(unittest.TestCase):
+    """
+    CLAUDE.md, sección 6: Δt es el INTERVALO DE CÁLCULO, no la duración de la
+    tormenta. Con la tormenta de tres horas del estudio el término valdría 90
+    minutos en lugar de 2,5, y el hidrograma saldría desplazado más de una hora.
+    """
+
+    def test_criterio_scs(self) -> None:
+        rezago = m10.tiempo_de_rezago(2.0, "scs", 5.0)
+        self.assertAlmostEqual(rezago["tlag_horas"], 1.2)
+        self.assertAlmostEqual(rezago["tlag_minutos"], 72.0)
+
+    def test_el_intervalo_no_afecta_al_criterio_scs(self) -> None:
+        self.assertEqual(m10.tiempo_de_rezago(2.0, "scs", 5.0)["tlag_horas"],
+                         m10.tiempo_de_rezago(2.0, "scs", 60.0)["tlag_horas"])
+
+    def test_criterio_hechms_anade_medio_intervalo(self) -> None:
+        rezago = m10.tiempo_de_rezago(2.0, "hechms", 5.0)
+        # 5 min / 2 = 2,5 min = 0,041667 h, sobre 1,2 h.
+        self.assertAlmostEqual(rezago["tlag_horas"], 1.2 + 2.5 / 60.0, places=4)
+        self.assertEqual(rezago["intervalo_calculo_min"], 5.0)
+
+    def test_sin_tc_no_hay_rezago(self) -> None:
+        rezago = m10.tiempo_de_rezago(None, "scs", 5.0)
+        self.assertIsNone(rezago["tlag_horas"])
+        self.assertIn("concentración", rezago["motivo"])
+
+    def test_un_criterio_desconocido_no_inventa_un_valor(self) -> None:
+        rezago = m10.tiempo_de_rezago(2.0, "inventado", 5.0)
+        self.assertIsNone(rezago["tlag_horas"])
+        self.assertIn("no reconocido", rezago["motivo"])
+
+    def test_el_criterio_declarado_esta_entre_los_admitidos(self) -> None:
+        self.assertIn(_CFG.obtener("tiempo_rezago.criterio"), ("scs", "hechms"))
+
+
+class PruebaAdopcionConValores(unittest.TestCase):
+    """La adopción exige dos condiciones: número de fórmulas y dispersión."""
+
+    def _evaluadas(self, valores, aplicables=None):
+        aplicables = range(len(valores)) if aplicables is None else aplicables
+        return [{"formula": f"f{i}", "aplicable": i in aplicables,
+                 "tc_horas": v} for i, v in enumerate(valores)]
+
+    def test_adopta_la_mediana_del_subconjunto(self) -> None:
+        resumen = m10.resumir_adopcion(
+            self._evaluadas([1.0, 2.0, 3.0, 4.0, 5.0]), 5, cv_maximo=1.0)
+        self.assertTrue(resumen["procede_adoptar"])
+        self.assertAlmostEqual(resumen["tc_horas"], 3.0)
+
+    def test_la_dispersion_alta_impide_adoptar(self) -> None:
+        resumen = m10.resumir_adopcion(
+            self._evaluadas([1.0, 2.0, 3.0, 40.0, 100.0]), 5, cv_maximo=0.60)
+        self.assertTrue(resumen["dispersion_excesiva"])
+        self.assertFalse(resumen["procede_adoptar"])
+        self.assertIsNone(resumen["tc_horas"])
+
+    def test_solo_cuentan_las_aplicables(self) -> None:
+        # Cinco formulas con valor, pero solo tres dentro de su rango.
+        resumen = m10.resumir_adopcion(
+            self._evaluadas([1.0, 2.0, 3.0, 4.0, 5.0], aplicables={0, 1, 2}),
+            5, cv_maximo=1.0)
+        self.assertEqual(resumen["formulas_aplicables"], 3)
+        self.assertFalse(resumen["procede_adoptar"])
+
+    def test_una_aplicable_sin_calcular_no_es_adoptable(self) -> None:
+        evaluadas = self._evaluadas([1.0, 2.0, 3.0, 4.0, 5.0])
+        evaluadas[0]["tc_horas"] = None
+        resumen = m10.resumir_adopcion(evaluadas, 5, cv_maximo=1.0)
+        self.assertEqual(resumen["formulas_aplicables"], 5)
+        self.assertEqual(resumen["formulas_adoptables"], 4)
+
+
+@unittest.skipUnless(HAY_CUENCA, "no hay capa de cuenca")
+class PruebaGrupoHidrologico(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        directorio = Path(_CFG.obtener("referencia_nacional.directorio"))
+        cls.ruta = directorio / str(_CFG.obtener("referencia_nacional.suelos_hsg"))
+        if not cls.ruta.is_file():
+            raise unittest.SkipTest("no está la capa nacional de suelos")
+        cls.poligonos = shapefile.leer_geometrias(_CUENCA)
+
+    def _muestreo(self, duales="no_drenado", paso=1000.0):
+        return m10.grupos_hidrologicos(
+            self.ruta, self.poligonos, _CFG.obtener("crs.calculo"),
+            paso_m=paso, duales=duales)
+
+    def test_el_reparto_suma_cien(self) -> None:
+        suelos = self._muestreo()
+        self.assertAlmostEqual(
+            sum(r["porcentaje"] for r in suelos["reparto"]), 100.0, places=1)
+
+    def test_todos_los_grupos_son_del_scs(self) -> None:
+        for fila in self._muestreo()["reparto"]:
+            self.assertIn(fila["grupo"], ("A", "B", "C", "D"))
+
+    def test_el_criterio_de_duales_cambia_el_reparto(self) -> None:
+        # Es la comprobacion de que la decision tiene consecuencias medibles.
+        sin_drenar = {r["grupo"]: r["porcentaje"] for r in
+                      self._muestreo("no_drenado")["reparto"]}
+        drenado = {r["grupo"]: r["porcentaje"] for r in
+                   self._muestreo("drenado")["reparto"]}
+        self.assertGreater(sin_drenar.get("D", 0.0), drenado.get("D", 0.0))
+
+    def test_la_cobertura_del_raster_se_declara(self) -> None:
+        suelos = self._muestreo()
+        self.assertGreater(suelos["cobertura_pct"], 90.0)
+        self.assertEqual(
+            suelos["muestras"],
+            suelos["muestras_validas"] + suelos["muestras_sin_dato"]
+            + suelos["muestras_fuera"])
+
+    def test_un_paso_mas_fino_no_cambia_el_dominante(self) -> None:
+        self.assertEqual(self._muestreo(paso=1000.0)["grupo_dominante"],
+                         self._muestreo(paso=500.0)["grupo_dominante"])
 
 
 class PruebaModoDeAnalisis(unittest.TestCase):

@@ -867,6 +867,17 @@ numero_curva:
   # derivado de un estudio de suelos del proyecto, y el informe debe poder
   # distinguirlos.
   usar_base_si_no_aportado: true
+  # Paso de la malla con que se muestrea el raster de grupo hidrologico. El
+  # HYSOGs tiene celda de unos 231 m: muestrear mas fino no aporta detalle y
+  # multiplica el coste.
+  muestreo_suelos_m: 250.0
+  # DECISION CON MARGEN. Los grupos duales (A/D, B/D, C/D) describen un suelo
+  # cuyo grupo depende de si esta drenado. 'no_drenado' los asigna al grupo D,
+  # el mas desfavorable y el del lado seguro para el diseno; 'drenado' los
+  # asigna a su grupo drenado. La eleccion cambia el numero de curva en decenas
+  # de unidades sobre la fraccion del area afectada, y debe declararse en el
+  # informe. Si el estudio dispone de informacion de drenaje, esa manda.
+  grupos_duales: "no_drenado"   # no_drenado | drenado
 
 # -----------------------------------------------------------------------------
 # M13 / M14 - MODELO HEC-HMS

@@ -903,6 +903,14 @@ ESQUEMA: dict[str, Campo] = {
         minimo=0.0,
     ),
 
+    "numero_curva.muestreo_suelos_m": numero(
+        "paso de la malla de muestreo del raster de suelos", minimo=1.0,
+    ),
+    "numero_curva.grupos_duales": texto(
+        "criterio para los grupos hidrologicos duales",
+        opciones=("no_drenado", "drenado"),
+    ),
+
     "tiempo_concentracion.tabla_aplicabilidad": ruta(
         "matriz de aplicabilidad de fórmulas de Tc",
     ),

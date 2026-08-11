@@ -71,6 +71,7 @@ if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
 import red_drenaje  # noqa: E402  (solo sus funciones de grafo, sin QGIS)
+import tiempo_concentracion  # noqa: E402
 from comun import (  # noqa: E402
     esquema, geometria, raster, registro, rutas, shapefile,
 )
@@ -104,6 +105,9 @@ class ResultadoM10:
     unidades: list[dict[str, Any]] = field(default_factory=list)
     relieve: dict[str, Any] = field(default_factory=dict)
     drenaje: dict[str, Any] = field(default_factory=dict)
+    magnitudes: dict[str, Any] = field(default_factory=dict)
+    rezago: dict[str, Any] = field(default_factory=dict)
+    suelos: dict[str, Any] = field(default_factory=dict)
     tiempos: list[dict[str, Any]] = field(default_factory=list)
     adoptados: dict[str, Any] = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
@@ -930,13 +934,26 @@ def evaluar_aplicabilidad(
     matriz: Sequence[dict[str, Any]],
     area_km2: float,
     pendiente: float | None,
+    magnitudes: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Aplica la matriz y devuelve una fila por fórmula, con su veredicto."""
+    """
+    Aplica la matriz y devuelve una fila por fórmula, con su veredicto.
+
+    Si se pasan las magnitudes de la cuenca, cada fórmula se CALCULA además de
+    evaluarse. Se calculan todas, incluidas las que la matriz descarta: el
+    informe gana el contraste entre lo que habría dado una fórmula fuera de su
+    rango y lo que da el subconjunto adoptable, que es la forma de mostrar por
+    qué el descarte importa. Aplicable y calculada son dos columnas distintas y
+    solo la primera decide la adopción.
+    """
+    calculadas = (tiempo_concentracion.calcular_todas(**magnitudes)
+                  if magnitudes else {})
     salida: list[dict[str, Any]] = []
     for fila in matriz:
+        clave = fila.get("formula", "")
         aplicable, motivo = es_aplicable(fila, area_km2, pendiente)
-        salida.append({
-            "formula": fila.get("formula", ""),
+        registro_formula = {
+            "formula": clave,
             "nombre": fila.get("nombre", ""),
             "origen": fila.get("origen", ""),
             "area_min_km2": fila.get("area_min_km2"),
@@ -944,13 +961,23 @@ def evaluar_aplicabilidad(
             "tipo_cuenca": fila.get("tipo_cuenca", ""),
             "aplicable": aplicable,
             "motivo": motivo,
-        })
+        }
+        calculo = calculadas.get(clave)
+        if calculo is not None:
+            registro_formula.update({
+                "tc_horas": calculo["horas"],
+                "tc_minutos": calculo["minutos"],
+                "motivo_calculo": calculo["motivo"],
+            })
+        salida.append(registro_formula)
     return salida
 
 
 def resumir_adopcion(
     evaluadas: Sequence[dict[str, Any]],
     minimo_formulas: int,
+    cv_maximo: float | None = None,
+    criterio: str = "mediana",
 ) -> dict[str, Any]:
     """
     Decide si procede adoptar un valor, según la cautela de la sección 7.
@@ -958,15 +985,270 @@ def resumir_adopcion(
     Con menos fórmulas aplicables que el mínimo declarado NO se adopta la
     mediana: se advierte y la decisión queda para el consultor. Adoptarla de
     todos modos daría una cifra con la misma apariencia que una bien sustentada.
+
+    La dispersión es la segunda condición y se comprueba sobre el subconjunto
+    ADOPTABLE, el de las fórmulas que además se pudieron calcular. Un
+    coeficiente de variación alto entre fórmulas que la matriz declara
+    aplicables no es ruido de cálculo: significa que la cuenca no se parece a
+    ninguna de las poblaciones en que se calibraron.
     """
     aplicables = [e for e in evaluadas if e["aplicable"]]
+    adoptables = [e for e in aplicables if e.get("tc_horas") is not None]
+    resumen = tiempo_concentracion.estadisticos(
+        [e["tc_horas"] for e in adoptables])
+
+    suficientes = len(aplicables) >= minimo_formulas
+    disperso = (cv_maximo is not None and resumen["cv"] is not None
+                and resumen["cv"] > cv_maximo)
+
+    adoptado = None
+    if suficientes and not disperso and resumen["n"]:
+        adoptado = (resumen["mediana"] if criterio == "mediana"
+                    else resumen["media"])
+
     return {
         "formulas_evaluadas": len(evaluadas),
         "formulas_aplicables": len(aplicables),
+        "formulas_adoptables": len(adoptables),
         "minimo_exigido": minimo_formulas,
-        "procede_adoptar": len(aplicables) >= minimo_formulas,
+        "procede_adoptar": bool(suficientes and not disperso and resumen["n"]),
         "aplicables": [e["formula"] for e in aplicables],
+        "adoptables": [e["formula"] for e in adoptables],
+        "criterio": criterio,
+        "cv_maximo_admisible": cv_maximo,
+        "dispersion_excesiva": disperso,
+        "estadisticos": resumen,
+        "tc_horas": adoptado,
+        "tc_minutos": round(adoptado * 60.0, 2) if adoptado else None,
     }
+
+
+def tiempo_de_rezago(
+    tc_horas: float | None, criterio: str, intervalo_min: float,
+) -> dict[str, Any]:
+    """
+    Tiempo de rezago a partir del tiempo de concentración.
+
+        scs      Tlag = 0,6 * Tc
+        hechms   Tlag = Δt/2 + 0,6 * Tc
+
+    Δt es el INTERVALO DE CÁLCULO del modelo, no la duración de la tormenta.
+    Confundirlos es un error de consecuencias grandes: con la tormenta de tres
+    horas del estudio, el término valdría 90 minutos en lugar de 2,5, y el
+    hidrograma saldría desplazado más de una hora.
+    """
+    if tc_horas is None or tc_horas <= 0:
+        return {"criterio": criterio, "tlag_horas": None, "tlag_minutos": None,
+                "motivo": "sin tiempo de concentración adoptado"}
+
+    base = 0.6 * tc_horas
+    if criterio == "hechms":
+        rezago = intervalo_min / 120.0 + base
+    elif criterio == "scs":
+        rezago = base
+    else:
+        return {"criterio": criterio, "tlag_horas": None, "tlag_minutos": None,
+                "motivo": f"criterio {criterio!r} no reconocido"}
+
+    return {
+        "criterio": criterio,
+        "tlag_horas": round(rezago, 4),
+        "tlag_minutos": round(rezago * 60.0, 2),
+        "intervalo_calculo_min": intervalo_min if criterio == "hechms" else None,
+        "motivo": "",
+    }
+
+
+def _magnitudes_de_la_cuenca(parametros, resultado) -> dict[str, Any]:
+    """
+    Reúne lo que las fórmulas de Tc necesitan, con las unidades que esperan.
+
+    La cota media que pide Giandotti es la media de la cuenca SOBRE la cota de
+    salida, no la cota media absoluta. Usar la absoluta sobrestima el
+    denominador y acorta el tiempo, que es el sentido inseguro.
+    """
+    relieve = resultado.relieve
+    drenaje = resultado.drenaje
+    cota_salida = (drenaje.get("cota_cierre")
+                   if drenaje.get("cota_cierre") is not None
+                   else relieve.get("cota_min"))
+    cota_media_sobre_salida = None
+    if relieve.get("cota_media") is not None and cota_salida is not None:
+        cota_media_sobre_salida = relieve["cota_media"] - cota_salida
+
+    return {
+        "area_km2": parametros.get("area_km2"),
+        "longitud_km": drenaje.get("long_cauce_principal_km"),
+        "pendiente": drenaje.get("pendiente_media_cauce"),
+        "desnivel_m": drenaje.get("desnivel_cauce_m"),
+        "cota_media_m": cota_media_sobre_salida,
+        "cn": resultado.suelos.get("cn_ponderado"),
+    }
+
+
+def _resolver_rezago(resultado, configuracion, logger) -> None:
+    """Registra el tiempo de rezago y comprueba su coherencia con HEC-HMS."""
+    rezago = resultado.rezago
+    if rezago.get("tlag_horas") is None:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "tiempo_rezago.sin_valor",
+            f"no se calculo el tiempo de rezago: {rezago.get('motivo')}. "
+            "Depende del tiempo de concentracion adoptado.",
+        ))
+        return
+
+    logger.info("Tiempo de rezago %.3f h (%.1f min) por criterio %s",
+                rezago["tlag_horas"], rezago["tlag_minutos"],
+                rezago["criterio"])
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "tiempo_rezago.adoptado",
+        f"tiempo de rezago {rezago['tlag_horas']:.3f} h "
+        f"({rezago['tlag_minutos']:.1f} min), criterio {rezago['criterio']}."
+        + (" Incluye el termino Δt/2 con el INTERVALO DE CALCULO de "
+           f"{rezago['intervalo_calculo_min']:.0f} min, no la duracion de la "
+           "tormenta." if rezago["criterio"] == "hechms" else ""),
+    ))
+
+    if not bool(configuracion.obtener(
+            "tiempo_rezago.validar_coherencia_con_transform")):
+        return
+
+    transformacion = str(configuracion.obtener("hec_hms.transform", "")).strip()
+    if transformacion == "scs_uh" and rezago["criterio"] not in ("scs", "hechms"):
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "tiempo_rezago.coherencia",
+            f"el metodo de transformacion declarado es {transformacion!r}, que "
+            "trabaja con tiempo de rezago, y el criterio de rezago es "
+            f"{rezago['criterio']!r}. CLAUDE.md, seccion 7, exige verificar esa "
+            "coherencia.",
+        ))
+    elif transformacion in ("clark", "modclark") and rezago["criterio"] != "scs":
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "tiempo_rezago.coherencia",
+            f"la transformacion {transformacion!r} usa el tiempo de "
+            "CONCENTRACION y el coeficiente de almacenamiento, no el de rezago. "
+            "El rezago se reporta de todos modos, pero no es el parametro que "
+            "consume el modelo.",
+        ))
+
+
+def _resolver_numero_curva(configuracion, base, resultado, poligonos,
+                           parametros, logger) -> None:
+    """Grupo hidrológico desde la capa de suelos y, si es posible, el CN."""
+    aportado = rutas.resolver(
+        configuracion.obtener("referencia_nacional.salida_recorte_suelos"), base)
+    if aportado.is_file():
+        ruta_suelos = aportado
+        procedencia = "recorte del area"
+    else:
+        directorio = Path(configuracion.obtener("referencia_nacional.directorio"))
+        ruta_suelos = directorio / str(
+            configuracion.obtener("referencia_nacional.suelos_hsg"))
+        procedencia = "capa de base nacional"
+
+    if not ruta_suelos.is_file():
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "numero_curva.suelos",
+            f"no se encuentra la capa de suelos en {ruta_suelos}: no hay grupo "
+            "hidrologico ni numero de curva.",
+        ))
+        return
+
+    try:
+        suelos = grupos_hidrologicos(
+            ruta_suelos, poligonos,
+            str(configuracion.obtener("crs.calculo")),
+            paso_m=float(configuracion.obtener("numero_curva.muestreo_suelos_m")),
+            duales=str(configuracion.obtener("numero_curva.grupos_duales")))
+    except (ErrorFormato, ErrorHidrologia, ErrorRutas) as error:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "numero_curva.suelos",
+            f"no se pudo leer el grupo hidrologico: {error}"))
+        return
+
+    suelos["procedencia"] = procedencia
+    suelos["raster"] = rutas.relativa(Path(suelos["raster"]), base) \
+        if Path(suelos["raster"]).is_relative_to(base) else suelos["raster"]
+    resultado.suelos = suelos
+
+    reparto = "; ".join(f"{r['grupo']} {r['porcentaje']:.1f} %"
+                        for r in suelos["reparto"])
+    logger.info("Grupo hidrologico dominante %s | %s",
+                suelos["grupo_dominante"], reparto)
+
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "numero_curva.grupo_hidrologico",
+        f"grupo hidrologico de suelo leido de la {procedencia}, sobre "
+        f"{suelos['muestras_validas']:,} muestras a {suelos['paso_muestreo_m']:.0f} m "
+        f"({suelos['cobertura_pct']:.1f} % de la malla con dato). Reparto: "
+        f"{reparto}. Dominante {suelos['grupo_dominante']}.",
+    ))
+
+    if suelos["pct_dual"] > 0:
+        criterio = suelos["criterio_duales"]
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "numero_curva.grupos_duales",
+            f"el {suelos['pct_dual']:.1f} % del area cae en grupos DUALES, cuyo "
+            "grupo depende de si el suelo esta drenado. Se adopto el criterio "
+            f"{criterio!r}, que "
+            + ("los asigna al grupo D, el mas desfavorable."
+               if criterio == "no_drenado" else
+               "los asigna a su grupo drenado, el mas favorable.")
+            + " La eleccion cambia el numero de curva en decenas de unidades "
+            "sobre esa fraccion del area y debe quedar declarada en el informe. "
+            "Si el estudio dispone de informacion de drenaje, esta es la "
+            "decision que debe sustituirla.",
+        ))
+
+    if suelos["procedencia"] == "capa de base nacional":
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "numero_curva.procedencia",
+            "el grupo hidrologico procede de una capa GLOBAL de 250 m y no de "
+            "un estudio de suelos del proyecto. Sirve para una caracterizacion "
+            "general; el informe debe distinguirlo de un levantamiento propio.",
+        ))
+
+    # --- Numero de curva ------------------------------------------------------
+    faltan = []
+    for clave in ("numero_curva.tabla_cn",
+                  "numero_curva.homologacion_cobertura",
+                  "referencia_nacional.salida_recorte_cobertura"):
+        destino = rutas.resolver(configuracion.obtener(clave), base)
+        if not destino.is_file():
+            faltan.append(f"{clave} ({rutas.relativa(destino, base)})")
+
+    if faltan:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "numero_curva.sin_calcular",
+            "el numero de curva NO se calculo. El grupo hidrologico esta "
+            "resuelto, pero el CN exige ademas la cobertura y la tabla que "
+            "cruza cobertura con grupo. Falta: " + "; ".join(faltan)
+            + ". La homologacion de clases de cobertura a clases del SCS es "
+            "una decision del consultor y no puede derivarse sin criterio: la "
+            "misma clase Corine admite numeros de curva distintos segun como se "
+            "interprete su condicion hidrologica.",
+        ))
+
+
+def _resolver_tiempo_viaje(resultado, modo, parametros, logger) -> None:
+    """Tiempo de viaje por los tramos de tránsito, cuando los hay."""
+    if modo == "general":
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "tiempo_viaje.no_aplica",
+            "el tiempo de viaje NO aplica en modo general: describe el recorrido "
+            "de la onda por los tramos de transito ENTRE subcuencas, y aqui hay "
+            "una sola unidad. El recorrido dentro de ella ya lo describe el "
+            "tiempo de concentracion. En modo detallado se calcula sobre los "
+            "tramos que el M09 importa de HEC-HMS.",
+        ))
+        return
+
+    resultado.hallazgos.append(Hallazgo(
+        ADVERTENCIA, "tiempo_viaje.pendiente",
+        "el tiempo de viaje por los tramos de transito no se calculo: depende "
+        "de la geometria de cada tramo y del metodo de transito, que el M13 "
+        "declara. Queda para cuando el M09 entregue los tramos.",
+    ))
 
 
 def _muestreador_de_cota(ruta_dem: Path):
@@ -1242,6 +1524,142 @@ def _resolver_relieve(relieve, parametros, resultado, configuracion,
 
 
 # =============================================================================
+# Grupo hidrológico de suelo
+# =============================================================================
+# Códigos del ráster HYSOGs250m. Los simples son los cuatro grupos del SCS; los
+# duales describen un suelo cuyo grupo depende de si está drenado. El estudio
+# debe declarar cuál adopta, y la diferencia no es menor: pasar de A a D sube
+# el número de curva en decenas de unidades.
+GRUPOS_HSG = {1: "A", 2: "B", 3: "C", 4: "D",
+              11: "A/D", 12: "B/D", 13: "C/D", 14: "D/D"}
+GRUPO_SI_DRENADO = {11: "A", 12: "B", 13: "C", 14: "D"}
+GRUPO_SI_NO_DRENADO = {11: "D", 12: "D", 13: "D", 14: "D"}
+
+
+def grupos_hidrologicos(
+    ruta_raster: Path, poligonos, crs_cuenca: str, paso_m: float = 250.0,
+    duales: str = "no_drenado",
+) -> dict[str, Any]:
+    """
+    Reparto del grupo hidrológico de suelo dentro de la cuenca.
+
+    El ráster es global y está en coordenadas geográficas; la cuenca está en el
+    CRS de cálculo. Se muestrea sobre una malla regular en el CRS de la cuenca y
+    se reproyecta cada punto, que es la única forma de que el reparto de áreas
+    sea correcto: muestrear en grados daría más peso a las latitudes altas.
+
+    Las muestras se ordenan por fila del ráster antes de leer. El archivo es
+    BigTIFF teselado con LZW, de modo que leer una fila descomprime la hilera de
+    teselas entera; con las muestras desordenadas, esa hilera se descomprimiría
+    una y otra vez y el muestreo pasaría de segundos a horas.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        No está el ráster.
+    ErrorHidrologia
+        Ninguna muestra cae sobre dato válido.
+    """
+    from pyproj import Transformer
+
+    info = raster.leer_info(ruta_raster)
+    conversor = Transformer.from_crs(crs_cuenca, info.crs_epsg or "EPSG:4326",
+                                     always_xy=True)
+    aristas = geometria.aristas_de(poligonos)
+    xmin, ymin, xmax, ymax = geometria.envolvente(poligonos)
+
+    # Centros de celda de la malla de muestreo, solo los que caen dentro.
+    puntos: list[tuple[float, float]] = []
+    y = ymin + paso_m / 2.0
+    while y < ymax:
+        for x_inicio, x_fin in geometria.tramos_de_barrido(aristas, y):
+            x = math.ceil((x_inicio - xmin) / paso_m) * paso_m + xmin
+            while x < x_fin:
+                puntos.append((x, y))
+                x += paso_m
+        y += paso_m
+
+    if not puntos:
+        raise ErrorHidrologia(
+            "la malla de muestreo no cayó dentro de la cuenca; revisar el paso.")
+
+    equis, griegas = conversor.transform([p[0] for p in puntos],
+                                         [p[1] for p in puntos])
+    celdas = sorted(
+        (info.fila_de(gy), info.columna_de(gx))
+        for gx, gy in zip(equis, griegas))
+
+    import struct
+
+    conteo: dict[int, int] = {}
+    fuera = 0
+    sin_dato = 0
+    with raster.LectorRaster(ruta_raster) as lector:
+        for fila, columna in celdas:
+            if not (0 <= fila < info.alto and 0 <= columna < info.ancho):
+                fuera += 1
+                continue
+            crudo = lector.fila(fila)
+            valor = struct.unpack_from(
+                "<" + {1: "B", 2: "H"}[info.bytes_por_muestra], crudo,
+                columna * info.bytes_por_muestra)[0]
+            if info.nodato is not None and valor == info.nodato:
+                sin_dato += 1
+                continue
+            conteo[int(valor)] = conteo.get(int(valor), 0) + 1
+
+    validas = sum(conteo.values())
+    if not validas:
+        raise ErrorHidrologia(
+            f"ninguna de las {len(celdas)} muestras cayó sobre dato válido del "
+            f"ráster de suelos ({fuera} fuera del ráster, {sin_dato} sin dato).")
+
+    area_muestra_km2 = paso_m * paso_m / 1e6
+    resolucion = {11: GRUPO_SI_NO_DRENADO, 14: GRUPO_SI_NO_DRENADO}
+    tabla = (GRUPO_SI_DRENADO if duales == "drenado" else GRUPO_SI_NO_DRENADO)
+    del resolucion
+
+    por_grupo: dict[str, int] = {}
+    duales_muestras = 0
+    for codigo, cuantas in conteo.items():
+        if codigo in tabla:
+            duales_muestras += cuantas
+        etiqueta = tabla.get(codigo) or GRUPOS_HSG.get(codigo, f"codigo {codigo}")
+        por_grupo[etiqueta] = por_grupo.get(etiqueta, 0) + cuantas
+
+    reparto = [
+        {"grupo": grupo, "muestras": cuantas,
+         "area_km2": round(cuantas * area_muestra_km2, 3),
+         "porcentaje": round(100.0 * cuantas / validas, 2)}
+        for grupo, cuantas in sorted(por_grupo.items(),
+                                     key=lambda x: -x[1])
+    ]
+    crudo_reparto = [
+        {"codigo": codigo, "etiqueta": GRUPOS_HSG.get(codigo, "desconocido"),
+         "muestras": cuantas,
+         "porcentaje": round(100.0 * cuantas / validas, 2)}
+        for codigo, cuantas in sorted(conteo.items())
+    ]
+
+    return {
+        "raster": str(ruta_raster),
+        "crs_raster": info.crs_epsg,
+        "paso_muestreo_m": paso_m,
+        "muestras": len(celdas),
+        "muestras_validas": validas,
+        "muestras_sin_dato": sin_dato,
+        "muestras_fuera": fuera,
+        "cobertura_pct": round(100.0 * validas / len(celdas), 2),
+        "criterio_duales": duales,
+        "muestras_en_grupo_dual": duales_muestras,
+        "pct_dual": round(100.0 * duales_muestras / validas, 2),
+        "grupo_dominante": reparto[0]["grupo"] if reparto else None,
+        "reparto": reparto,
+        "reparto_crudo": crudo_reparto,
+    }
+
+
+# =============================================================================
 # Ejecución
 # =============================================================================
 def ejecutar(
@@ -1417,8 +1835,10 @@ def ejecutar(
                 configuracion.obtener("tiempo_concentracion.tabla_aplicabilidad"),
                 base),
             delimitador)
+        magnitudes = _magnitudes_de_la_cuenca(parametros, resultado)
+        resultado.magnitudes = magnitudes
         resultado.tiempos = evaluar_aplicabilidad(
-            matriz, parametros["area_km2"], pendiente_adoptada)
+            matriz, parametros["area_km2"], pendiente_adoptada, magnitudes)
         if pendiente_adoptada is None:
             resultado.hallazgos.append(Hallazgo(
                 INFORMATIVO, "tiempo_concentracion.sin_pendiente",
@@ -1428,12 +1848,41 @@ def ejecutar(
             ))
         minimo = int(configuracion.obtener(
             "tiempo_concentracion.min_formulas_aplicables"))
-        resultado.adoptados = resumir_adopcion(resultado.tiempos, minimo)
+        resultado.adoptados = resumir_adopcion(
+            resultado.tiempos, minimo,
+            cv_maximo=float(configuracion.obtener(
+                "tiempo_concentracion.cv_maximo_admisible")),
+            criterio=str(configuracion.obtener(
+                "tiempo_concentracion.valor_adoptado")))
 
         aplicables = resultado.adoptados["formulas_aplicables"]
-        logger.info("%d de %d formula(s) aplicables (minimo exigido %d)",
-                    aplicables, resultado.adoptados["formulas_evaluadas"],
-                    minimo)
+        calculadas = sum(1 for e in resultado.tiempos
+                         if e.get("tc_horas") is not None)
+        logger.info("%d de %d formula(s) aplicables (minimo exigido %d) | "
+                    "%d calculadas", aplicables,
+                    resultado.adoptados["formulas_evaluadas"], minimo,
+                    calculadas)
+        for evaluada in resultado.tiempos:
+            if evaluada.get("tc_horas") is not None:
+                logger.debug("  %-12s %7.2f h  %s", evaluada["formula"],
+                             evaluada["tc_horas"],
+                             "aplicable" if evaluada["aplicable"] else "fuera de rango")
+
+        if resultado.adoptados["dispersion_excesiva"]:
+            estadistica = resultado.adoptados["estadisticos"]
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "tiempo_concentracion.dispersion",
+                f"las {estadistica['n']} formulas adoptables dan un coeficiente "
+                f"de variacion de {estadistica['cv']:.2f}, por encima del maximo "
+                f"admitido de {resultado.adoptados['cv_maximo_admisible']:.2f}. "
+                f"Van de {estadistica['minimo']:.2f} a {estadistica['maximo']:.2f} "
+                f"horas, una razon de {estadistica['razon_extremos']:.1f} entre "
+                "extremos. NO se adopta ningun valor. Con formulas calibradas en "
+                "poblaciones distintas, esa dispersion no es ruido de calculo: "
+                "significa que la cuenca no se parece a ninguna de ellas y que "
+                "la eleccion debe hacerla el consultor con criterio, no una "
+                "mediana.",
+            ))
 
         if not resultado.adoptados["procede_adoptar"]:
             fuera = [e for e in resultado.tiempos if not e["aplicable"]][:4]
@@ -1453,14 +1902,47 @@ def ejecutar(
                 "corresponde transito hidraulico, coherente con el modo de "
                 "analisis general declarado.",
             ))
-        else:
+        elif not resultado.adoptados["dispersion_excesiva"]:
+            estadistica = resultado.adoptados["estadisticos"]
             resultado.hallazgos.append(Hallazgo(
-                INFORMATIVO, "tiempo_concentracion.aplicables",
+                INFORMATIVO, "tiempo_concentracion.adoptado",
                 f"{aplicables} formula(s) aplicables: "
-                f"{resultado.adoptados['aplicables']}. El valor se adopta por "
-                f"{configuracion.obtener('tiempo_concentracion.valor_adoptado')}"
-                " del subconjunto.",
+                f"{resultado.adoptados['aplicables']}. Se adopta la "
+                f"{resultado.adoptados['criterio']} del subconjunto: "
+                f"{resultado.adoptados['tc_horas']:.3f} h "
+                f"({resultado.adoptados['tc_minutos']:.1f} min). Van de "
+                f"{estadistica['minimo']:.2f} a {estadistica['maximo']:.2f} h, "
+                f"con coeficiente de variacion {estadistica['cv']:.2f}.",
             ))
+
+    # --- Tiempo de rezago ----------------------------------------------------
+    with registro.bloque(logger, "Tiempo de rezago"):
+        resultado.rezago = tiempo_de_rezago(
+            resultado.adoptados.get("tc_horas"),
+            str(configuracion.obtener("tiempo_rezago.criterio")),
+            float(configuracion.obtener("tormenta.intervalo_calculo_min")))
+        _resolver_rezago(resultado, configuracion, logger)
+
+    # --- Numero de curva y grupo hidrologico ---------------------------------
+    with registro.bloque(logger, "Numero de curva"):
+        _resolver_numero_curva(configuracion, base, resultado,
+                               poligonos_cuenca, parametros, logger)
+
+    # --- Tiempo de viaje -----------------------------------------------------
+    with registro.bloque(logger, "Tiempo de viaje"):
+        _resolver_tiempo_viaje(resultado, modo, parametros, logger)
+
+    if resultado.unidades:
+        resultado.unidades[0].update({
+            "tc_horas": resultado.adoptados.get("tc_horas"),
+            "tc_minutos": resultado.adoptados.get("tc_minutos"),
+            "tlag_horas": resultado.rezago.get("tlag_horas"),
+            "tlag_minutos": resultado.rezago.get("tlag_minutos"),
+            "tlag_criterio": resultado.rezago.get("criterio"),
+        })
+        resultado.unidades[0].update(
+            {c: v for c, v in resultado.suelos.items()
+             if not isinstance(v, (list, dict))})
 
     with registro.bloque(logger, "Escritura de productos"):
         _escribir_productos(configuracion, base, resultado, delimitador, logger)
@@ -1813,8 +2295,74 @@ def _escribir_informe(destino, resultado, configuracion) -> None:
     ]
     lineas += _tabla_markdown(
         resultado.tiempos,
-        ["formula", "nombre", "area_min_km2", "area_max_km2", "aplicable",
-         "motivo"])
+        ["formula", "nombre", "area_min_km2", "area_max_km2", "tc_horas",
+         "aplicable", "motivo"])
+    adoptados = resultado.adoptados
+    estadistica = adoptados.get("estadisticos") or {}
+    if estadistica.get("n"):
+        lineas += [
+            "",
+            f"Sobre el subconjunto adoptable ({estadistica['n']} formulas): "
+            f"mediana {estadistica['mediana']} h, media {estadistica['media']} h,",
+            f"de {estadistica['minimo']} a {estadistica['maximo']} h, "
+            f"coeficiente de variacion {estadistica['cv']}.",
+        ]
+    if adoptados.get("tc_horas"):
+        lineas += [
+            "",
+            f"**Tc adoptado: {adoptados['tc_horas']} h "
+            f"({adoptados['tc_minutos']} min)**, por "
+            f"{adoptados['criterio']} del subconjunto aplicable.",
+        ]
+    else:
+        lineas += [
+            "",
+            "**NO se adopta ningun valor de Tc.** Las formulas se calcularon",
+            "todas, incluidas las que la matriz descarta, para que se vea el",
+            "contraste; pero ninguna esta dentro de su rango de calibracion y",
+            "la mediana de un conjunto extrapolado no es defendible.",
+        ]
+
+    lineas += ["", "## Tiempo de rezago", ""]
+    rezago = resultado.rezago
+    if rezago.get("tlag_horas"):
+        lineas += [
+            f"* Criterio: **{rezago['criterio']}**",
+            f"* Tlag: **{rezago['tlag_horas']} h ({rezago['tlag_minutos']} min)**",
+            "",
+            "El criterio 'hechms' anade el intervalo de CALCULO dividido por dos,",
+            "no la duracion de la tormenta. Confundirlos desplaza el hidrograma.",
+            "",
+        ]
+    else:
+        lineas += [f"No se calculo: {rezago.get('motivo', 'sin datos')}.", ""]
+
+    lineas += ["## Grupo hidrologico de suelo", ""]
+    suelos = resultado.suelos
+    if not suelos:
+        lineas += ["No se pudo leer la capa de suelos.", ""]
+    else:
+        lineas += [
+            f"Leido de la {suelos['procedencia']} `{suelos['raster']}`",
+            f"({suelos['crs_raster']}), sobre {suelos['muestras_validas']:,}",
+            f"muestras de una malla de {suelos['paso_muestreo_m']:.0f} m, con",
+            f"{suelos['cobertura_pct']:.1f} % de la malla sobre dato valido.",
+            "",
+        ]
+        lineas += _tabla_markdown(suelos["reparto"],
+                                  ["grupo", "muestras", "area_km2", "porcentaje"])
+        lineas += [
+            "",
+            f"Criterio para los grupos DUALES: **{suelos['criterio_duales']}**.",
+            f"Afectan al {suelos['pct_dual']:.1f} % del area. Un grupo dual",
+            "describe un suelo cuyo grupo depende de si esta drenado, y la",
+            "eleccion cambia el numero de curva en decenas de unidades sobre esa",
+            "fraccion. Debe quedar declarada en el informe.",
+            "",
+        ]
+        lineas += _tabla_markdown(suelos["reparto_crudo"],
+                                  ["codigo", "etiqueta", "muestras", "porcentaje"])
+        lineas.append("")
     lineas.append("")
     destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_text("\n".join(lineas) + "\n", encoding="utf-8")
@@ -1849,6 +2397,9 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "modo": resultado.modo,
         "unidades": resultado.unidades,
         "drenaje": resultado.drenaje,
+        "magnitudes": resultado.magnitudes,
+        "rezago": resultado.rezago,
+        "suelos": resultado.suelos,
         "tiempo_concentracion": resultado.adoptados,
         "matriz_aplicabilidad": resultado.tiempos,
         "productos": resultado.productos,
