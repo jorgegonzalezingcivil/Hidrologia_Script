@@ -443,3 +443,99 @@ class PruebaCatalogoReal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class PruebaDeduplicacionDelCatalogo(unittest.TestCase):
+    """
+    El Catálogo Nacional trae la misma estación varias veces. Medido sobre el
+    catálogo de este estudio: 4.526 filas para 4.521 códigos, cuatro repetidos,
+    y las repeticiones NO son copias iguales.
+
+    Sin consolidarlas, el inventario cuenta filas y no estaciones, y la capa de
+    puntos escribe la misma estación varias veces: una interpolación posterior
+    la pesaría dos o tres veces.
+    """
+
+    CAMPOS = {"codigo": "CODIGO", "categoria": "CATEGORIA", "estado": "d_ESTADO"}
+    PRECEDENCIA = ("Activa", "En Mantenimiento", "Suspendida")
+
+    def _dedup(self, filas):
+        return m03.deduplicar_catalogo(filas, self.CAMPOS, self.PRECEDENCIA)
+
+    def test_sin_repetidos_no_toca_nada(self) -> None:
+        filas = [{"CODIGO": "1", "CATEGORIA": "PM", "d_ESTADO": "Activa"},
+                 {"CODIGO": "2", "CATEGORIA": "CO", "d_ESTADO": "Activa"}]
+        salida, conflictos = self._dedup(filas)
+        self.assertEqual(len(salida), 2)
+        self.assertEqual(conflictos, [])
+
+    def test_deja_una_fila_por_codigo(self) -> None:
+        filas = [{"CODIGO": "1", "CATEGORIA": "PM", "d_ESTADO": "Activa"},
+                 {"CODIGO": "1", "CATEGORIA": "PM", "d_ESTADO": "Suspendida"}]
+        salida, conflictos = self._dedup(filas)
+        self.assertEqual(len(salida), 1)
+        self.assertEqual(len(conflictos), 1)
+        self.assertEqual(conflictos[0]["filas"], 2)
+
+    def test_el_estado_sigue_la_precedencia_declarada(self) -> None:
+        # Se conserva el que mantiene la estación en juego: la metadata se
+        # contradice y el dato no. Si no hay registro reciente, el M04b lo ve.
+        filas = [{"CODIGO": "1", "CATEGORIA": "PM", "d_ESTADO": "Suspendida"},
+                 {"CODIGO": "1", "CATEGORIA": "PM", "d_ESTADO": "Activa"}]
+        salida, _ = self._dedup(filas)
+        self.assertEqual(salida[0]["d_ESTADO"], "Activa")
+
+    def test_la_categoria_se_toma_como_union(self) -> None:
+        # Es el caso que obliga a combinar en lugar de elegir: la categoría
+        # decide a qué variables sirve la estación, y quedarse con una fila le
+        # quitaría variables que sí tiene. Ocurre con la 13085030, PM y CO.
+        filas = [{"CODIGO": "1", "CATEGORIA": "PM", "d_ESTADO": "Activa"},
+                 {"CODIGO": "1", "CATEGORIA": "CO", "d_ESTADO": "Activa"}]
+        salida, conflictos = self._dedup(filas)
+        self.assertIn("PM", salida[0]["CATEGORIA"])
+        self.assertIn("CO", salida[0]["CATEGORIA"])
+        self.assertEqual(sorted(conflictos[0]["categorias"]), ["CO", "PM"])
+
+    def test_tres_filas_tambien_se_consolidan(self) -> None:
+        filas = [{"CODIGO": "1", "CATEGORIA": "PM", "d_ESTADO": e}
+                 for e in ("Suspendida", "Activa", "Suspendida")]
+        salida, conflictos = self._dedup(filas)
+        self.assertEqual(len(salida), 1)
+        self.assertEqual(conflictos[0]["filas"], 3)
+        self.assertEqual(salida[0]["d_ESTADO"], "Activa")
+
+    def test_se_reportan_los_campos_en_conflicto(self) -> None:
+        # El informe debe poder decir en qué discrepaban, no solo que había
+        # duplicados.
+        filas = [{"CODIGO": "1", "CATEGORIA": "PM", "d_ESTADO": "Activa"},
+                 {"CODIGO": "1", "CATEGORIA": "PM", "d_ESTADO": "Suspendida"}]
+        _, conflictos = self._dedup(filas)
+        self.assertIn("d_ESTADO", conflictos[0]["campos_en_conflicto"])
+        self.assertNotIn("CATEGORIA", conflictos[0]["campos_en_conflicto"])
+
+    def test_un_estado_desconocido_no_gana(self) -> None:
+        filas = [{"CODIGO": "1", "CATEGORIA": "PM", "d_ESTADO": "Inventado"},
+                 {"CODIGO": "1", "CATEGORIA": "PM", "d_ESTADO": "Suspendida"}]
+        salida, _ = self._dedup(filas)
+        self.assertEqual(salida[0]["d_ESTADO"], "Suspendida")
+
+
+@unittest.skipUnless(
+    (Path(__file__).resolve().parents[1]
+     / "data" / "referencia" / "sig" / "CNE_IDEAM_Final.shp").is_file(),
+    "no está el catálogo")
+class PruebaCatalogoReal(unittest.TestCase):
+    def test_el_catalogo_del_repositorio_trae_repetidos(self) -> None:
+        # Si un día dejara de traerlos, esta prueba avisa de que la
+        # consolidación pasó a ser innecesaria, no de que algo se rompió.
+        from comun import shapefile as shp
+
+        raiz = Path(__file__).resolve().parents[1]
+        ruta = raiz / "data" / "referencia" / "sig" / "CNE_IDEAM_Final.shp"
+        filas, conflictos = m03.deduplicar_catalogo(
+            shp.leer_registros(ruta),
+            {"codigo": "CODIGO", "categoria": "CATEGORIA", "estado": "d_ESTADO"},
+            ("Activa", "En Mantenimiento", "Suspendida"))
+        self.assertGreater(len(conflictos), 0)
+        codigos = [f["CODIGO"].strip() for f in filas]
+        self.assertEqual(len(codigos), len(set(codigos)))

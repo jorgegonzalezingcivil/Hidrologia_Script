@@ -132,6 +132,7 @@ class ResultadoM03:
     por_variable: dict[str, int] = field(default_factory=dict)
     por_categoria: dict[str, int] = field(default_factory=dict)
     por_estado: dict[str, int] = field(default_factory=dict)
+    duplicados: list = field(default_factory=list)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -214,6 +215,83 @@ def leer_area(
         )
 
     return geometria.poligonos_de_wkt(wkt)
+
+
+def deduplicar_catalogo(
+    registros: Iterable[dict[str, str]],
+    mapa_campos: dict[str, str],
+    precedencia_estado: Sequence[str] = (),
+) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+    """
+    Deja una fila por estación y devuelve (filas, conflictos).
+
+    El Catálogo Nacional de Estaciones trae la misma estación varias veces.
+    Medido sobre el catálogo de este estudio: 4.526 filas para 4.521 códigos,
+    con cuatro repetidos. Las repeticiones no son copias iguales, y por eso no
+    basta con quedarse con la primera:
+
+        21201180  tres filas, una Activa y dos Suspendidas
+        21205880  dos filas con fecha de suspensión distinta
+        21201610  Activa con corriente declarada, y En Mantenimiento sin ella
+        13085030  PM (pluviométrica) en una fila y CO (climática) en la otra
+
+    El último es el que obliga a combinar en lugar de elegir: la CATEGORÍA
+    decide a qué variables sirve la estación, de modo que quedarse con una de
+    las dos filas le quitaría variables que sí tiene. Se toma la UNIÓN.
+
+    Para el estado se aplica la precedencia declarada, y el criterio por
+    defecto conserva el que mantiene la estación en juego. El argumento es que
+    la METADATA se contradice y el DATO no: si la estación no tiene registro
+    reciente, el M04b lo verá en la matriz de sensibilidad. Descartarla por una
+    ficha inconsistente sería perder una serie por un error de la ficha.
+
+    Sin esta deduplicación, el inventario cuenta filas del catálogo y no
+    estaciones, y la capa de puntos escribe la misma estación varias veces:
+    una interpolación posterior la pesaría dos o tres veces.
+    """
+    campo_codigo = mapa_campos.get("codigo", "CODIGO")
+    campo_categoria = mapa_campos.get("categoria", "CATEGORIA")
+    campo_estado = mapa_campos.get("estado", "")
+    orden = [e.strip().upper() for e in precedencia_estado]
+
+    por_codigo: dict[str, list[dict[str, str]]] = {}
+    for fila in registros:
+        codigo = str(fila.get(campo_codigo, "")).strip()
+        por_codigo.setdefault(codigo, []).append(dict(fila))
+
+    salida: list[dict[str, str]] = []
+    conflictos: list[dict[str, Any]] = []
+
+    for codigo, filas in por_codigo.items():
+        if len(filas) == 1:
+            salida.append(filas[0])
+            continue
+
+        def rango(fila: dict[str, str]) -> int:
+            valor = str(fila.get(campo_estado, "")).strip().upper()
+            return orden.index(valor) if valor in orden else len(orden)
+
+        elegida = dict(min(filas, key=rango) if orden and campo_estado
+                       else filas[0])
+
+        categorias = [c for c in dict.fromkeys(
+            str(f.get(campo_categoria, "")).strip().upper() for f in filas) if c]
+        if len(categorias) > 1:
+            elegida[campo_categoria] = ",".join(categorias)
+
+        difieren = sorted({
+            clave for clave in filas[0]
+            if len({str(f.get(clave, "")) for f in filas}) > 1})
+        conflictos.append({
+            "codigo": codigo,
+            "filas": len(filas),
+            "campos_en_conflicto": difieren,
+            "categorias": categorias,
+            "estado_adoptado": str(elegida.get(campo_estado, "")).strip(),
+        })
+        salida.append(elegida)
+
+    return salida, conflictos
 
 
 def clasificar(
@@ -573,8 +651,27 @@ def ejecutar(
         )
 
     with registro.bloque(logger, "Cruce por área y categoría"):
+        filas, conflictos = deduplicar_catalogo(
+            shapefile.leer_registros(ruta_catalogo), mapa_campos,
+            configuracion.obtener("estaciones.precedencia_estado", ()))
+        if conflictos:
+            detalle = "; ".join(
+                f"{c['codigo']} ({c['filas']} filas, difieren "
+                f"{', '.join(c['campos_en_conflicto'][:3])})"
+                for c in conflictos[:6])
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "catalogo.duplicados",
+                f"{len(conflictos)} estacion(es) aparecen mas de una vez en el "
+                f"Catalogo Nacional y se consolidaron en una sola fila: "
+                f"{detalle}. Sin consolidarlas, el inventario contaria filas y "
+                "no estaciones, y la capa de puntos las escribiria repetidas: "
+                "una interpolacion posterior las pesaria varias veces. La "
+                "categoria se toma como UNION, porque decide a que variables "
+                "sirve la estacion; el estado, por la precedencia declarada.",
+            ))
+            resultado.duplicados = conflictos
         clasificar(
-            registros=shapefile.leer_registros(ruta_catalogo),
+            registros=filas,
             mapa_campos=mapa_campos,
             categorias_por_variable=categorias,
             poligonos=poligonos,

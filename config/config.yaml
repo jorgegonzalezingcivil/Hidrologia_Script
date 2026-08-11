@@ -324,6 +324,16 @@ estaciones:
   fecha_catalogo: "2024-01-01"   # descarga del CNE, para trazabilidad
   # Adaptador de nombres de campo del Catálogo Nacional de Estaciones. Los
   # campos d_* traen la descripción legible de los códigos.
+  # PRECEDENCIA ANTE UN CATALOGO QUE SE CONTRADICE. El Catalogo Nacional trae
+  # la misma estacion varias veces con estados distintos: medido, 4.526 filas
+  # para 4.521 codigos. El M03 deja una fila por estacion y adopta el primer
+  # estado de esta lista que aparezca entre las repetidas.
+  #
+  # El orden conserva el estado que MANTIENE la estacion en juego. El argumento
+  # es que la metadata se contradice y el dato no: si la estacion no tiene
+  # registro reciente, el M04b lo vera en la matriz de sensibilidad. Descartarla
+  # por una ficha inconsistente seria perder una serie por un error de la ficha.
+  precedencia_estado: ["Activa", "En Mantenimiento", "Suspendida"]
   campos:
     codigo: "CODIGO"
     nombre: "nombre"

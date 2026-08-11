@@ -898,6 +898,11 @@ ESQUEMA: dict[str, Campo] = {
         minimo=0.0, maximo=1.0,
     ),
 
+    "estaciones.precedencia_estado": lista(
+        "precedencia del estado ante un catalogo que se contradice",
+        texto("estado"),
+    ),
+
     "sensibilidad_series.dependencias_por_variable": mapa(
         "modulos que dependen de cada variable; vacio significa imprescindible",
         lista("modulos", texto("modulo"), no_vacio=False),
