@@ -298,7 +298,28 @@ dem:
 # M03 - SELECCIÓN DE ESTACIONES
 # -----------------------------------------------------------------------------
 estaciones:
-  buffer_adicional_km: 1.0       # holgura sobre el área de influencia del M02
+  # Holgura sobre el área de influencia del M02, solo para SELECCIONAR
+  # estaciones. Es una magnitud distinta de la del área: el área describe el
+  # estudio, este buffer describe de dónde puede venir el dato.
+  #
+  # DECISIÓN DEL CONSULTOR, 2026-08-11. Se adoptan 5 km, antes 1. El valor de
+  # 1 km se fijó cuando el área de influencia era la subzona entera, donde un
+  # kilómetro más era irrelevante. Al acotar el área por trazado de red, ese
+  # buffer pasó a gobernar cuántas estaciones entran al estudio sin que nadie
+  # lo decidiera. Medido sobre el catálogo del IDEAM y el área de Refugio del
+  # Valle: 1 km deja 30 estaciones (25 con precipitación), 5 km deja 54 (47),
+  # 10 km deja 70 (63).
+  #
+  # Se adoptan 5 km por dos razones. Primera, margen: el M05 descarta
+  # estaciones por consistencia y por longitud de serie, y partir de 25 podría
+  # dejar poco más de quince al llegar al análisis de frecuencia. Segunda,
+  # interpolación: las estaciones de FUERA de la cuenca sujetan el campo en el
+  # borde, y usar solo las de dentro extrapola en toda la divisoria.
+  #
+  # No se amplía más porque a partir de unos 15 km las estaciones caen en el
+  # piso de la Sabana, con un régimen distinto del flanco oriental, y la
+  # zonificación pluviométrica del M11 tendría que absorber ese gradiente.
+  buffer_adicional_km: 5.0
   catalogo: "data/referencia/sig/CNE_IDEAM_Final.shp"
   fecha_catalogo: "2024-01-01"   # descarga del CNE, para trazabilidad
   # Adaptador de nombres de campo del Catálogo Nacional de Estaciones. Los
