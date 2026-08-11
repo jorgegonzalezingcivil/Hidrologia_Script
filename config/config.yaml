@@ -363,7 +363,22 @@ estaciones:
 # M04 - INGESTA IDEAM
 # -----------------------------------------------------------------------------
 ideam:
-  fuente_primaria: "socrata"     # socrata | dhime_zip
+  # DECISION DEL CONSULTOR, 2026-08-11. La fuente primaria es DHIME, no
+  # Socrata, invirtiendo lo que declaraba CLAUDE.md, seccion 6.
+  #
+  # Motivo: Socrata no publica las series de las estaciones CONVENCIONALES,
+  # que son la mayoria de la red del IDEAM y las que tienen las series largas
+  # que exige el analisis de frecuencia. Lo que ofrece cubre sobre todo la red
+  # automatica, de instalacion reciente.
+  #
+  # La practica ya iba por ahi antes de declararlo: el proyecto anterior
+  # descargo 214 archivos de DHIME y ninguna serie de Socrata. Se corrige la
+  # declaracion para que coincida con lo que el estudio hace de verdad, porque
+  # una configuracion que dice una cosa y produce otra no es defendible.
+  #
+  # Socrata se conserva para el CATALOGO NACIONAL DE ESTACIONES (hp9r-jxuu),
+  # que si publica completo y es la fuente de metadatos del M03.
+  fuente_primaria: "dhime_zip"   # socrata | dhime_zip
   socrata:
     dominio: "www.datos.gov.co"
     token: ""                    # token de aplicación (gratuito). Vacío = sin token

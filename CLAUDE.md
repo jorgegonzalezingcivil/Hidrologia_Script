@@ -80,7 +80,7 @@ ArcMap y ArcHydro quedan reemplazados por QGIS y librerías independientes.
 
 | Tema | Decisión |
 |---|---|
-| Fuente IDEAM primaria | API Socrata (datos.gov.co). Respaldo: `.zip` de DHIME |
+| Fuente IDEAM primaria | Servicio DHIME. Socrata no publica las series de las estaciones **convencionales**, que son la mayoría de la red y las de serie larga. Socrata se conserva para el Catálogo Nacional de Estaciones |
 | Metadatos de estación | Catálogo Nacional de Estaciones (`hp9r-jxuu`) |
 | Escala temporal | Se detecta primero; luego se procesa |
 | Precipitación mensual | Serie mensual del IDEAM como fuente primaria; agregación de la diaria como secundaria y control cruzado |
