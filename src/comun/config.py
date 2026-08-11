@@ -500,8 +500,16 @@ def cargar(
     datos = leer_yaml(destino)
     huella = huella_sha256(destino)
 
-    local = (Path(ruta_local).resolve() if ruta_local is not None
-             else destino.with_name(NOMBRE_LOCAL))
+    # La superposición local describe la MÁQUINA, no el estudio, de modo que
+    # se busca primero junto al estudio y, si no está, junto a la herramienta.
+    # Así cada quien configura su equipo una vez y no una vez por proyecto, que
+    # es donde aparecerían las divergencias entre estudios del mismo consultor.
+    if ruta_local is not None:
+        local = Path(ruta_local).resolve()
+    else:
+        local = destino.with_name(NOMBRE_LOCAL)
+        if not local.is_file():
+            local = _rutas.raiz_codigo() / "config" / NOMBRE_LOCAL
     aplicado: Path | None = None
     huella_local: str | None = None
     superpuestas: tuple = ()

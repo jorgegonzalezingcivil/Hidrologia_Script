@@ -60,6 +60,14 @@ SALIDA_ERROR = 3
 LIMITES_COLOMBIA = {"lon_min": -82.0, "lon_max": -66.0,
                     "lat_min": -4.5, "lat_max": 13.5}
 
+_MOTIVO_POR_DEFECTO = {
+    "detallado": ("No aplica: el modo detallado desagrega en subcuencas y "
+                  "construye modelo HEC-HMS."),
+    "general": ("PENDIENTE DE DILIGENCIAR. En modo general el estudio debe "
+                "explicar por que no se construye modelo lluvia-escorrentia "
+                "por subcuencas."),
+}
+
 MANIFIESTO_EN_BLANCO = """\
 # =============================================================================
 # MANIFIESTO DE INSUMOS DEL ESTUDIO
@@ -92,9 +100,26 @@ caudales:
   aportado: false
 
 homologacion:
-  suelos: ""
-  cobertura: ""
+  # Tablas que genera el sistema y diligencia el consultor. El M00c se detiene
+  # si quedan valores sin homologar: la equivalencia entre las clases del
+  # insumo y las del SCS es una decisión con criterio, no una conversión.
+  suelos:
+    archivo: "homologacion/suelos.csv"
+    diligenciada: false
+    fecha: ""
+    responsable: ""
+  cobertura:
+    archivo: "homologacion/cobertura.csv"
+    diligenciada: false
+    fecha: ""
+    responsable: ""
 
+# -----------------------------------------------------------------------------
+# REGISTRO DE DECISIONES DEL CONSULTOR
+# Cada decisión con margen técnico debe quedar aquí con su justificación
+# (CLAUDE.md, sección 7). Un estudio que no puede explicar sus descartes no es
+# defendible ante interventoría.
+# -----------------------------------------------------------------------------
 decisiones: []
 """
 
@@ -178,15 +203,38 @@ def escribir_config(destino: Path, plantilla: Path, datos: dict) -> Path:
     pendientes = dict(sustituciones)
     en_proyecto = False
     en_punto = False
+    en_analisis = False
+    saltando_motivo = False
     salida: list[str] = []
 
     for linea in lineas:
         if linea.startswith("proyecto:"):
-            en_proyecto, en_punto = True, False
+            en_proyecto, en_punto, en_analisis = True, False, False
         elif linea.startswith("punto_descarga:"):
-            en_proyecto, en_punto = False, True
+            en_proyecto, en_punto, en_analisis = False, True, False
+        elif linea.startswith("analisis:"):
+            en_proyecto, en_punto, en_analisis = False, False, True
         elif linea and not linea[0].isspace() and not linea.startswith("#"):
-            en_proyecto = en_punto = False
+            en_proyecto = en_punto = en_analisis = False
+            saltando_motivo = False
+
+        # La justificación del modo general describe UNA cuenca concreta.
+        # Arrastrarla a otro estudio pondría en su informe el motivo de un
+        # proyecto distinto, que es el peor error posible en un anexo.
+        if en_analisis and saltando_motivo:
+            if linea.startswith("    ") or not linea.strip():
+                continue
+            saltando_motivo = False
+
+        if en_analisis:
+            if linea.startswith("  modo:"):
+                salida.append(f'  modo: "{datos["modo"]}"')
+                continue
+            if linea.startswith("  motivo_general:"):
+                saltando_motivo = True
+                salida.append("  motivo_general: >-")
+                salida.append("    " + datos["motivo"])
+                continue
 
         if en_proyecto:
             reemplazada = False
@@ -285,6 +333,9 @@ def dialogo(argumentos) -> dict:
             "crs": argumentos.crs or "EPSG:9377",
             "x": argumentos.x,
             "y": argumentos.y,
+            "modo": argumentos.modo,
+            "motivo": (argumentos.motivo
+                       or _MOTIVO_POR_DEFECTO[argumentos.modo]),
         }
 
     print()
@@ -319,11 +370,34 @@ def dialogo(argumentos) -> dict:
         print(f"  {detalle}")
         if valido:
             datos.update({"crs": crs, "x": x, "y": y})
+            datos.update(_preguntar_modo())
             return datos
         if preguntar("¿Aceptar de todos modos? (s/N)", "N").lower() != "s":
             continue
         datos.update({"crs": crs, "x": x, "y": y})
+        datos.update(_preguntar_modo())
         return datos
+
+
+def _preguntar_modo() -> dict:
+    """Modo de análisis y, si es general, la justificación que exige."""
+    print()
+    print("Modo de análisis. 'detallado' desagrega en subcuencas y construye")
+    print("modelo HEC-HMS; 'general' caracteriza una sola unidad y no lo")
+    print("construye, y entonces hay que decir por qué.")
+    print()
+    modo = preguntar("Modo (general/detallado)", "detallado")
+    modo = modo if modo in ("general", "detallado") else "detallado"
+    if modo != "general":
+        return {"modo": modo, "motivo": _MOTIVO_POR_DEFECTO[modo]}
+    motivo = ""
+    while len(motivo.strip()) <= 40:
+        motivo = preguntar("Por qué no se construye modelo HEC-HMS",
+                           obligatorio=True)
+        if len(motivo.strip()) <= 40:
+            print("  Un estudio que no explica por qué no modeló la cuenca")
+            print("  no es defendible ante interventoría. Ampliar la razón.")
+    return {"modo": modo, "motivo": motivo.strip()}
 
 
 def _analizar_argumentos(argv=None):
@@ -339,6 +413,9 @@ def _analizar_argumentos(argv=None):
     analizador.add_argument("--crs", default="")
     analizador.add_argument("--x", type=float, default=None)
     analizador.add_argument("--y", type=float, default=None)
+    analizador.add_argument("--modo", choices=("general", "detallado"),
+                            default="detallado")
+    analizador.add_argument("--motivo", default="")
     return analizador.parse_args(argv)
 
 
