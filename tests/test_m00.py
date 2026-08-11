@@ -485,6 +485,26 @@ class PruebaDosRaices(unittest.TestCase):
         self.assertEqual(rutas.resolver(absoluta, self.estudio),
                          absoluta.resolve())
 
+    def test_ninguna_salida_se_escribe_entre_la_doctrina(self) -> None:
+        """
+        Un PRODUCTO declarado bajo un prefijo de código es una trampa silenciosa.
+
+        Las rutas de doctrina descienden a la herramienta cuando el estudio no
+        las trae. Si un producto vive ahí, un estudio nuevo que aún no lo ha
+        generado recoge el del proyecto anterior y sigue adelante sin avisar.
+        Ocurrió con los recortes del drenaje: el segundo estudio tomaba los del
+        primero, y solo se vio porque los dos caían en la misma subzona.
+        """
+        configuracion = mod_config.cargar(raiz=_RAIZ_REPO, usar_local=False)
+        culpables = []
+        for clave in esquema.CLAVES_RUTA:
+            if "salida" not in clave and "destino" not in clave:
+                continue
+            valor = configuracion.obtener(clave, "")
+            if isinstance(valor, str) and valor and rutas.es_de_codigo(valor):
+                culpables.append(f"{clave} = {valor}")
+        self.assertEqual(culpables, [])
+
     def test_el_config_del_estudio_nunca_cae_a_la_herramienta(self) -> None:
         # Si cayera, un estudio sin configuración se ejecutaría con la de la
         # herramienta y escribiría sus productos en el sitio equivocado.
