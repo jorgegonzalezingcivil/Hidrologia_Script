@@ -871,6 +871,38 @@ ESQUEMA: dict[str, Campo] = {
     "morfometria.parametros.respuesta": lista(
         "parámetros de respuesta hidrológica", texto("parámetro"),
     ),
+    "morfometria.relieve.intervalo_hipsometrico_m": numero(
+        "ancho de la franja de cota de la curva hipsométrica", minimo=1.0,
+    ),
+    "morfometria.relieve.escalas_diagnostico": lista(
+        "múltiplos de la celda del DEM a los que se contrasta la pendiente",
+        entero("factor de agregación"),
+    ),
+    "morfometria.relieve.pendiente_llana_mm": numero(
+        "pendiente por debajo de la cual el terreno se considera llano",
+        minimo=0.0, maximo=1.0,
+    ),
+    "morfometria.relieve.razon_maxima_nativa_gruesa": numero(
+        "razón máxima admitida entre la pendiente nativa y la agregada",
+        minimo=1.0,
+    ),
+
+    # --- M02b, red de drenaje topológica -------------------------------------
+    "red_topologica.resolucion_eje_m": numero(
+        "resolución de rasterización para derivar el eje de los cauces dobles",
+        minimo=1.0,
+    ),
+    "red_topologica.salida_eje": texto(
+        "capa del eje derivado de los cauces dobles", no_vacio=True,
+    ),
+    "red_topologica.salida_red": texto(
+        "capa de la red con topología y orden resueltos", no_vacio=True,
+    ),
+    "red_topologica.longitud_minima_tramo_m": numero(
+        "longitud por debajo de la cual un tramo del eje se descarta",
+        minimo=0.0,
+    ),
+
     "tiempo_concentracion.tabla_aplicabilidad": ruta(
         "matriz de aplicabilidad de fórmulas de Tc",
     ),

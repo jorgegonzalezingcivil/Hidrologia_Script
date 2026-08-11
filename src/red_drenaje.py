@@ -330,6 +330,192 @@ def trazar_aguas_arriba(
 
 
 # =============================================================================
+# Jerarquía de la red
+# =============================================================================
+# Estas funciones trabajan sobre la relación de afluencia y NO usan QGIS. Se
+# pueden ejecutar y probar desde el venv, aunque el módulo que las alimenta
+# corra en el entorno SIG.
+def orden_strahler(
+    afluentes: dict[int, list[int]], identificadores: Sequence[int]
+) -> tuple[dict[int, int], list[int]]:
+    """
+    Asigna a cada tramo su orden de Strahler.
+
+    Un tramo sin tributarios es de orden 1. Al confluir, el orden sube solo si
+    se juntan DOS o más del mismo orden máximo; si llega uno solo, el receptor
+    hereda ese orden. Esa es la definición de Strahler, y la diferencia con la
+    de Shreve, que suma, importa: la razón de bifurcación y la frecuencia de
+    corrientes que se reportan después están definidas sobre Strahler.
+
+    Devuelve (orden por tramo, tramos en ciclo). Lo segundo no es un detalle
+    defensivo: la adyacencia se resuelve por proximidad geométrica y no por
+    topología declarada, de modo que dos tramos pueden quedar señalándose el
+    uno al otro. Ahí el orden es indefinido, y decirlo es preferible a
+    entregar un número que parece bueno.
+
+    El recorrido es iterativo. Con miles de tramos encadenados, una
+    implementación recursiva agota la pila del intérprete.
+    """
+    tributarios = {int(k): list(v) for k, v in afluentes.items()}
+    todos = list(dict.fromkeys(int(i) for i in identificadores))
+
+    orden: dict[int, int] = {}
+    estado: dict[int, int] = {}  # 0 sin visitar, 1 en proceso, 2 resuelto
+    en_ciclo: set[int] = set()
+
+    for raiz in todos:
+        if estado.get(raiz, 0) == 2:
+            continue
+        pila = [(raiz, False)]
+        while pila:
+            actual, expandido = pila.pop()
+            if expandido:
+                ordenes = [orden[t] for t in tributarios.get(actual, ())
+                           if t in orden]
+                if not ordenes:
+                    orden[actual] = 1
+                else:
+                    maximo = max(ordenes)
+                    orden[actual] = (maximo + 1 if ordenes.count(maximo) >= 2
+                                     else maximo)
+                estado[actual] = 2
+                continue
+            if estado.get(actual, 0) == 2:
+                continue
+            if estado.get(actual, 0) == 1:
+                # Se ha vuelto a un tramo que sigue en proceso: hay ciclo.
+                en_ciclo.add(actual)
+                continue
+            estado[actual] = 1
+            pila.append((actual, True))
+            for tributario in tributarios.get(actual, ()):
+                if estado.get(tributario, 0) != 2:
+                    pila.append((tributario, False))
+
+    for identificador in todos:
+        orden.setdefault(identificador, 1)
+
+    return orden, sorted(en_ciclo)
+
+
+def contar_corrientes(
+    orden: dict[int, int], afluentes: dict[int, list[int]]
+) -> dict[int, int]:
+    """
+    Cuenta CORRIENTES por orden, que no es lo mismo que contar tramos.
+
+    Una corriente de orden n es la cadena completa de tramos consecutivos de
+    ese orden, desde donde nace hasta donde el orden sube. La cartografía parte
+    un mismo río en decenas de tramos por razones de dibujo, de modo que contar
+    tramos multiplicaría el resultado por un factor arbitrario y arruinaría
+    tanto la razón de bifurcación como la frecuencia de corrientes.
+
+    Se cuenta la CABECERA de cada cadena: un tramo cuyo orden no le llega ya
+    hecho desde aguas arriba.
+    """
+    cuenta: dict[int, int] = {}
+    for identificador, propio in orden.items():
+        hereda = any(orden.get(t) == propio
+                     for t in afluentes.get(identificador, ()))
+        if not hereda:
+            cuenta[propio] = cuenta.get(propio, 0) + 1
+    return dict(sorted(cuenta.items()))
+
+
+def razon_bifurcacion(corrientes: dict[int, int]) -> dict[str, Any]:
+    """
+    Razón de bifurcación por par de órdenes consecutivos y su media.
+
+    Horton observó que el cociente entre el número de corrientes de un orden y
+    el del siguiente es aproximadamente constante en una cuenca, y que en redes
+    naturales cae entre 3 y 5. Un valor fuera de ese rango no invalida la
+    cuenca, pero suele delatar un control estructural del terreno o, más a
+    menudo, una cartografía con detalle desigual: si la parte alta se levantó
+    con más densidad que la baja, las corrientes de orden 1 salen infladas.
+
+    Se devuelven DOS medias y se adopta la ponderada, que es la que Strahler
+    propuso. La aritmética simple da el mismo peso al cociente entre los dos
+    órdenes más bajos, calculado sobre miles de corrientes, y al de los dos más
+    altos, calculado sobre una o dos: en el último par el denominador vale 1 por
+    definición en una cuenca de una sola salida, de modo que ese cociente es
+    grande siempre y arrastra la media sin aportar información. La ponderación
+    por el número de corrientes que intervienen en cada par lo corrige.
+    """
+    ordenes = sorted(corrientes)
+    pares: list[dict[str, Any]] = []
+    for menor, mayor in zip(ordenes, ordenes[1:]):
+        if mayor != menor + 1 or not corrientes[mayor]:
+            continue
+        pares.append({
+            "orden": f"{menor}/{mayor}",
+            "corrientes_menor": corrientes[menor],
+            "corrientes_mayor": corrientes[mayor],
+            "razon": round(corrientes[menor] / corrientes[mayor], 3),
+            "peso": corrientes[menor] + corrientes[mayor],
+        })
+
+    if not pares:
+        return {"pares": [], "media_simple": None, "media_ponderada": None,
+                "adoptada": None, "dentro_del_rango_natural": False}
+
+    simple = sum(p["razon"] for p in pares) / len(pares)
+    peso_total = sum(p["peso"] for p in pares)
+    ponderada = sum(p["razon"] * p["peso"] for p in pares) / peso_total
+    return {
+        "pares": pares,
+        "media_simple": round(simple, 3),
+        "media_ponderada": round(ponderada, 3),
+        "adoptada": round(ponderada, 3),
+        "dentro_del_rango_natural": 3.0 <= ponderada <= 5.0,
+    }
+
+
+def camino_mas_largo(
+    afluentes: dict[int, list[int]],
+    longitudes: dict[int, float],
+    desembocadura: int,
+) -> list[int]:
+    """
+    Devuelve el camino de mayor longitud acumulada que llega a un tramo.
+
+    Es la definición hidrológica de cauce principal: no el río con nombre, sino
+    el recorrido más largo desde la divisoria hasta el punto de salida, que es
+    el que gobierna el tiempo de concentración.
+
+    La alternativa, seguir el tramo de mayor orden en cada confluencia, da un
+    resultado distinto y peor: el orden mide ramificación, no distancia, y en
+    una cuenca alargada elige el afluente equivocado.
+    """
+    memoria: dict[int, tuple[float, list[int]]] = {}
+    pila = [(desembocadura, False)]
+    visitando: set[int] = set()
+
+    while pila:
+        actual, expandido = pila.pop()
+        if expandido:
+            visitando.discard(actual)
+            mejor_largo, mejor_camino = 0.0, []
+            for tributario in afluentes.get(actual, ()):
+                if tributario not in memoria:
+                    continue
+                largo, camino = memoria[tributario]
+                if largo > mejor_largo:
+                    mejor_largo, mejor_camino = largo, camino
+            memoria[actual] = (longitudes.get(actual, 0.0) + mejor_largo,
+                               mejor_camino + [actual])
+            continue
+        if actual in memoria or actual in visitando:
+            continue
+        visitando.add(actual)
+        pila.append((actual, True))
+        for tributario in afluentes.get(actual, ()):
+            if tributario not in memoria:
+                pila.append((tributario, False))
+
+    return memoria.get(desembocadura, (0.0, []))[1]
+
+
+# =============================================================================
 # Eje de los drenajes dobles
 # =============================================================================
 def eje_de_poligonos(

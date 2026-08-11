@@ -70,6 +70,7 @@ _DIRECTORIO_SRC = Path(__file__).resolve().parent
 if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
+import red_drenaje  # noqa: E402  (solo sus funciones de grafo, sin QGIS)
 from comun import (  # noqa: E402
     esquema, geometria, raster, registro, rutas, shapefile,
 )
@@ -102,6 +103,7 @@ class ResultadoM10:
     modo: str = ""
     unidades: list[dict[str, Any]] = field(default_factory=list)
     relieve: dict[str, Any] = field(default_factory=dict)
+    drenaje: dict[str, Any] = field(default_factory=dict)
     tiempos: list[dict[str, Any]] = field(default_factory=list)
     adoptados: dict[str, Any] = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
@@ -151,7 +153,11 @@ def _centro(segmento: Sequence[tuple[float, float]]) -> tuple[float, float]:
 def parametros_de_drenaje(
     ruta_drenaje: Path, poligonos, ) -> dict[str, Any]:
     """
-    Longitud de cauce dentro de la cuenca, densidad y frecuencia.
+    Longitud de cauce dentro de la cuenca, sobre una capa de líneas cualquiera.
+
+    Es el cálculo de respaldo, el único posible cuando no existe la red con
+    topología del M02b. Da longitud y densidad, y nada más: sin saber qué tramo
+    desemboca en cuál no hay orden de corrientes ni cauce principal.
 
     El recorte del M02 llega a la envolvente, que es mayor que la cuenca: usar
     su longitud entera sobrestimaría la densidad. Se filtra segmento a segmento
@@ -178,6 +184,253 @@ def parametros_de_drenaje(
             tramos += 1
     return {"long_cauces_km": round(longitud_m / 1000.0, 2),
             "tramos_dentro": tramos}
+
+
+# =============================================================================
+# Drenaje sobre la red con topología
+# =============================================================================
+def recortar_red(ruta_red: Path, poligonos) -> dict[str, Any]:
+    """
+    Selecciona de la red del M02b los tramos que caen dentro de la unidad.
+
+    Se decide por el punto MEDIO de cada tramo, la misma convención que usa el
+    cálculo de respaldo. La relación de afluencia se conserva solo entre tramos
+    que quedan los dos dentro: un tramo cuyo receptor queda fuera pasa a ser
+    desembocadura de la unidad, que es lo que corresponde.
+    """
+    registros = list(shapefile.leer_registros(
+        ruta_red, ["id_tramo", "receptor", "orden", "long_m", "origen", "nombre"]))
+    geometrias = shapefile.leer_geometrias(ruta_red)
+    if len(registros) != len(geometrias):
+        raise ErrorFormato(
+            f"{ruta_red.name}: {len(registros)} registros y "
+            f"{len(geometrias)} geometrías.")
+
+    indice = geometria.IndicePoligonos(poligonos)
+    dentro: dict[int, dict[str, Any]] = {}
+    vertices: dict[int, list[tuple[float, float]]] = {}
+
+    for registro_tramo, entidad in zip(registros, geometrias):
+        puntos = [punto for parte in entidad for punto in parte]
+        if len(puntos) < 2:
+            continue
+        medio = puntos[len(puntos) // 2]
+        if not indice.contiene(medio[0], medio[1]):
+            continue
+        identificador = int(registro_tramo["id_tramo"])
+        dentro[identificador] = {
+            "receptor": int(registro_tramo["receptor"]),
+            "long_m": float(registro_tramo["long_m"]),
+            "origen": registro_tramo["origen"],
+            "nombre": registro_tramo["nombre"],
+        }
+        vertices[identificador] = puntos
+
+    afluentes: dict[int, list[int]] = {}
+    for identificador, datos in dentro.items():
+        receptor = datos["receptor"]
+        if receptor in dentro:
+            afluentes.setdefault(receptor, []).append(identificador)
+
+    return {"tramos": dentro, "vertices": vertices, "afluentes": afluentes}
+
+
+def parametros_de_red(
+    ruta_red: Path, poligonos, area_km2: float, cota=None,
+) -> dict[str, Any]:
+    """
+    Jerarquía y cauce principal a partir de la red con topología del M02b.
+
+    El orden de Strahler se RECALCULA sobre el subconjunto que cae dentro de la
+    unidad, no se hereda del que traía la capa. En modo general las dos cifras
+    coinciden, porque la unidad es la cuenca entera; en modo detallado no, y la
+    que describe una subcuenca es la suya, calculada con sus propias cabeceras.
+
+    El cauce principal es el recorrido de mayor longitud acumulada hasta la
+    salida, no el río con nombre ni el de mayor orden. Cuando la unidad tiene
+    varias salidas, se adopta la que produce el recorrido más largo.
+
+    La pendiente del cauce se toma entre los EXTREMOS y no promediando las
+    pendientes locales. Medido sobre el cauce de este estudio, el 24 % de los
+    tramos sube más de un metro respecto del anterior, lo que es imposible en
+    un cauce y corresponde al error vertical del DEM. Promediar diferencias
+    locales sobre ese perfil mide el ruido, no la pendiente.
+    """
+    recorte = recortar_red(ruta_red, poligonos)
+    tramos = recorte["tramos"]
+    afluentes = recorte["afluentes"]
+    vertices = recorte["vertices"]
+    if not tramos:
+        raise ErrorHidrologia(
+            "ningún tramo de la red del M02b cae dentro de la unidad.")
+
+    longitudes = {i: datos["long_m"] for i, datos in tramos.items()}
+    longitud_total_m = sum(longitudes.values())
+
+    orden, ciclos = red_drenaje.orden_strahler(afluentes, list(tramos))
+    corrientes = red_drenaje.contar_corrientes(orden, afluentes)
+    bifurcacion = red_drenaje.razon_bifurcacion(corrientes)
+    total_corrientes = sum(corrientes.values())
+
+    salidas = [i for i, datos in tramos.items()
+               if datos["receptor"] not in tramos]
+    mejor_camino: list[int] = []
+    mejor_longitud = 0.0
+    for salida in salidas:
+        camino = red_drenaje.camino_mas_largo(afluentes, longitudes, salida)
+        largo = sum(longitudes.get(t, 0.0) for t in camino)
+        if largo > mejor_longitud:
+            mejor_camino, mejor_longitud = camino, largo
+
+    resultado: dict[str, Any] = {
+        "red": str(ruta_red),
+        "tramos_dentro": len(tramos),
+        "long_cauces_km": round(longitud_total_m / 1000.0, 2),
+        "densidad_drenaje_km_km2": (round(longitud_total_m / 1000.0 / area_km2, 4)
+                                    if area_km2 else None),
+        "orden_corrientes": max(orden.values()) if orden else 0,
+        "corrientes_por_orden": corrientes,
+        "corrientes_totales": total_corrientes,
+        "frecuencia_corrientes_km2": (round(total_corrientes / area_km2, 4)
+                                      if area_km2 else None),
+        "razon_bifurcacion": bifurcacion.get("adoptada"),
+        "razon_bifurcacion_simple": bifurcacion.get("media_simple"),
+        "bifurcacion_en_rango_natural": bifurcacion.get(
+            "dentro_del_rango_natural"),
+        "bifurcacion_pares": bifurcacion.get("pares"),
+        "salidas_de_la_unidad": len(salidas),
+        "tramos_en_ciclo": len(ciclos),
+    }
+
+    if not mejor_camino:
+        return resultado
+
+    mejor_camino, recorte_cola = recortar_cola_ajena(
+        mejor_camino, tramos, longitudes)
+    mejor_longitud = sum(longitudes.get(t, 0.0) for t in mejor_camino)
+    resultado["recorte_cola"] = recorte_cola
+    if not mejor_camino:
+        return resultado
+
+    nacimiento = vertices[mejor_camino[0]][0]
+    cierre = vertices[mejor_camino[-1]][-1]
+    recta_m = math.hypot(cierre[0] - nacimiento[0], cierre[1] - nacimiento[1])
+
+    resultado.update({
+        "long_cauce_principal_km": round(mejor_longitud / 1000.0, 2),
+        "tramos_del_cauce_principal": len(mejor_camino),
+        "indice_sinuosidad": (round(mejor_longitud / recta_m, 3)
+                              if recta_m > 0 else None),
+        "distancia_recta_cauce_km": round(recta_m / 1000.0, 2),
+        "nombres_del_cauce_principal": _nombres_del_camino(mejor_camino, tramos),
+    })
+
+    if cota is not None:
+        cota_alta = cota(nacimiento[0], nacimiento[1])
+        cota_baja = cota(cierre[0], cierre[1])
+        if cota_alta == cota_alta and cota_baja == cota_baja:
+            desnivel = cota_alta - cota_baja
+            resultado.update({
+                "cota_nacimiento": round(cota_alta, 2),
+                "cota_cierre": round(cota_baja, 2),
+                "desnivel_cauce_m": round(desnivel, 2),
+                "pendiente_media_cauce": (round(desnivel / mejor_longitud, 6)
+                                          if mejor_longitud else None),
+                "pendiente_media_cauce_pct": (
+                    round(100.0 * desnivel / mejor_longitud, 3)
+                    if mejor_longitud else None),
+            })
+    return resultado
+
+
+def recortar_cola_ajena(
+    camino: Sequence[int], tramos: dict, longitudes: dict,
+    fraccion_maxima: float = 0.02, fraccion_dominante: float = 0.05,
+) -> tuple[list[int], dict[str, Any]]:
+    """
+    Quita del final del cauce el trozo que ya pertenece a otro río.
+
+    El polígono de la unidad puede rebasar unos metros la confluencia con el
+    cauce receptor, y entonces el recorrido más largo continúa por él. Medido
+    sobre este estudio, el cauce trazado termina con 0,22 km de Río Magdalena
+    tras 242,85 km de Río Bogotá: el 0,07 % de la longitud, irrelevante en
+    magnitud pero incorrecto, y suficiente para invalidar el nombre con el que
+    el cauce se identifica en el informe.
+
+    El nombre geográfico del IGAC es la autoridad sobre a qué río pertenece
+    cada tramo, de modo que se usa como criterio. El recorte está acotado por
+    los dos lados: solo se quita lo que sigue al último bloque SUSTANCIAL del
+    recorrido, y solo si lo quitado es una fracción menor del total. Si el
+    trozo ajeno fuera grande, no sería un rebase del polígono sino un error de
+    delimitación, y entonces debe verse en el resultado y no taparse.
+    """
+    if not camino:
+        return [], {"recortado": False}
+
+    total = sum(longitudes.get(t, 0.0) for t in camino)
+    if total <= 0:
+        return list(camino), {"recortado": False}
+
+    # Bloques consecutivos del mismo nombre, de aguas arriba a aguas abajo.
+    bloques: list[tuple[str, float, int]] = []
+    for indice, identificador in enumerate(camino):
+        nombre = str(tramos[identificador].get("nombre", "")).strip()
+        largo = longitudes.get(identificador, 0.0)
+        if bloques and bloques[-1][0] == nombre:
+            anterior = bloques[-1]
+            bloques[-1] = (nombre, anterior[1] + largo, anterior[2])
+        else:
+            bloques.append((nombre, largo, indice))
+
+    dominante = None
+    for nombre, largo, indice in bloques:
+        if nombre and largo >= fraccion_dominante * total:
+            dominante = (nombre, indice)
+    if dominante is None:
+        return list(camino), {"recortado": False}
+
+    ultimo_nombre, _ = dominante
+    corte = len(camino)
+    for nombre, _largo, indice in bloques:
+        if indice > 0 and nombre != ultimo_nombre:
+            posterior = [b for b in bloques if b[2] >= indice]
+            if all(b[0] != ultimo_nombre for b in posterior):
+                corte = min(corte, indice)
+    if corte >= len(camino):
+        return list(camino), {"recortado": False}
+
+    quitado = sum(longitudes.get(t, 0.0) for t in camino[corte:])
+    if quitado > fraccion_maxima * total:
+        return list(camino), {
+            "recortado": False,
+            "cola_ajena_km": round(quitado / 1000.0, 3),
+            "cola_ajena_nombre": str(
+                tramos[camino[corte]].get("nombre", "")).strip(),
+            "excede_el_limite": True,
+        }
+
+    return list(camino[:corte]), {
+        "recortado": True,
+        "tramos_quitados": len(camino) - corte,
+        "cola_ajena_km": round(quitado / 1000.0, 3),
+        "cola_ajena_nombre": str(tramos[camino[corte]].get("nombre", "")).strip(),
+        "cauce_adoptado": ultimo_nombre,
+    }
+
+
+def _nombres_del_camino(camino: Sequence[int], tramos: dict) -> str:
+    """
+    Nombres geográficos que atraviesa el cauce principal, sin repetir.
+
+    Sirve para verificar el trazado de un vistazo: si el recorrido más largo de
+    la cuenca del Río Bogotá no menciona ese río, algo va mal en la red.
+    """
+    vistos: list[str] = []
+    for identificador in camino:
+        nombre = str(tramos[identificador].get("nombre", "")).strip()
+        if nombre and nombre not in vistos:
+            vistos.append(nombre)
+    return "; ".join(vistos)
 
 
 # =============================================================================
@@ -716,6 +969,136 @@ def resumir_adopcion(
     }
 
 
+def _muestreador_de_cota(ruta_dem: Path):
+    """
+    Devuelve una función (x, y) -> cota, con un método 'cerrar'.
+
+    Es la misma que usa el M02b para orientar el eje del cauce doble. Que las
+    dos salgan del mismo lector importa: si la cota que decide el sentido de
+    flujo y la que mide la pendiente del cauce vinieran de implementaciones
+    distintas, una discrepancia entre ellas no tendría dónde detectarse.
+    """
+    import struct
+
+    info = raster.leer_info(ruta_dem)
+    lector = raster.LectorRaster(ruta_dem)
+    formato = {"<f4": "f", "<u2": "H", "<i2": "h", "<f8": "d"}.get(
+        info.descriptor)
+    if formato is None:
+        lector.cerrar()
+        raise ErrorFormato(
+            f"{ruta_dem.name}: tipo {info.descriptor} no muestreable como cota.")
+
+    def cota(x: float, y: float) -> float:
+        columna, fila = info.columna_de(x), info.fila_de(y)
+        if not (0 <= columna < info.ancho and 0 <= fila < info.alto):
+            return float("nan")
+        valor = struct.unpack_from(
+            "<" + formato, lector.fila(fila), columna * info.bytes_por_muestra)[0]
+        if info.nodato is not None and valor == info.nodato:
+            return float("nan")
+        return float(valor)
+
+    cota.cerrar = lector.cerrar  # type: ignore[attr-defined]
+    return cota
+
+
+def _resolver_drenaje(drenaje, resultado, logger) -> None:
+    """Registra la jerarquía de la red y las cautelas que la acompañan."""
+    logger.info("%.0f km de cauce | densidad %.3f km/km2 | orden %d",
+                drenaje["long_cauces_km"],
+                drenaje.get("densidad_drenaje_km_km2") or 0.0,
+                drenaje["orden_corrientes"])
+
+    principal = drenaje.get("long_cauce_principal_km")
+    if principal:
+        logger.info("Cauce principal %.1f km | sinuosidad %.2f | pendiente %s",
+                    principal, drenaje.get("indice_sinuosidad") or 0.0,
+                    drenaje.get("pendiente_media_cauce_pct"))
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "drenaje.cauce_principal",
+            f"cauce principal de {principal:.1f} km en "
+            f"{drenaje['tramos_del_cauce_principal']} tramos, adoptado como el "
+            "recorrido de mayor longitud acumulada hasta la salida y no como el "
+            "rio con nombre ni el de mayor orden. "
+            + (f"Atraviesa: {drenaje['nombres_del_cauce_principal']}. "
+               if drenaje.get("nombres_del_cauce_principal") else "")
+            + (f"Desciende de {drenaje['cota_nacimiento']:.0f} a "
+               f"{drenaje['cota_cierre']:.0f} m, con pendiente media "
+               f"{drenaje['pendiente_media_cauce_pct']:.2f} %, tomada entre los "
+               "extremos y no promediando pendientes locales, que sobre este DEM "
+               "medirian el ruido."
+               if drenaje.get("cota_nacimiento") is not None else ""),
+        ))
+    else:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "drenaje.cauce_principal",
+            "no se pudo trazar ningun cauce principal: la red no tiene ninguna "
+            "cadena que llegue a una salida de la unidad."))
+
+    cola = drenaje.get("recorte_cola") or {}
+    if cola.get("recortado"):
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "drenaje.cola_recortada",
+            f"se recortaron {cola['cola_ajena_km']:.2f} km de "
+            f"{cola['cola_ajena_nombre']} del final del cauce. El poligono de "
+            "la unidad rebasa unos metros la confluencia con el cauce receptor, "
+            "y el recorrido mas largo continuaba por el. La longitud reportada "
+            f"corresponde al {cola['cauce_adoptado']}.",
+        ))
+    elif cola.get("excede_el_limite"):
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "drenaje.cola_ajena",
+            f"el cauce trazado termina con {cola['cola_ajena_km']:.2f} km de "
+            f"{cola['cola_ajena_nombre']}, demasiado para ser un rebase del "
+            "poligono. NO se recorto: un trozo ajeno de esa magnitud no es un "
+            "detalle de borde sino un problema de delimitacion, y debe verse en "
+            "el resultado en lugar de taparse.",
+        ))
+
+    sinuosidad = drenaje.get("indice_sinuosidad")
+    if sinuosidad and sinuosidad > 2.5:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "drenaje.sinuosidad",
+            f"indice de sinuosidad {sinuosidad:.2f}, muy por encima del 1,5 que "
+            "separa un cauce meandriforme de uno recto. Sobre una cuenca "
+            "alargada la cifra mezcla dos cosas distintas: los meandros del "
+            "cauce y la curvatura de la propia cuenca, porque se mide contra la "
+            "recta que une nacimiento y cierre. Conviene leerla junto al "
+            "coeficiente de compacidad y no como sinuosidad de cauce sin mas.",
+        ))
+
+    if not drenaje.get("bifurcacion_en_rango_natural") and drenaje.get(
+            "razon_bifurcacion"):
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "drenaje.bifurcacion",
+            f"razon de bifurcacion ponderada {drenaje['razon_bifurcacion']:.2f}, "
+            "fuera del rango de 3 a 5 que Horton observo en redes naturales. "
+            "Suele delatar un control estructural del terreno o una cartografia "
+            "con detalle desigual: si la parte alta se levanto con mas densidad "
+            "que la baja, las corrientes de orden 1 salen infladas.",
+        ))
+
+    salidas = drenaje.get("salidas_de_la_unidad", 0)
+    if salidas > 1:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "drenaje.salidas",
+            f"la unidad tiene {salidas} tramos sin receptor dentro de ella. En "
+            "una cuenca cerrada deberia haber uno. La adyacencia de la red se "
+            "resuelve por proximidad sobre una cartografia que no es topologica, "
+            "de modo que quedan cadenas sueltas. El cauce principal se traza "
+            "desde la salida que produce el recorrido mas largo, pero la "
+            "densidad de drenaje y el conteo de corrientes se calculan sobre "
+            "toda la red de la unidad y no dependen de esa eleccion.",
+        ))
+
+    if drenaje.get("tramos_en_ciclo"):
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "drenaje.ciclos",
+            f"{drenaje['tramos_en_ciclo']} tramo(s) forman ciclo en la relacion "
+            "de afluencia dentro de la unidad. Su orden queda indefinido."))
+
+
 def _resolver_relieve(relieve, parametros, resultado, configuracion,
                       logger) -> float | None:
     """
@@ -943,47 +1326,7 @@ def ejecutar(
             ))
 
     # --- Drenaje -------------------------------------------------------------
-    with registro.bloque(logger, "Parametros de drenaje"):
-        wkt = None
-        reporte_m02 = rutas.directorio("procesado", base) / "M02_delimitacion.json"
-        poligonos = []
-        try:
-            datos = json.loads(reporte_m02.read_text(encoding="utf-8"))
-            wkt = (datos.get("geometrias_epsg4326") or {}).get("area_influencia")
-        except (OSError, json.JSONDecodeError):
-            wkt = None
-        if wkt:
-            try:
-                from pyproj import Transformer
-                conversor = Transformer.from_crs(
-                    "EPSG:4326", configuracion.obtener("crs.calculo"),
-                    always_xy=True)
-                poligonos = [
-                    [[conversor.transform(float(x), float(y)) for x, y in anillo]
-                     for anillo in poli]
-                    for poli in geometria.poligonos_de_wkt(wkt)
-                ]
-            except (ImportError, ErrorFormato):
-                poligonos = []
-
-        drenaje = rutas.resolver(
-            configuracion.obtener("referencia_nacional.salida_recorte_sencillo"),
-            base)
-        if poligonos and drenaje.is_file():
-            red = parametros_de_drenaje(drenaje, poligonos)
-            parametros.update(red)
-            if parametros["area_km2"]:
-                parametros["densidad_drenaje_km_km2"] = round(
-                    red["long_cauces_km"] / parametros["area_km2"], 4)
-            logger.info("%.0f km de cauce dentro | densidad %.3f km/km2",
-                        red["long_cauces_km"],
-                        parametros.get("densidad_drenaje_km_km2", 0.0))
-        else:
-            resultado.hallazgos.append(Hallazgo(
-                ADVERTENCIA, "morfometria.drenaje",
-                "no se pudo calcular la densidad de drenaje: falta el recorte "
-                "del drenaje o la geometria del area del M02.",
-            ))
+    poligonos_cuenca = shapefile.leer_geometrias(ruta_cuenca)
 
     # --- Relieve -------------------------------------------------------------
     pendiente_adoptada: float | None = None
@@ -1000,7 +1343,6 @@ def ejecutar(
             ))
         else:
             try:
-                poligonos_cuenca = shapefile.leer_geometrias(ruta_cuenca)
                 relieve = estadisticas_de_relieve(
                     ruta_dem, poligonos_cuenca,
                     intervalo_m=float(configuracion.obtener(
@@ -1020,6 +1362,51 @@ def ejecutar(
                 resultado.relieve = relieve
                 pendiente_adoptada = _resolver_relieve(
                     relieve, parametros, resultado, configuracion, logger)
+
+    # --- Drenaje -------------------------------------------------------------
+    with registro.bloque(logger, "Parametros de drenaje"):
+        ruta_red = rutas.resolver(
+            configuracion.obtener("red_topologica.salida_red"), base)
+        respaldo = rutas.resolver(
+            configuracion.obtener("referencia_nacional.salida_recorte_sencillo"),
+            base)
+
+        if ruta_red.is_file():
+            muestra = None
+            if ruta_dem.is_file():
+                muestra = _muestreador_de_cota(ruta_dem)
+            try:
+                drenaje = parametros_de_red(
+                    ruta_red, poligonos_cuenca, parametros["area_km2"], muestra)
+            finally:
+                if muestra is not None:
+                    muestra.cerrar()
+            drenaje["red"] = rutas.relativa(ruta_red, base)
+            parametros.update({c: v for c, v in drenaje.items()
+                               if c not in ("corrientes_por_orden",
+                                            "bifurcacion_pares")})
+            resultado.drenaje = drenaje
+            _resolver_drenaje(drenaje, resultado, logger)
+        elif respaldo.is_file():
+            drenaje = parametros_de_drenaje(respaldo, poligonos_cuenca)
+            parametros.update(drenaje)
+            if parametros["area_km2"]:
+                parametros["densidad_drenaje_km_km2"] = round(
+                    drenaje["long_cauces_km"] / parametros["area_km2"], 4)
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "morfometria.drenaje",
+                "no existe la red con topologia del M02b, de modo que solo se "
+                "calcularon longitud y densidad de drenaje. Sin saber que tramo "
+                "desemboca en cual no hay orden de corrientes, ni razon de "
+                "bifurcacion, ni cauce principal. Ejecutar el M02b en el "
+                "entorno de QGIS.",
+            ))
+        else:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "morfometria.drenaje",
+                "no se pudo calcular ningun parametro de drenaje: falta tanto "
+                "la red del M02b como el recorte del drenaje del M02.",
+            ))
 
     resultado.unidades.append(parametros)
 
@@ -1353,6 +1740,63 @@ def _escribir_informe(destino, resultado, configuracion) -> None:
             "figuras del informe.",
             "",
         ]
+    lineas += ["", "## Parametros de drenaje", ""]
+    drenaje = resultado.drenaje
+    if not drenaje:
+        lineas += [
+            "Sin la red con topologia del M02b solo hay longitud y densidad.",
+            "Ejecutar el M02b en el entorno de QGIS.",
+            "",
+        ]
+    else:
+        lineas += [
+            f"Sobre la red `{drenaje.get('red')}`, que el M02b construye",
+            "reponiendo el eje de los cauces que la cartografia representa como",
+            "poligono. Sin ese eje la red queda cortada justo en el cauce",
+            "principal y su longitud sale reducida a una fraccion, sin ninguna",
+            "senal de error.",
+            "",
+        ]
+        lineas += _tabla_markdown(
+            [{"parametro": k, "valor": drenaje[k]} for k in (
+                "tramos_dentro", "long_cauces_km", "densidad_drenaje_km_km2",
+                "orden_corrientes", "corrientes_totales",
+                "frecuencia_corrientes_km2", "razon_bifurcacion",
+                "long_cauce_principal_km", "distancia_recta_cauce_km",
+                "indice_sinuosidad", "cota_nacimiento", "cota_cierre",
+                "desnivel_cauce_m", "pendiente_media_cauce",
+                "pendiente_media_cauce_pct") if k in drenaje],
+            ["parametro", "valor"])
+        if drenaje.get("nombres_del_cauce_principal"):
+            lineas += [
+                "",
+                "El cauce principal es el recorrido de mayor longitud acumulada",
+                "hasta la salida, que es la definicion que gobierna el tiempo de",
+                "concentracion, y no el rio con nombre ni el de mayor orden.",
+                "Atraviesa, de la cabecera al cierre:",
+                "",
+                f"> {drenaje['nombres_del_cauce_principal']}",
+                "",
+                "Esa lista no es decorativa: es el control que permite verificar",
+                "el trazado de un vistazo. Si el recorrido mas largo de esta",
+                "cuenca no mencionara su rio, la red estaria mal empalmada.",
+                "",
+            ]
+        corrientes = drenaje.get("corrientes_por_orden") or {}
+        if corrientes:
+            lineas += ["### Corrientes por orden", ""]
+            lineas += _tabla_markdown(
+                [{"orden": o, "corrientes": c} for o, c in sorted(
+                    corrientes.items(), key=lambda x: int(x[0]))],
+                ["orden", "corrientes"])
+            lineas += [
+                "",
+                "Se cuentan CORRIENTES y no tramos. Una corriente de orden n es",
+                "la cadena completa de tramos consecutivos de ese orden: la",
+                "cartografia parte un mismo rio en decenas de piezas por razones",
+                "de dibujo.",
+                "",
+            ]
     lineas += [
         "## Tiempo de concentracion",
         "",
@@ -1404,6 +1848,7 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "modulo": MODULO,
         "modo": resultado.modo,
         "unidades": resultado.unidades,
+        "drenaje": resultado.drenaje,
         "tiempo_concentracion": resultado.adoptados,
         "matriz_aplicabilidad": resultado.tiempos,
         "productos": resultado.productos,

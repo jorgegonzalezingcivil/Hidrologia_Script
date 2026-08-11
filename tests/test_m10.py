@@ -359,6 +359,115 @@ class PruebaRelieveReal(unittest.TestCase):
         self.assertEqual(self.relieve["crs_dem"], _CFG.obtener("crs.calculo"))
 
 
+class PruebaRecorteDeColaAjena(unittest.TestCase):
+    """
+    El polígono de la unidad puede rebasar unos metros la confluencia con el
+    cauce receptor, y entonces el recorrido más largo continúa por él. Medido
+    sobre este estudio, el cauce terminaba con 0,22 km de Río Magdalena tras
+    242,85 km de Río Bogotá.
+    """
+
+    def _tramos(self, nombres):
+        return {i: {"nombre": n} for i, n in enumerate(nombres)}
+
+    def test_recorta_la_cola_corta_de_otro_rio(self) -> None:
+        # Proporciones del caso real: 0,22 km de cola tras 242,85 km de cauce.
+        nombres = ["Rio A"] * 200 + ["Rio B"]
+        longitudes = {i: 1000.0 for i in range(201)}
+        camino, informe = m10.recortar_cola_ajena(
+            list(range(201)), self._tramos(nombres), longitudes)
+        self.assertTrue(informe["recortado"])
+        self.assertEqual(len(camino), 200)
+        self.assertEqual(informe["cola_ajena_nombre"], "Rio B")
+        self.assertEqual(informe["cauce_adoptado"], "Rio A")
+
+    def test_no_recorta_si_la_cola_es_grande(self) -> None:
+        # Un trozo ajeno grande no es un rebase del poligono sino un problema
+        # de delimitacion, y debe verse en el resultado en lugar de taparse.
+        nombres = ["Rio A"] * 30 + ["Rio B"]
+        longitudes = {i: 1000.0 for i in range(30)}
+        longitudes[30] = 1200.0
+        camino, informe = m10.recortar_cola_ajena(
+            list(range(31)), self._tramos(nombres), longitudes)
+        self.assertFalse(informe["recortado"])
+        self.assertTrue(informe["excede_el_limite"])
+        self.assertEqual(len(camino), 31)
+
+    def test_un_cambio_de_nombre_sustancial_es_el_mismo_cauce(self) -> None:
+        # Un rio que corre diez kilometros con un nombre y diez con otro no
+        # tiene cola ajena: cambia de nombre, que es lo normal.
+        nombres = ["Rio A"] * 10 + ["Rio B"] * 10
+        longitudes = {i: 1000.0 for i in range(20)}
+        camino, informe = m10.recortar_cola_ajena(
+            list(range(20)), self._tramos(nombres), longitudes)
+        self.assertFalse(informe["recortado"])
+        self.assertEqual(len(camino), 20)
+
+    def test_no_toca_un_cauce_de_un_solo_rio(self) -> None:
+        longitudes = {i: 1000.0 for i in range(10)}
+        camino, informe = m10.recortar_cola_ajena(
+            list(range(10)), self._tramos(["Rio A"] * 10), longitudes)
+        self.assertFalse(informe["recortado"])
+        self.assertEqual(len(camino), 10)
+
+    def test_los_afluentes_de_cabecera_no_se_confunden_con_cola(self) -> None:
+        # El cauce empieza por quebradas con otro nombre y termina en el rio.
+        # Eso es normal y no debe recortarse nada.
+        nombres = ["Quebrada X", "Quebrada Y"] + ["Rio A"] * 18
+        longitudes = {i: 1000.0 for i in range(20)}
+        camino, informe = m10.recortar_cola_ajena(
+            list(range(20)), self._tramos(nombres), longitudes)
+        self.assertFalse(informe["recortado"])
+        self.assertEqual(len(camino), 20)
+
+    def test_un_camino_vacio_no_revienta(self) -> None:
+        self.assertEqual(m10.recortar_cola_ajena([], {}, {})[0], [])
+
+
+@unittest.skipUnless(HAY_CUENCA, "no hay capa de cuenca")
+class PruebaDrenajeReal(unittest.TestCase):
+    """Sobre la red del M02b, si existe."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.ruta = _RAIZ_REPO / _CFG.obtener("red_topologica.salida_red")
+        if not cls.ruta.is_file():
+            raise unittest.SkipTest("no existe la red del M02b")
+        muestra = m10._muestreador_de_cota(_DEM) if HAY_DEM else None
+        try:
+            cls.drenaje = m10.parametros_de_red(
+                cls.ruta, shapefile.leer_geometrias(_CUENCA), 5925.891, muestra)
+        finally:
+            if muestra is not None:
+                muestra.cerrar()
+
+    def test_el_orden_y_las_corrientes_son_coherentes(self) -> None:
+        d = self.drenaje
+        self.assertGreaterEqual(d["orden_corrientes"], 1)
+        self.assertEqual(max(d["corrientes_por_orden"]), d["orden_corrientes"])
+        # En una red bien formada hay mas corrientes de orden bajo que alto.
+        cuentas = [c for _, c in sorted(d["corrientes_por_orden"].items())]
+        self.assertEqual(cuentas, sorted(cuentas, reverse=True))
+
+    def test_el_cauce_principal_no_excede_la_red(self) -> None:
+        self.assertLess(self.drenaje["long_cauce_principal_km"],
+                        self.drenaje["long_cauces_km"])
+
+    def test_la_sinuosidad_no_puede_ser_menor_que_uno(self) -> None:
+        # Un cauce nunca es mas corto que la recta entre sus extremos.
+        self.assertGreaterEqual(self.drenaje["indice_sinuosidad"], 1.0)
+
+    def test_el_cauce_recorre_el_rio_de_la_cuenca(self) -> None:
+        # El control barato que atrapa una red mal empalmada.
+        self.assertIn("Bogotá", self.drenaje["nombres_del_cauce_principal"])
+
+    @unittest.skipUnless(HAY_DEM, "no hay DEM")
+    def test_el_cauce_desciende(self) -> None:
+        self.assertGreater(self.drenaje["cota_nacimiento"],
+                           self.drenaje["cota_cierre"])
+        self.assertGreater(self.drenaje["pendiente_media_cauce"], 0.0)
+
+
 class PruebaModoDeAnalisis(unittest.TestCase):
     def test_el_modo_esta_declarado(self) -> None:
         self.assertIn(_CFG.obtener("analisis.modo"), ("general", "detallado"))

@@ -119,6 +119,15 @@ ArcMap y ArcHydro quedan reemplazados por QGIS y librerías independientes.
   fechas de instalación y suspensión, y el campo `Calificador`. Este último marcaba
   `ACUMULADO`, clave para detectar falsos máximos en 24 horas.
 - La escala del shape de suelos debe ser compatible con el área de la cuenca.
+- La cartografía del IGAC representa un río ancho como POLÍGONO y su continuación
+  aguas arriba como POLILÍNEA. La capa de líneas no contiene el eje de los
+  polígonos, de modo que la red queda cortada justo en el cauce principal.
+  Medido sobre el Río Bogotá: 85,4 km como línea y el resto como polígono.
+  Trazar el cauce sin reponer ese eje devuelve una fracción de su longitud real
+  y no emite ninguna señal de error.
+- El eje derivado por adelgazamiento sale troceado en piezas de una celda.
+  Filtrarlas por longitud parte la cadena; los espolones se quitan por
+  topología, no por tamaño.
 - Si el subconjunto de fórmulas de Tc aplicables tiene menos de cinco elementos, o la
   dispersión es alta, advertir y no adoptar la mediana automáticamente.
 - Verificar coherencia entre el parámetro calculado (rezago o Tc) y el método de
@@ -133,6 +142,7 @@ ArcMap y ArcHydro quedan reemplazados por QGIS y librerías independientes.
 | M00c | Verificación de insumos del usuario | venv |
 | M01 | Punto de descarga e intersección con subzonas hidrográficas | QGIS |
 | M02 | Descarga DEM ALOS PALSAR, delimitación preliminar, envolvente y buffer | QGIS |
+| M02b | Red de drenaje topológica: eje de cauces dobles, adyacencia y orden de Strahler | QGIS |
 | M03 | Selección de estaciones por área de influencia y categoría | venv |
 | M04 | Adaptador de ingesta IDEAM (API y `.zip`), normalización, deduplicación | venv |
 | M04b | Análisis de sensibilidad de longitud de series | venv |

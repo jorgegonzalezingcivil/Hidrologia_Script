@@ -813,6 +813,32 @@ morfometria:
     # describe el terreno sino el error del DEM.
     razon_maxima_nativa_gruesa: 2.0
 
+# -----------------------------------------------------------------------------
+# M02b - RED DE DRENAJE TOPOLÓGICA
+#
+# La cartografía del IGAC parte los ríos anchos en dos representaciones: donde
+# caben dos orillas a 1:100.000 se dibuja un POLÍGONO, y aguas arriba una
+# POLILÍNEA. Medido sobre el Río Bogotá, la polilínea cubre 85,4 km del norte y
+# el polígono el resto hacia el sur; se tocan en Y = 2.107.000. Trazar el cauce
+# principal sobre la capa de líneas devolvería 85 km de los más de 300 reales,
+# y lo haría sin ninguna señal de error.
+#
+# Este módulo repone el eje que falta, empalma las dos representaciones,
+# resuelve la adyacencia y calcula el orden de Strahler. Su producto es la
+# única red con topología del estudio, y la consumen el M10 y el M16.
+# -----------------------------------------------------------------------------
+red_topologica:
+  # Resolución de rasterización para derivar el eje. El Río Bogotá tiene 55,8 m
+  # de ancho medio: a 12,5 m quedan cuatro o cinco celdas de través, suficientes
+  # para un esqueleto continuo. Con celdas más gruesas el polígono se fragmenta
+  # y el eje sale cortado.
+  resolucion_eje_m: 12.5
+  # El adelgazamiento deja espolones de una o dos celdas en los ensanchamientos
+  # del cauce. No son cauce y ensucian el conteo de corrientes de orden 1.
+  longitud_minima_tramo_m: 30.0
+  salida_eje: "data/03_SIG/vector/eje_drenaje_doble.shp"
+  salida_red: "data/03_SIG/vector/red_topologica.shp"
+
 tiempo_concentracion:
   tabla_aplicabilidad: "data/referencia/tc_aplicabilidad.csv"
   filtrar_por_tipo_cuenca: true
