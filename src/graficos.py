@@ -68,6 +68,7 @@ __all__ = [
     "histograma",
     "rampa",
     "dispersion_sobre_area",
+    "marco_geografico",
     "barras_de_rango",
     "mapa_calor",
     "matriz_faltantes",
@@ -472,6 +473,54 @@ def histograma(
         ax.set_yscale("log")
     if grupos:
         ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+
+
+def marco_geografico(
+    ax: Any,
+    estilo: Estilo,
+    corrientes: Sequence[Sequence[tuple[float, float]]] = (),
+    destacadas: Sequence[Sequence[tuple[float, float]]] = (),
+    punto: tuple[float, float] | None = None,
+    etiqueta_punto: str = "punto de descarga",
+    etiqueta_destacadas: str = "drena al punto",
+    etiqueta_corrientes: str = "red de drenaje",
+) -> None:
+    """
+    Dibuja el contexto geográfico sobre un mapa: corrientes y punto de salida.
+
+    Un mapa de estaciones sin la red ni el punto obliga a quien lo revisa a
+    situar los puntos de memoria. Con la red se ve de inmediato si un hueco de
+    cobertura cae sobre una cabecera que aporta o sobre terreno que no drena
+    al punto, que es la diferencia que importa.
+
+    Las corrientes DESTACADAS son las que drenan al punto de salida. Se separan
+    de las demás porque el área de influencia es un rectángulo con holgura y
+    contiene red que no aporta: sin esa distinción, el mapa sugeriría una
+    cuenca mayor que la real.
+
+    Todo llega ya en las coordenadas de la figura. Esta función no reproyecta:
+    quien dibuja declara el origen y el destino (CLAUDE.md, sección 5).
+    """
+    for indice, grupo in enumerate((corrientes, destacadas)):
+        if not grupo:
+            continue
+        destacada = indice == 1
+        primera = True
+        for linea in grupo:
+            if len(linea) < 2:
+                continue
+            ax.plot([p[0] for p in linea], [p[1] for p in linea],
+                    color="#4a7ba7" if destacada else "#b9c8d6",
+                    linewidth=1.1 if destacada else 0.5,
+                    zorder=2 if destacada else 1,
+                    label=(etiqueta_destacadas if destacada
+                           else etiqueta_corrientes) if primera else None)
+            primera = False
+
+    if punto is not None:
+        ax.plot([punto[0]], [punto[1]], marker="v", markersize=9,
+                color="#c00000", markeredgecolor="white", markeredgewidth=0.8,
+                linestyle="none", zorder=6, label=etiqueta_punto)
 
 
 def dispersion_sobre_area(

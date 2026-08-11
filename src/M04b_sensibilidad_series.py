@@ -101,7 +101,11 @@ SUSPENDIDA_ANTIGUA = "suspendida antigua"
 # geográfico, no en WGS84. La diferencia en Colombia es de aproximadamente un
 # metro, irrelevante para seleccionar y visible en una coordenada plana, de
 # modo que se declara en lugar de asumir.
+# El catalogo publica su ubicacion en MAGNA geografico, no en WGS84.
 CRS_CATALOGO = "EPSG:4686"
+
+# Las capas del estudio vienen en el CRS de calculo declarado en config.yaml.
+CRS_CALCULO = "EPSG:9377"
 
 
 # =============================================================================
@@ -794,6 +798,90 @@ def _figura_completitud(graficos, estilo, directorio, acumulado, minimo,
             resultado.productos.append(rutas.relativa(ruta, base))
 
 
+def _recortar(lineas, caja):
+    """Deja solo las líneas que tocan la caja, y descarta el resto entero."""
+    if caja is None:
+        return list(lineas)
+    xmin, ymin, xmax, ymax = caja
+    dentro = []
+    for linea in lineas:
+        equis = [p[0] for p in linea]
+        griegas = [p[1] for p in linea]
+        if (max(equis) < xmin or min(equis) > xmax
+                or max(griegas) < ymin or min(griegas) > ymax):
+            continue
+        dentro.append(linea)
+    return dentro
+
+
+def _contexto_geografico(base, crs_figuras, transformador, caja=None):
+    """
+    Lee del estudio el punto de descarga y la red de drenaje, ya reproyectados.
+
+    Devuelve (corrientes, destacadas, punto). Las DESTACADAS son las que drenan
+    al punto de salida, que el M02 identifica al acotar el área: sin esa
+    distinción el mapa sugeriría una cuenca del tamaño del rectángulo, y el
+    rectángulo lleva holgura deliberada.
+
+    Todo lo que falte se devuelve vacío. Un mapa sin la red sigue siendo útil;
+    detener la figura por eso no lo sería.
+    """
+    from comun import shapefile as shp
+
+    vector = rutas.directorio("sig_vector", base)
+    a_plano = transformador
+
+    punto = None
+    ruta_punto = vector / "punto_descarga.shp"
+    if ruta_punto.is_file():
+        try:
+            crudo = shp.leer_puntos(ruta_punto)
+            if crudo:
+                punto = a_plano(crudo[0][0], crudo[0][1])
+        except (ErrorFormato, ErrorRutas):
+            punto = None
+
+    arriba: set[int] = set()
+    reporte = rutas.directorio("procesado", base) / "M02_delimitacion.json"
+    if reporte.is_file():
+        try:
+            datos = json.loads(reporte.read_text(encoding="utf-8"))
+            arriba = {int(i) for i in
+                      ((datos.get("acotado") or {}).get("aguas_arriba") or ())}
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            arriba = set()
+
+    corrientes: list = []
+    destacadas: list = []
+    ruta_red = vector / "red_topologica.shp"
+    if ruta_red.is_file():
+        try:
+            registros = list(shp.leer_registros(ruta_red, ["id_tramo", "orden"]))
+            geometrias = shp.leer_geometrias(ruta_red)
+            for registro_tramo, entidad in zip(registros, geometrias):
+                identificador = int(registro_tramo["id_tramo"])
+                try:
+                    orden = int(registro_tramo["orden"])
+                except (TypeError, ValueError):
+                    orden = 1
+                for parte in entidad:
+                    if len(parte) < 2:
+                        continue
+                    linea = [a_plano(x, y) for x, y in parte]
+                    if identificador in arriba:
+                        destacadas.append(linea)
+                    elif orden >= 2:
+                        # La red de orden 1 sobre un area de setecientos
+                        # kilometros cuadrados son miles de tramos y tapa el
+                        # resto de la figura. Se conserva entera la que drena
+                        # al punto, que es la que importa.
+                        corrientes.append(linea)
+        except (ErrorFormato, ErrorRutas):
+            corrientes, destacadas = [], []
+
+    return _recortar(corrientes, caja), destacadas, punto
+
+
 def _figura_cobertura(graficos, estilo, directorio, resultado, base,
                       variable_de, umbrales, ventana, crs_figuras) -> None:
     """
@@ -887,8 +975,33 @@ def _figura_cobertura(graficos, estilo, directorio, resultado, base,
         etiqueta_x="Este (m)", etiqueta_y="Norte (m)",
         alto_cm=max(estilo.alto_cm, 12.0),
     ) as (fig, ax):
+        # La extensión la fija el ÁREA, no la red: la red del M02b cubre la
+        # subzona entera y, sin recortar, el área del estudio quedaría como un
+        # recuadro diminuto en una esquina.
+        equis = [x for poligono in poligonos for anillo in poligono
+                 for x, _ in anillo]
+        griegas = [y for poligono in poligonos for anillo in poligono
+                   for _, y in anillo]
+        for _, (xs, ys) in grupos.items():
+            equis.extend(xs)
+            griegas.extend(ys)
+        caja = None
+        if equis and griegas:
+            margen = 0.04 * max(max(equis) - min(equis),
+                                max(griegas) - min(griegas))
+            caja = (min(equis) - margen, min(griegas) - margen,
+                    max(equis) + margen, max(griegas) + margen)
+
+        corrientes, destacadas, punto = _contexto_geografico(
+            base, crs_figuras, graficos.transformador(CRS_CALCULO, crs_figuras),
+            caja)
+        graficos.marco_geografico(ax, estilo, corrientes, destacadas, punto)
         graficos.dispersion_sobre_area(ax, poligonos, grupos, estilo,
                                        ordinal=True)
+        if caja is not None:
+            ax.set_xlim(caja[0], caja[2])
+            ax.set_ylim(caja[1], caja[3])
+        _revisar_cobertura_de_la_cuenca(resultado, base, por_codigo, umbrales)
         graficos.rotular_en_miles(ax)
         ax.annotate(f"Coordenadas {crs_figuras}", xy=(1, -0.09),
                     xycoords="axes fraction", ha="right",
@@ -897,6 +1010,67 @@ def _figura_cobertura(graficos, estilo, directorio, resultado, base,
         for ruta in graficos.guardar(fig, directorio / "M04b_cobertura",
                                      estilo):
             resultado.productos.append(rutas.relativa(ruta, base))
+
+def _revisar_cobertura_de_la_cuenca(resultado, base, por_codigo, umbrales) -> None:
+    """
+    Cuenta cuántas estaciones caen sobre la red que DRENA al punto.
+
+    El área de influencia lleva holgura deliberada y contiene estaciones que no
+    están sobre la cuenca. Que el conteo global sea razonable no dice nada
+    sobre la cuenca: puede haber treinta estaciones en el área y ninguna
+    dentro, y entonces la precipitación de la cuenca no se interpola, se
+    EXTRAPOLA, que es donde se cometen los errores grandes.
+
+    Es la comprobación que convierte la figura en un hallazgo. Dejarla al ojo
+    de quien mire el mapa no es un control.
+    """
+    reporte = rutas.directorio("procesado", base) / "M02_delimitacion.json"
+    if not reporte.is_file() or not por_codigo:
+        return
+    try:
+        datos = json.loads(reporte.read_text(encoding="utf-8"))
+        caja = (datos.get("acotado") or {}).get("envolvente")
+    except (OSError, json.JSONDecodeError):
+        return
+    if not caja or len(caja) != 4:
+        return
+
+    try:
+        from comun import geometria  # noqa: F401
+        from pyproj import Transformer
+    except ImportError:
+        return
+
+    conversor = Transformer.from_crs(CRS_CATALOGO, CRS_CALCULO, always_xy=True)
+    xmin, ymin, xmax, ymax = caja
+    minimo = min(int(u) for u in umbrales) if umbrales else 0
+    dentro = dentro_largas = 0
+    for _codigo, (x, y, anios) in por_codigo.items():
+        este, norte = conversor.transform(x, y)
+        if xmin <= este <= xmax and ymin <= norte <= ymax:
+            dentro += 1
+            dentro_largas += int(anios >= minimo)
+
+    if dentro:
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "cobertura.sobre_la_cuenca",
+            f"{dentro} de {len(por_codigo)} estación(es) de precipitación caen "
+            f"sobre la envolvente de la red que drena al punto, "
+            f"{dentro_largas} de ellas con {minimo} año(s) o más.",
+        ))
+        return
+
+    resultado.hallazgos.append(Hallazgo(
+        ADVERTENCIA, "cobertura.sobre_la_cuenca",
+        f"NINGUNA de las {len(por_codigo)} estación(es) de precipitación cae "
+        "sobre la envolvente de la red que drena al punto: todas están en la "
+        "holgura del área de influencia. La precipitación de la cuenca no se "
+        "interpolará, se EXTRAPOLARÁ, y ahí es donde se cometen los errores "
+        "grandes. El M06 y el M11 deben declararlo, y conviene revisar si "
+        "ampliar el buffer de selección del M03 incorpora alguna estación "
+        "mejor situada.",
+    ))
+
 
 def _figura_linea_temporal(graficos, estilo, directorio, acumulado, minimo,
                            variable_de, seleccionadas, resultado, base,

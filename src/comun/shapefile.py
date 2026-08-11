@@ -46,6 +46,7 @@ __all__ = [
     "leer_registros",
     "escribir_puntos",
     "leer_geometrias",
+    "leer_puntos",
     "longitud_lineas",
     "perimetro_poligonos",
     "distancia_maxima",
@@ -327,6 +328,59 @@ def leer_geometrias(ruta: str | Path) -> list[list[list[tuple[float, float]]]]:
                 partes.append(puntos[arranque:fin])
             entidades.append(partes)
     return entidades
+
+
+def leer_puntos(ruta: str | Path) -> list[tuple[float, float]]:
+    """
+    Lee la geometría de un shapefile de PUNTOS.
+
+    Existe aparte de 'leer_geometrias' porque un punto no tiene partes ni
+    vértices, y devolverlo con la misma estructura anidada obligaría a todos
+    los consumidores a desenvolverla. El punto de descarga es el caso: una
+    coordenada suelta que las figuras y los módulos necesitan tal cual.
+
+    Se ignora la dimensión Z o M si el archivo la trae.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        No existe el archivo.
+    ErrorFormato
+        La geometría no es de puntos, o el archivo está truncado.
+    """
+    destino = Path(ruta)
+    if not destino.is_file():
+        raise ErrorRutas(f"No existe el shapefile {destino}.")
+
+    codigo, _ = _leer_cabecera_shp(destino)
+    admitidos = (_TIPO_PUNTO, _TIPO_PUNTO + 10, _TIPO_PUNTO + 20)
+    if codigo not in admitidos:
+        raise ErrorFormato(
+            f"{destino.name} tiene geometría de tipo {codigo}, y esta función "
+            f"lee puntos ({_TIPO_PUNTO}). Para líneas y polígonos, "
+            "leer_geometrias."
+        )
+
+    puntos: list[tuple[float, float]] = []
+    with destino.open("rb") as manejador:
+        manejador.seek(100)
+        while True:
+            cabecera = manejador.read(8)
+            if len(cabecera) < 8:
+                break
+            _, longitud_palabras = struct.unpack(">2i", cabecera)
+            contenido = manejador.read(longitud_palabras * 2)
+            if len(contenido) < longitud_palabras * 2:
+                raise ErrorFormato(
+                    f"{destino.name}: registro truncado al leer puntos.")
+            if len(contenido) < 20:
+                continue
+            tipo = struct.unpack("<i", contenido[:4])[0]
+            if tipo == 0:          # geometría nula, legal en el formato
+                continue
+            x, y = struct.unpack("<2d", contenido[4:20])
+            puntos.append((x, y))
+    return puntos
 
 
 def longitud_lineas(ruta: str | Path) -> float:
