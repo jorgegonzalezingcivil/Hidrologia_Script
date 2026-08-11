@@ -72,8 +72,9 @@ if str(_DIRECTORIO_SRC) not in sys.path:
 
 import frecuencia as fr  # noqa: E402
 from comun import esquema, registro, rutas  # noqa: E402
-from comun.config import Config, cargar  # noqa: E402
+from comun.config import Config, cargar, leer_yaml  # noqa: E402
 from comun.errores import (  # noqa: E402
+    ErrorClaveInexistente,
     ErrorConfiguracion,
     ErrorFormato,
     ErrorHidrologia,
@@ -90,10 +91,39 @@ SALIDA_ERROR = 3
 
 ETIQUETA_DIARIA = "PTPM_CON"
 
-# Calificadores que excluyen el registro de la serie de máximos. ACUMULADO es el
-# crítico y el que CLAUDE.md, sección 7, señala: agrupa varios días y se leería
-# como un máximo de 24 horas que nunca ocurrió.
+# Calificadores que excluyen el registro de la serie de máximos. La lista REAL
+# vive en config/perfiles_ideam.yaml, que es doctrina; esta es el respaldo
+# mínimo para cuando el perfil no se puede leer, y no debería usarse nunca.
+#
+# ACUMULADO es el crítico y el que CLAUDE.md, sección 7, señala: agrupa varios
+# días y se leería como un máximo de 24 horas que nunca ocurrió.
 CALIFICADORES_EXCLUIDOS = ("DATO RECHAZADO", "ACUMULADO")
+
+
+def calificadores_excluidos(configuracion, base) -> tuple[tuple[str, ...], str]:
+    """
+    Lee del perfil del IDEAM qué calificadores impiden sustentar un máximo.
+
+    Devuelve (calificadores, procedencia). Que la lista sea doctrina y no una
+    constante del código importa: añadir un calificador nuevo, como los tres de
+    pluviógrafo que aparecieron en 2021, no debería exigir tocar el programa.
+    """
+    try:
+        ruta = rutas.resolver(
+            configuracion.obtener("ideam.dhime_zip.perfiles"), base)
+        datos = leer_yaml(ruta)
+    except (ErrorConfiguracion, ErrorRutas, ErrorClaveInexistente):
+        return CALIFICADORES_EXCLUIDOS, "respaldo del código"
+
+    bloque = datos.get("calificadores") or {}
+    declarados = [str(m).strip() for m in (bloque.get("excluidos_de_maximos") or ())]
+    # El rechazado no es cuestión de máximos: no es un dato utilizable en nada.
+    rechazados = [m for m, d in (bloque.get("observados") or {}).items()
+                  if "excluir del análisis" in str((d or {}).get("efecto", ""))]
+    juntos = tuple(dict.fromkeys([*declarados, *rechazados]))
+    if not juntos:
+        return CALIFICADORES_EXCLUIDOS, "respaldo del código"
+    return juntos, str(rutas.relativa(ruta, base))
 
 
 @dataclass
@@ -140,6 +170,7 @@ def maximos_anuales(
 def leer_diaria(
     ruta: Path, delimitador: str, ventana: tuple[int, int],
     admitidas: set[str] | None = None,
+    excluidos_declarados: tuple[str, ...] = (),
 ) -> tuple[dict[str, dict[int, dict[int, list[float]]]], int, dict[str, int]]:
     """
     Recorre la serie consolidada del M04 y agrupa la precipitación diaria.
@@ -155,7 +186,8 @@ def leer_diaria(
     por_estacion: dict[str, dict[int, dict[int, list[float]]]] = {}
     leidos = 0
     excluidos: dict[str, int] = {}
-    marcas_excluidas = {m.upper() for m in CALIFICADORES_EXCLUIDOS}
+    marcas_excluidas = {m.upper() for m in (excluidos_declarados
+                                            or CALIFICADORES_EXCLUIDOS)}
 
     with ruta.open(encoding="utf-8-sig", newline="") as manejador:
         for fila in csv.DictReader(manejador, delimiter=delimitador):
@@ -361,8 +393,11 @@ def ejecutar(
 
     # --- Etapa 1 -------------------------------------------------------------
     with registro.bloque(logger, "Etapa 1: serie de maximos anuales"):
+        marcas, procedencia = calificadores_excluidos(configuracion, base)
+        logger.info("Calificadores excluidos de los maximos (%s): %s",
+                    procedencia, ", ".join(marcas))
         por_estacion, leidos, excluidos = leer_diaria(
-            ruta_serie, delimitador, limites, admitidas)
+            ruta_serie, delimitador, limites, admitidas, marcas)
         resultado.registros_leidos = leidos
         resultado.excluidos_calificador = excluidos
 

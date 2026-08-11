@@ -406,3 +406,66 @@ class PruebaConfiguracion(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class PruebaCalificadoresDesdeLaDoctrina(unittest.TestCase):
+    """
+    La lista de calificadores que impiden sustentar un máximo es DOCTRINA y
+    vive en config/perfiles_ideam.yaml, no en el código.
+
+    Estaba embebida como constante, y eso contradice la sección 2: añadir un
+    calificador nuevo, como los tres de pluviógrafo que aparecieron en 2021,
+    exigía tocar el programa.
+    """
+
+    def setUp(self) -> None:
+        import sys
+        from pathlib import Path
+
+        raiz = Path(__file__).resolve().parents[1]
+        if str(raiz / "src") not in sys.path:
+            sys.path.insert(0, str(raiz / "src"))
+        import M07_frecuencia as m07
+        from comun.config import cargar
+
+        self.m07 = m07
+        self.raiz = raiz
+        self.cfg = cargar(raiz=raiz)
+
+    def test_se_leen_del_perfil_y_no_del_codigo(self) -> None:
+        marcas, procedencia = self.m07.calificadores_excluidos(
+            self.cfg, self.raiz)
+        self.assertIn("perfiles_ideam", procedencia)
+        self.assertNotEqual(procedencia, "respaldo del código")
+
+    def test_incluyen_el_acumulado(self) -> None:
+        # CLAUDE.md, sección 7: es el que marca un registro que agrupa varios
+        # días y que sin la marca se leería como un máximo de 24 h inexistente.
+        marcas, _ = self.m07.calificadores_excluidos(self.cfg, self.raiz)
+        self.assertIn("ACUMULADO", marcas)
+
+    def test_incluyen_los_de_registro_parcial(self) -> None:
+        marcas, _ = self.m07.calificadores_excluidos(self.cfg, self.raiz)
+        for marca in ("SIN TRAZO", "INCOMPLETO"):
+            with self.subTest(marca=marca):
+                self.assertIn(marca, marcas)
+
+    def test_arrastran_los_de_efecto_excluir_del_analisis(self) -> None:
+        # DATO RECHAZADO no es cuestión de máximos: no sirve para nada, y el
+        # perfil lo declara con ese efecto en lugar de repetirlo en la lista.
+        marcas, _ = self.m07.calificadores_excluidos(self.cfg, self.raiz)
+        self.assertIn("DATO RECHAZADO", marcas)
+
+    def test_sin_perfil_legible_hay_respaldo(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        vacio = Path(tempfile.mkdtemp())
+        try:
+            marcas, procedencia = self.m07.calificadores_excluidos(
+                self.cfg, vacio)
+            self.assertEqual(procedencia, "respaldo del código")
+            self.assertIn("ACUMULADO", marcas)
+        finally:
+            import shutil
+            shutil.rmtree(vacio, ignore_errors=True)

@@ -491,12 +491,29 @@ sensibilidad_series:
   # --- DECISIÓN DEL CONSULTOR, adoptada el 2026-08-07 tras revisar la matriz ---
   # Registrada en MANIFIESTO.yaml con su justificación completa.
   #
-  # Umbral general. 30 años en la ventana 1980-2026 conserva 42 estaciones de
-  # precipitación, 41 de ellas dentro de la cuenca. Cuesta solo tres frente a 25
-  # años, de modo que la exigencia es casi gratuita en conteo, y coincide con el
-  # periodo climatológico normal de la OMM, lo que lo hace sustentable ante
-  # interventoría sin argumento adicional.
-  umbral_adoptado_anios: 30
+  # DECISIÓN DEL CONSULTOR, revisada el 2026-08-11. Antes 30 años.
+  #
+  # El umbral de 30 se adoptó sobre una cuenca de 5.926 km2, donde conservaba
+  # 42 estaciones de precipitación y la exigencia era casi gratuita en conteo.
+  # Sobre un área acotada ese argumento se cae: medido sobre Refugio del Valle,
+  # 30 años dejan 9 estaciones con serie diaria y 20 años dejan 15.
+  #
+  # Nueve series no sustentan un análisis de frecuencia ni una interpolación,
+  # de modo que el umbral pasaba de ser un control de calidad a ser el factor
+  # que decide si el estudio es viable, que no es su función.
+  #
+  # LO QUE CUESTA, Y HAY QUE DECIRLO EN EL INFORME. Los 30 años coincidían con
+  # el periodo climatológico normal de la OMM, y eso hacía el criterio
+  # sustentable ante interventoría sin argumento adicional. Con 20 hay que
+  # sustentarlo por disponibilidad de la red, que es legítimo pero más débil, y
+  # la incertidumbre de los cuantiles de periodo de retorno alto crece: con 20
+  # años, extrapolar a 500 años son veinticinco veces la longitud del registro.
+  # El M07 debe reportar esa incertidumbre y no presentar el cuantil a secas.
+  #
+  # El M04b sigue produciendo la matriz completa de umbrales y ventanas, que es
+  # lo que permite mostrar en el informe qué se gana y qué se pierde en cada
+  # corte en lugar de afirmarlo.
+  umbral_adoptado_anios: 20
 
   # Ventana. 47 años. Conserva más estaciones en todos los umbrales que las
   # ventanas de 1990 y 2000, y cubre varios ciclos ENSO completos, que el M05b

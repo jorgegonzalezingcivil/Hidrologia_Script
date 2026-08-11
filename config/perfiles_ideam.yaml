@@ -240,8 +240,39 @@ calificadores:
     "SECCION INESTABLE":
       registros: 52
       efecto: "marcar y reportar"
+    # --- Registro de pluviografo incompleto -----------------------------------
+    # DECISION DEL CONSULTOR, 2026-08-11. Los tres pasaban sin efecto
+    # declarado y aparecen solo en series de pluviografo (PTPG).
+    #
+    # SIN TRAZO se planteo primero como "dia sin lluvia", que es la lectura
+    # habitual de una banda sin trazo. La serie de este estudio lo desmiente:
+    # de sus 31 registros unicos, 18 llevan valor POSITIVO, hasta 7,8 mm en
+    # diario y 84,9 mm en mensual, y varios conviven con INCOMPLETO. La marca
+    # senala un TRAMO de banda sin registro, no un dia seco, y forzarla a cero
+    # destruiria mediciones reales.
+    #
+    # Los tres describen lo mismo desde angulos distintos: el registro del dia
+    # esta incompleto y por tanto SUBESTIMA. De ahi el efecto, que es el de
+    # ACUMULADO por la misma razon: un registro parcial no puede sustentar un
+    # maximo diario, que es el dato de diseno.
+    "SIN TRAZO":
+      registros: 31
+      efecto: "excluir de la serie de maximos diarios y reportar"
+    INCOMPLETO:
+      registros: 88
+      efecto: "excluir de la serie de maximos diarios y reportar"
+    "DAÑO DE SIFÓN":
+      registros: 17
+      efecto: "tratar como dato faltante"
   # Calificadores que implican que el valor NO es una observación directa.
   # El M05 los necesita para no encadenar estimaciones.
+  # Calificadores que impiden que el registro sustente un MAXIMO diario. Un
+  # registro acumulado agrupa varios dias, y uno incompleto subestima: los dos
+  # producirian un maximo que no ocurrio o que no es el del ano.
+  excluidos_de_maximos:
+    - "ACUMULADO"
+    - "SIN TRAZO"
+    - "INCOMPLETO"
   estimados:
     - "EST. OTROS METODOS"
     - "EST. REGRESION"
