@@ -2646,9 +2646,14 @@ def ejecutar(
                 "practica. Ejemplos: "
                 + "; ".join(f"{e['formula']} ({e['motivo']})" for e in fuera)
                 + ". Para una cuenca de esta magnitud el tiempo de "
-                "concentracion no es el parametro que gobierna la respuesta: "
-                "corresponde transito hidraulico, coherente con el modo de "
-                "analisis general declarado.",
+                "concentracion no es el parametro que gobierna la respuesta, "
+                "sino el transito hidraulico."
+                + (" Coherente con el modo de analisis 'general' declarado."
+                   if modo == "general" else
+                   " En modo 'detallado' esto no bloquea el modelo: HEC-HMS "
+                   "transforma la lluvia en cada SUBCUENCA con su propio "
+                   "rezago, y esos si se resuelven, porque a esa escala las "
+                   "formulas si aplican."),
             ))
         elif not resultado.adoptados["dispersion_excesiva"]:
             estadistica = resultado.adoptados["estadisticos"]

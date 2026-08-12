@@ -793,6 +793,10 @@ ESQUEMA: dict[str, Campo] = {
     "arf.verificacion_analitica": booleano("verificación analítica del ARF"),
 
     # --- M12a ----------------------------------------------------------------
+    "idf.region": texto(
+        "región de la regionalización de curvas IDF",
+        opciones=("andina", "caribe", "pacifica", "orinoquia", "amazonia"),
+    ),
     "idf.metodologias": lista(
         "metodologías de curvas IDF",
         texto("metodología", opciones=("invias", "silva", "ideam")),

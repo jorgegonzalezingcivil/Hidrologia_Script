@@ -846,6 +846,10 @@ arf:
 # M12a - CURVAS IDF
 # -----------------------------------------------------------------------------
 idf:
+  # Region de la regionalizacion de Vargas y Diaz-Granados. Gobierna los cuatro
+  # coeficientes de la curva, de modo que declararla mal desplaza toda la
+  # intensidad de diseno sin que nada mas lo senale.
+  region: "andina"               # andina | caribe | pacifica | orinoquia | amazonia
   metodologias: [invias, silva]
   coeficientes_invias: "data/referencia/idf_coef_invias.csv"
   consultar_idf_ideam: true

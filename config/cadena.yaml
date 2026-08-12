@@ -186,7 +186,7 @@ pasos:
     nombre: "Curvas IDF y factores de cambio climático"
     script: "src/M12a_idf.py"
     entorno: venv
-    estado: pendiente
+    estado: disponible
 
   - modulo: M12b
     nombre: "Hietogramas de diseño (Huff)"
