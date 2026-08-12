@@ -51,6 +51,76 @@ class PruebaIntensidadInvias(unittest.TestCase):
                 m12a.intensidad_invias(*argumentos, ANDINA)
 
 
+class PruebaContraElInformeDeReferencia(unittest.TestCase):
+    """
+    Reproduce la Tabla 58 del informe de referencia, numeral 5.5.1.
+
+    Es la prueba de oro del método: treinta valores publicados, calculados con
+    los coeficientes de la región Orinoquía y la media multianual de máximos en
+    24 h de aquel estudio, 126,69 mm. Si la ecuación, los coeficientes o la
+    unidad de la duración cambiaran, esto se rompe.
+
+    Fue además la que resolvió la ambigüedad de la unidad. El manual lista sus
+    variables diciendo "Duración de la lluvia (min)", pero su propia tabla solo
+    se reproduce con la duración en HORAS: con minutos la desviación llega al
+    92 %.
+    """
+
+    ORINOQUIA = {"a": 5.53, "b": 0.17, "c": 0.63, "d": 0.42,
+                 "unidad_duracion": "horas"}
+    MEDIA_MM = 126.69
+    # Duración en minutos -> periodo de retorno -> intensidad en mm/h.
+    TABLA_58 = {
+        10: {2.33: 150.86, 5: 171.77, 10: 193.25, 25: 225.82, 50: 254.06,
+             100: 285.83},
+        20: {2.33: 97.48, 5: 110.99, 10: 124.87, 25: 145.92, 50: 164.17,
+             100: 184.70},
+        30: {2.33: 75.50, 5: 85.97, 10: 96.72, 25: 113.03, 50: 127.16,
+             100: 143.06},
+        60: {2.33: 48.79, 5: 55.55, 10: 62.50, 25: 73.03, 50: 82.17,
+             100: 92.44},
+        90: {2.33: 37.79, 5: 43.03, 10: 48.41, 25: 56.57, 50: 63.64,
+             100: 71.60},
+    }
+
+    def test_reproduce_la_tabla_publicada(self) -> None:
+        for duracion, por_periodo in self.TABLA_58.items():
+            for periodo, esperado in por_periodo.items():
+                obtenido = m12a.intensidad_invias(
+                    duracion, periodo, self.MEDIA_MM, self.ORINOQUIA)
+                self.assertAlmostEqual(
+                    obtenido, esperado, delta=0.02,
+                    msg=f"{duracion} min, T {periodo}: {obtenido:.2f} frente a "
+                        f"{esperado:.2f} publicado")
+
+    def test_con_la_duracion_en_minutos_no_reproduce_nada(self) -> None:
+        # La comprobación que descartó la lectura literal del manual.
+        en_minutos = dict(self.ORINOQUIA, unidad_duracion="minutos")
+        obtenido = m12a.intensidad_invias(10.0, 2.33, self.MEDIA_MM, en_minutos)
+        self.assertLess(obtenido, 0.5 * self.TABLA_58[10][2.33])
+
+    def test_los_coeficientes_de_la_doctrina_son_los_publicados(self) -> None:
+        # La Tabla 57 del mismo numeral. Amazonía no figura allí y por eso la
+        # tabla del repositorio la declara sin validar.
+        tabla = m12a.leer_coeficientes(
+            _RAIZ_REPO / _CFG.obtener("idf.coeficientes_invias"), ";")
+        publicados = {
+            "andina": (0.94, 0.18, 0.66, 0.83),
+            "caribe": (24.85, 0.22, 0.50, 0.10),
+            "pacifica": (13.92, 0.19, 0.58, 0.20),
+            "orinoquia": (5.53, 0.17, 0.63, 0.42),
+        }
+        for region, (a, b, c, d) in publicados.items():
+            valores = tabla[region]
+            self.assertEqual(
+                (valores["a"], valores["b"], valores["c"], valores["d"]),
+                (a, b, c, d), region)
+            self.assertTrue(valores["validado"],
+                            f"{region} figura en la Tabla 57 y debe constar "
+                            "como validada")
+        self.assertFalse(tabla["amazonia"]["validado"])
+
+
 class PruebaIntensidadSilva(unittest.TestCase):
     def test_reproduce_la_lamina_de_24_horas(self) -> None:
         # Por construcción: en t = 1440 min devuelve la P24h de partida, y por

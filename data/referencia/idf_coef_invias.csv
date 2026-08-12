@@ -1,6 +1,6 @@
 region;a;b;c;d;unidad_duracion;descripcion;origen;validado
-andina;0.94;0.18;0.66;0.83;horas;Region Andina;Vargas y Diaz-Granados (1998), regionalizacion de curvas IDF para Colombia, recogida en el Manual de Drenaje para Carreteras del INVIAS;no
-caribe;24.85;0.22;0.50;0.10;horas;Region Caribe;Vargas y Diaz-Granados (1998), regionalizacion de curvas IDF para Colombia, recogida en el Manual de Drenaje para Carreteras del INVIAS;no
-pacifica;13.92;0.19;0.58;0.20;horas;Region Pacifica;Vargas y Diaz-Granados (1998), regionalizacion de curvas IDF para Colombia, recogida en el Manual de Drenaje para Carreteras del INVIAS;no
-orinoquia;5.53;0.17;0.63;0.42;horas;Region Orinoquia;Vargas y Diaz-Granados (1998), regionalizacion de curvas IDF para Colombia, recogida en el Manual de Drenaje para Carreteras del INVIAS;no
-amazonia;2.66;0.19;0.57;0.63;horas;Region Amazonia;Vargas y Diaz-Granados (1998), regionalizacion de curvas IDF para Colombia, recogida en el Manual de Drenaje para Carreteras del INVIAS;no
+andina;0.94;0.18;0.66;0.83;horas;Region Andina (R1);INVIAS (2017), Manual de Drenaje para Carreteras, recogido en el informe de referencia numeral 5.5.1, Tabla 57;si
+caribe;24.85;0.22;0.50;0.10;horas;Region Caribe (R2);INVIAS (2017), Manual de Drenaje para Carreteras, recogido en el informe de referencia numeral 5.5.1, Tabla 57;si
+pacifica;13.92;0.19;0.58;0.20;horas;Region Pacifico (R3);INVIAS (2017), Manual de Drenaje para Carreteras, recogido en el informe de referencia numeral 5.5.1, Tabla 57;si
+orinoquia;5.53;0.17;0.63;0.42;horas;Region Orinoquia (R4);INVIAS (2017), Manual de Drenaje para Carreteras, recogido en el informe de referencia numeral 5.5.1, Tabla 57;si
+amazonia;2.66;0.19;0.57;0.63;horas;Region Amazonia (R5);NO figura en la Tabla 57 del informe de referencia, que solo publica cuatro regiones. Transcrito de otra fuente y sin contrastar;no

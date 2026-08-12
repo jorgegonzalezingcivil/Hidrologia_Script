@@ -162,10 +162,14 @@ def intensidad_invias(
     regional a esta cuenca: los cuatro coeficientes describen la forma y M el
     nivel.
 
-    La unidad de t no se supone. La misma ecuación aparece publicada con horas y
-    con minutos, y confundirlas multiplica la intensidad por 60^c, que para el
-    c = 0,66 de la región Andina son catorce veces. No produce ningún error: solo
-    una curva desplazada.
+    LA UNIDAD DE t ES HORAS, y se declara en la tabla porque el propio manual
+    induce a error: su lista de variables dice "Duración de la lluvia (min)",
+    pero la tabla de resultados solo se reproduce con horas. Verificado contra
+    la Tabla 58 del informe de referencia, numeral 5.5.1, treinta valores entre
+    10 y 90 minutos y entre 2,33 y 100 años: con horas la desviación máxima es
+    del 0,008 %, con minutos llega al 92 %. Confundirlas multiplica la
+    intensidad por 60^c, catorce veces con el c = 0,66 de la región Andina, y no
+    produce ningún error: solo una curva desplazada.
 
     Excepciones
     -----------
@@ -438,9 +442,7 @@ def _resolver_curvas(configuracion, base, resultado, cuantiles, duraciones,
                 "declarados como NO validados contra la fuente. Gobiernan toda "
                 "la intensidad de diseno, de modo que un digito mal transcrito "
                 "se propaga a cada caudal del estudio sin dejar rastro. "
-                f"Contrastarlos con: {region['origen']}. La verificacion "
-                "contra la Pmax24h del M07 los somete a prueba, pero no "
-                "sustituye a leer el manual.",
+                f"Contrastarlos con: {region['origen']}.",
             ))
 
         discrepantes = [f for f in resultado.curvas
@@ -488,7 +490,14 @@ def _resolver_verificacion(resultado, cuantiles, logger) -> None:
                     "%.1f %% en T %s", mediana, peor["diferencia_pct"],
                     peor["periodo_retorno"])
 
-        severidad = ADVERTENCIA if mediana > 25.0 else INFORMATIVO
+        # El umbral es ancho A PROPOSITO. La regionalizacion se ajusto sobre
+        # duraciones de minutos a pocas horas, y en 24 h esta extrapolando: en
+        # el propio informe de referencia, con sus coeficientes de Orinoquia y
+        # su M de 126,69 mm, la curva da 160 mm en 24 h frente a una media de
+        # maximos de 127, un 27 % por encima. La diferencia aqui NO delata un
+        # coeficiente mal transcrito, sino el limite del metodo, y por eso lo
+        # que se compara es el orden de magnitud.
+        severidad = ADVERTENCIA if mediana > 60.0 else INFORMATIVO
         resultado.hallazgos.append(Hallazgo(
             severidad, "idf.verificacion_24h",
             f"a 1.440 minutos la IDF de INVIAS da una lamina que difiere un "
@@ -499,9 +508,14 @@ def _resolver_verificacion(resultado, cuantiles, logger) -> None:
             f"{peor['pmax24_frecuencia_mm']:.1f} mm). Es la unica comprobacion "
             "del modulo apoyada en datos de esta cuenca: la curva regional sale "
             "de un mapa de coeficientes y aqui se enfrenta a lo que midieron "
-            "las estaciones."
-            + (" Una diferencia de esta magnitud obliga a revisar los "
-               "coeficientes y la region declarada antes de usar la curva."
+            "las estaciones. La regionalizacion se ajusto sobre duraciones de "
+            "minutos a pocas horas, de modo que en 24 h esta EXTRAPOLANDO y se "
+            "espera que sobrestime: en el propio informe de referencia la curva "
+            "da un 27 % por encima de su media de maximos. Lo que se contrasta "
+            "aqui es el orden de magnitud, no la coincidencia."
+            + (" Una diferencia de esta magnitud excede lo atribuible a la "
+               "extrapolacion: revisar la region declarada y la media de "
+               "anclaje antes de usar la curva."
                if severidad == ADVERTENCIA else ""),
         ))
 
