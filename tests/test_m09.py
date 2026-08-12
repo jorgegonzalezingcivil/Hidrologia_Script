@@ -20,8 +20,9 @@ if str(_DIRECTORIO_SRC) not in sys.path:
 
 import M09_hec_hms as m09  # noqa: E402
 from comun import esquema, shapefile  # noqa: E402
+from comun.campos import CampoSalida  # noqa: E402
 from comun.config import cargar  # noqa: E402
-from comun.errores import ErrorRutas  # noqa: E402
+from comun.errores import ErrorFormato, ErrorRutas  # noqa: E402
 
 _CFG = cargar(raiz=_RAIZ_REPO)
 
@@ -228,6 +229,270 @@ class PruebaSubcuencasPequenas(unittest.TestCase):
             lineas = destino.read_text(encoding="utf-8").strip().splitlines()
         self.assertEqual(lineas[0], "indice;nombre;area_km2")
         self.assertEqual(lineas[1], "3;W310;0.006")
+
+
+def _sentido(anillo) -> float:
+    """Área de Gauss con signo. Negativa si el anillo gira en sentido horario."""
+    return sum(uno[0] * otro[1] - otro[0] * uno[1]
+               for uno, otro in zip(anillo, anillo[1:])) / 2.0
+
+
+_CAMPOS = (
+    CampoSalida(corto="name", descriptivo="Nombre", tipo="texto", longitud=20),
+    CampoSalida(corto="basin_slo", descriptivo="Pendiente", tipo="decimal",
+                longitud=12, precision=4),
+)
+
+
+class PruebaEscrituraPoligonos(unittest.TestCase):
+    """
+    El formato no marca los huecos con ninguna bandera: los distingue solo por
+    el sentido de giro. Un anillo mal orientado no da error al escribir ni al
+    abrir, y el área sale mal en silencio.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def _escribir(self, poligonos, valores=None):
+        if valores is None:
+            valores = [{"name": f"W{i}", "basin_slo": 0.05}
+                       for i in range(len(poligonos))]
+        return shapefile.escribir_poligonos(
+            self.tmp / "capa.shp", poligonos, _CAMPOS, valores,
+            'PROJCS["prueba"]')
+
+    def test_la_orientacion_se_impone(self) -> None:
+        # Se entrega el exterior en sentido antihorario, que es el equivocado.
+        antihorario = list(reversed(_cuadrado(0.0, 0.0, 1000.0)))
+        ruta = self._escribir([[antihorario]])
+        anillo = shapefile.leer_geometrias(ruta)[0][0]
+        self.assertLess(_sentido(anillo), 0.0)
+        self.assertAlmostEqual(shapefile.areas_poligonos(ruta)[0],
+                               1_000_000.0, places=3)
+
+    def test_el_hueco_se_invierte_y_resta(self) -> None:
+        # Exterior y hueco entregados en el MISMO sentido: sin corregir, el
+        # hueco sumaría en vez de vaciar.
+        ruta = self._escribir(
+            [[_cuadrado(0.0, 0.0, 1000.0), _cuadrado(250.0, 250.0, 500.0)]])
+        exterior, hueco = shapefile.leer_geometrias(ruta)[0]
+        self.assertLess(_sentido(exterior), 0.0)
+        self.assertGreater(_sentido(hueco), 0.0)
+        self.assertAlmostEqual(shapefile.areas_poligonos(ruta)[0],
+                               750_000.0, places=3)
+
+    def test_un_anillo_abierto_se_cierra(self) -> None:
+        # Sin cerrarlo, el área de Gauss lo cerraría por su cuenta con una
+        # recta que nadie declaró.
+        abierto = _cuadrado(0.0, 0.0, 1000.0)[:-1]
+        ruta = self._escribir([[abierto]])
+        anillo = shapefile.leer_geometrias(ruta)[0][0]
+        self.assertEqual(anillo[0], anillo[-1])
+        self.assertAlmostEqual(shapefile.areas_poligonos(ruta)[0],
+                               1_000_000.0, places=3)
+
+    def test_los_atributos_viajan(self) -> None:
+        ruta = self._escribir(
+            [[_cuadrado(0.0, 0.0, 100.0)], [_cuadrado(500.0, 0.0, 100.0)]],
+            [{"name": "W310", "basin_slo": 0.0812},
+             {"name": "W320", "basin_slo": 0.1234}],
+        )
+        leidos = list(shapefile.leer_registros(ruta))
+        self.assertEqual([f["name"] for f in leidos], ["W310", "W320"])
+        self.assertEqual(leidos[0]["basin_slo"], "0.0812")
+
+    def test_conservar_respeta_las_entidades_de_varias_piezas(self) -> None:
+        # Dos anillos exteriores, que es una subcuenca partida en dos trozos.
+        # Con 'primero_exterior' el segundo se convertiría en hueco y su área se
+        # restaría: es lo que ocurrió con 26 de los 151 anillos de la
+        # exportación real, 80,88 km² de 220,60 perdidos sin ninguna señal.
+        piezas = [_cuadrado(0.0, 0.0, 1000.0), _cuadrado(5000.0, 0.0, 1000.0)]
+        conservada = shapefile.escribir_poligonos(
+            self.tmp / "conservada.shp", [piezas], _CAMPOS,
+            [{"name": "W1", "basin_slo": 0.05}], 'PROJCS["p"]',
+            estructura=shapefile.ESTRUCTURA_CONSERVAR)
+        self.assertAlmostEqual(shapefile.areas_poligonos(conservada)[0],
+                               2_000_000.0, places=3)
+
+        impuesta = shapefile.escribir_poligonos(
+            self.tmp / "impuesta.shp", [piezas], _CAMPOS,
+            [{"name": "W1", "basin_slo": 0.05}], 'PROJCS["p"]',
+            estructura=shapefile.ESTRUCTURA_PRIMERO_EXTERIOR)
+        self.assertAlmostEqual(shapefile.areas_poligonos(impuesta)[0],
+                               0.0, places=3)
+
+    def test_una_estructura_desconocida_es_error(self) -> None:
+        with self.assertRaises(ErrorFormato):
+            self._escribir_con_estructura("como_sea")
+
+    def _escribir_con_estructura(self, estructura):
+        return shapefile.escribir_poligonos(
+            self.tmp / "capa.shp", [[_cuadrado(0.0, 0.0, 100.0)]], _CAMPOS,
+            [{"name": "W1", "basin_slo": 0.05}], 'PROJCS["p"]',
+            estructura=estructura)
+
+    def test_un_anillo_degenerado_es_error_explicito(self) -> None:
+        with self.assertRaises(ErrorFormato):
+            self._escribir([[[(0.0, 0.0), (1.0, 1.0)]]])
+
+    def test_listas_desparejas_es_error(self) -> None:
+        with self.assertRaises(ErrorFormato):
+            shapefile.escribir_poligonos(
+                self.tmp / "capa.shp", [[_cuadrado(0.0, 0.0, 10.0)]],
+                _CAMPOS, [], 'PROJCS["prueba"]')
+
+    def test_la_capa_queda_completa(self) -> None:
+        ruta = self._escribir([[_cuadrado(0.0, 0.0, 100.0)]])
+        for extension in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
+            self.assertTrue(ruta.with_suffix(extension).is_file(), extension)
+        info = shapefile.leer_shapefile(ruta)
+        self.assertEqual(info.n_registros, 1)
+        self.assertEqual(info.componentes_faltantes, ())
+
+
+class PruebaReproyeccion(unittest.TestCase):
+    """
+    La exportación del paso manual llega en el sistema que tuviera el proyecto
+    de HEC-HMS. Medido: EPSG:3116 frente a EPSG:9377, con 4.024 km de
+    desplazamiento entre uno y otro para el mismo punto.
+    """
+
+    ORIGEN = "EPSG:3116"
+    DESTINO = "EPSG:9377"
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        # Un cuadrado de 1 km de lado junto al punto de descarga del estudio.
+        self.fuente = shapefile.escribir_poligonos(
+            self.tmp / "subcuencas_3116.shp",
+            [[_cuadrado(1_012_000.0, 1_022_000.0, 1000.0)]],
+            _CAMPOS, [{"name": "W310", "basin_slo": 0.0812}],
+            'PROJCS["MAGNA_Colombia_Bogota"]')
+
+    def _reproyectar(self):
+        from pyproj import CRS
+        return m09.reproyectar_poligonos(
+            self.fuente, self.tmp / "subcuencas.shp",
+            self.ORIGEN, self.DESTINO,
+            CRS.from_user_input(self.DESTINO).to_wkt("WKT1_GDAL"))
+
+    def test_una_subcuenca_de_varias_piezas_no_pierde_area(self) -> None:
+        # El caso que rompió la primera versión: la reproyección debe copiar la
+        # estructura, no reinterpretarla.
+        fuente = shapefile.escribir_poligonos(
+            self.tmp / "multiparte_3116.shp",
+            [[_cuadrado(1_012_000.0, 1_022_000.0, 1000.0),
+              _cuadrado(1_015_000.0, 1_022_000.0, 1000.0)]],
+            _CAMPOS, [{"name": "W1", "basin_slo": 0.05}],
+            'PROJCS["MAGNA_Colombia_Bogota"]',
+            estructura=shapefile.ESTRUCTURA_CONSERVAR)
+        from pyproj import CRS
+        resultado = m09.reproyectar_poligonos(
+            fuente, self.tmp / "multiparte.shp", self.ORIGEN, self.DESTINO,
+            CRS.from_user_input(self.DESTINO).to_wkt("WKT1_GDAL"))
+        self.assertAlmostEqual(
+            shapefile.area_poligonos(resultado["ruta"])
+            / shapefile.area_poligonos(fuente), 0.9987, places=3)
+
+    def test_el_area_se_conserva_salvo_el_factor_de_escala(self) -> None:
+        # Ambos son proyectados y métricos, pero no idénticos: 3116 tiene factor
+        # de escala 1,0 en su meridiano central y 9377 lo tiene 0,9992, de modo
+        # que el área cambia en torno a 0,9992² = 0,9984. Medido aquí: 0,9987.
+        # Sobre las 220,60 km² del estudio son unas 0,29 km², que hay que saber
+        # que existen y no confundir con un error de trazado.
+        resultado = self._reproyectar()
+        antes = shapefile.area_poligonos(self.fuente)
+        despues = shapefile.area_poligonos(resultado["ruta"])
+        self.assertAlmostEqual(despues / antes, 0.9987, places=3)
+
+    def test_el_desplazamiento_se_mide(self) -> None:
+        resultado = self._reproyectar()
+        self.assertGreater(resultado["desplazamiento_km"], 3000.0)
+
+    def test_los_atributos_se_conservan(self) -> None:
+        # El .dbf de HEC-HMS trae los parámetros que el programa calculó, y son
+        # el contraste independiente del M10: perderlos sería tirar una
+        # verificación.
+        resultado = self._reproyectar()
+        leidos = list(shapefile.leer_registros(resultado["ruta"]))
+        self.assertEqual(leidos[0]["name"], "W310")
+        self.assertEqual(resultado["campos_conservados"], 2)
+
+    def test_la_capa_reproyectada_declara_el_destino(self) -> None:
+        resultado = self._reproyectar()
+        info = shapefile.leer_shapefile(resultado["ruta"])
+        self.assertEqual(info.crs_epsg, self.DESTINO)
+
+    def test_el_original_no_se_toca(self) -> None:
+        antes = self.fuente.read_bytes()
+        self._reproyectar()
+        self.assertEqual(self.fuente.read_bytes(), antes)
+
+
+class PruebaIdentificacionDelCrs(unittest.TestCase):
+    """
+    El .prj de ArcGIS y HEC-HMS no lleva el nodo AUTHORITY.
+
+    Sin esto la capa se leía como "sin sistema declarado", el módulo asumía el
+    de cálculo y la dejaba pasar desplazada 4.024 km: un aviso donde
+    correspondía un rechazo.
+    """
+
+    # El .prj tal como lo escribió HEC-HMS en este estudio.
+    ESRI = (
+        'PROJCS["MAGNA_Colombia_Bogota",GEOGCS["GCS_MAGNA",DATUM["D_MAGNA",'
+        'SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],'
+        'UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],'
+        'PARAMETER["False_Easting",1000000.0],'
+        'PARAMETER["False_Northing",1000000.0],'
+        'PARAMETER["Central_Meridian",-74.0775079166667],'
+        'PARAMETER["Scale_Factor",1.0],'
+        'PARAMETER["Latitude_Of_Origin",4.59620041666667],UNIT["Meter",1.0]]'
+    )
+
+    def test_el_adaptador_solo_no_puede_confirmarlo(self) -> None:
+        # No es un defecto del adaptador: es de librería estándar y el nodo no
+        # está. Lo que sería un defecto es concluir de ahí que no hay sistema.
+        self.assertIsNone(shapefile.epsg_de_wkt(self.ESRI))
+
+    def test_pyproj_lo_identifica(self) -> None:
+        codigo, procedencia = m09.identificar_epsg(self.ESRI)
+        self.assertEqual(codigo, "EPSG:3116")
+        self.assertEqual(procedencia, "pyproj")
+
+    def test_la_autoridad_declarada_manda(self) -> None:
+        codigo, procedencia = m09.identificar_epsg(
+            'PROJCS["x",AUTHORITY["EPSG","9377"]]')
+        self.assertEqual(codigo, "EPSG:9377")
+        self.assertEqual(procedencia, "prj")
+
+    def test_sin_wkt_no_inventa(self) -> None:
+        self.assertEqual(m09.identificar_epsg(None), (None, "ninguno"))
+        self.assertEqual(m09.identificar_epsg("texto que no es un WKT"),
+                         (None, "ninguno"))
+
+
+class PruebaCamposDesdeDbf(unittest.TestCase):
+    def test_los_tipos_se_traducen(self) -> None:
+        with tempfile.TemporaryDirectory() as temporal:
+            ruta = shapefile.escribir_poligonos(
+                Path(temporal) / "capa.shp", [[_cuadrado(0.0, 0.0, 10.0)]],
+                _CAMPOS, [{"name": "W1", "basin_slo": 0.5}],
+                'PROJCS["prueba"]')
+            campos = shapefile.campos_desde_dbf(shapefile.leer_shapefile(ruta))
+        self.assertEqual([c.corto for c in campos], ["name", "basin_slo"])
+        self.assertEqual([c.tipo for c in campos], ["texto", "decimal"])
+
+    def test_un_numerico_sin_decimales_es_entero(self) -> None:
+        campos = [CampoSalida(corto="n", descriptivo="N", tipo="entero",
+                              longitud=9)]
+        with tempfile.TemporaryDirectory() as temporal:
+            ruta = shapefile.escribir_poligonos(
+                Path(temporal) / "capa.shp", [[_cuadrado(0.0, 0.0, 10.0)]],
+                campos, [{"n": 7}], 'PROJCS["prueba"]')
+            leidos = shapefile.campos_desde_dbf(shapefile.leer_shapefile(ruta))
+        self.assertEqual(leidos[0].tipo, "entero")
 
 
 class PruebaContrasteConLaDrenada(unittest.TestCase):

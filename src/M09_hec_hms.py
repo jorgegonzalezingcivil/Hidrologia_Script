@@ -91,6 +91,7 @@ if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
 from comun import esquema, registro, rutas, shapefile  # noqa: E402
+from comun.campos import CampoSalida  # noqa: E402
 from comun.config import Config, cargar  # noqa: E402
 from comun.errores import (  # noqa: E402
     ErrorConfiguracion,
@@ -111,6 +112,11 @@ SALIDA_ERROR = 3
 # ilegible: el .dbf lleva los atributos, el .shx el índice y el .prj el sistema
 # de referencia, sin el cual QGIS pregunta al abrir.
 ACOMPANANTES = (".shp", ".shx", ".dbf", ".prj", ".cpg", ".qpj", ".sbn", ".sbx")
+
+# Un shapefile no admite una tabla de atributos vacía. Si la capa de origen no
+# trae ninguno, se escribe este para que la reproyectada siga siendo legible.
+_CAMPO_INDICE = CampoSalida(corto="indice", descriptivo="Índice de entidad",
+                            tipo="entero", longitud=9)
 
 
 @dataclass
@@ -290,14 +296,121 @@ def superficie_drenada_de_referencia(
     }
 
 
+def reproyectar_poligonos(
+    origen: Path,
+    destino: Path,
+    crs_origen: str,
+    crs_destino: str,
+    wkt_destino: str,
+) -> dict[str, Any]:
+    """
+    Reescribe una capa de polígonos en otro sistema de referencia.
+
+    Existe porque el paso manual ocurre fuera de la cadena y devuelve la capa en
+    el sistema que tuviera el proyecto de HEC-HMS. Medido en este estudio: la
+    exportación llegó en EPSG:3116 mientras el cálculo ocurre en EPSG:9377, y el
+    mismo punto dista 4.024 km entre uno y otro. Cruzarla con las isoyetas o con
+    el DEM no habría dado un error, sino una intersección vacía.
+
+    Los atributos se conservan. En el caso de HEC-HMS eso no es un detalle: el
+    .dbf trae los parámetros que el propio programa calculó sobre el terreno, y
+    son un contraste independiente para el M10.
+
+    La reproyección NO es implícita aunque el módulo la haga sola: se declara en
+    el reporte con el sistema de origen, el de destino y el desplazamiento
+    medido, que es lo que exige 'crs.reproyeccion_explicita'. Lo implícito sería
+    hacerla y callarla.
+    """
+    from pyproj import Transformer
+
+    conversor = Transformer.from_crs(crs_origen, crs_destino, always_xy=True)
+    entidades = shapefile.leer_geometrias(origen)
+    info = shapefile.leer_shapefile(origen)
+    registros = list(shapefile.leer_registros(origen))
+
+    convertidas = [
+        [[conversor.transform(x, y) for x, y in anillo] for anillo in anillos]
+        for anillos in entidades
+    ]
+
+    campos = shapefile.campos_desde_dbf(info)
+    if not campos:
+        campos = [_CAMPO_INDICE]
+        registros = [{"indice": numero}
+                     for numero in range(1, len(convertidas) + 1)]
+
+    # 'conservar' y no 'primero_exterior': en una capa ajena el sentido de giro
+    # YA es la estructura, y una subcuenca partida en varios trozos trae varios
+    # anillos exteriores. Imponer que todo lo que no sea el primero es un hueco
+    # los restaria: medido sobre esta misma capa, 80,88 km2 de 220,60.
+    escrita = shapefile.escribir_poligonos(
+        destino, convertidas, campos, registros, wkt_destino,
+        estructura=shapefile.ESTRUCTURA_CONSERVAR)
+
+    # El desplazamiento se mide, no se supone: es la señal de que la capa
+    # estaba en otro sitio y de que sin esto todo cruce habría salido vacío.
+    origen_x, origen_y = info.extension[0], info.extension[1]
+    nuevo_x, nuevo_y = conversor.transform(origen_x, origen_y)
+    desplazamiento = ((nuevo_x - origen_x) ** 2
+                      + (nuevo_y - origen_y) ** 2) ** 0.5
+
+    return {
+        "ruta": escrita,
+        "entidades": len(convertidas),
+        "campos_conservados": len(campos),
+        "desplazamiento_km": round(desplazamiento / 1000.0, 1),
+    }
+
+
+def identificar_epsg(wkt: str | None) -> tuple[str | None, str]:
+    """
+    Código EPSG de un WKT, incluso cuando el WKT no lo declara.
+
+    El adaptador de shapefile es de librería estándar y solo puede leer el nodo
+    AUTHORITY. El .prj que escriben ArcGIS y HEC-HMS es WKT en sabor ESRI y NO
+    LLEVA ESE NODO: medido sobre la exportación de este estudio, un .prj que
+    dice 'MAGNA_Colombia_Bogota' del que el adaptador no puede confirmar nada.
+
+    El resultado era el peor posible: la capa se leía como "sin sistema
+    declarado", el módulo asumía el de cálculo y la dejaba pasar sin
+    reproyectar, desplazada 4.024 km. Un aviso donde correspondía un rechazo.
+
+    Aquí se pregunta a pyproj, que compara la definición completa contra su
+    base de datos. Se exige coincidencia del 100%: una identificación aproximada
+    del sistema de referencia es justamente lo que no puede aceptarse.
+
+    Devuelve el código y cómo se obtuvo, para que el reporte lo distinga.
+    """
+    declarado = shapefile.epsg_de_wkt(wkt)
+    if declarado:
+        return declarado.upper(), "prj"
+    if not wkt:
+        return None, "ninguno"
+
+    try:
+        from pyproj import CRS
+        from pyproj.exceptions import CRSError
+    except ImportError:
+        return None, "ninguno"
+    try:
+        codigo = CRS.from_wkt(wkt).to_epsg(min_confidence=100)
+    except (CRSError, ValueError):
+        return None, "ninguno"
+    if codigo is None:
+        return None, "ninguno"
+    return f"EPSG:{codigo}", "pyproj"
+
+
 def resumir_capa(ruta: Path) -> dict[str, Any]:
     """Metadatos de una capa: entidades, sistema de referencia y campos."""
     info = shapefile.leer_shapefile(ruta)
+    codigo, procedencia = identificar_epsg(info.crs_wkt)
     return {
         "archivo": ruta.name,
         "entidades": info.n_registros,
         "geometria": info.codigo_geometria,
-        "crs_epsg": info.crs_epsg,
+        "crs_epsg": codigo,
+        "crs_identificado_por": procedencia,
         "campos": list(info.nombres_campos),
         "extension": list(info.extension) if info.extension else None,
     }
@@ -604,6 +717,42 @@ def _preparar(configuracion, base, resultado, logger) -> None:
     ))
 
 
+def _wkt_de_calculo(base: Path, esperado: str) -> str:
+    """
+    Definición del sistema de cálculo, para el .prj de la capa reproyectada.
+
+    Se toma primero de una capa del propio estudio. Así el .prj escrito es
+    byte a byte el mismo que ya llevan las demás, y ningún programa ve dos
+    definiciones distintas del mismo sistema, que es una fuente conocida de
+    reproyecciones espurias al vuelo. Si ninguna sirve, se genera con pyproj.
+    """
+    vector = rutas.directorio("sig_vector", base)
+    for nombre in ("area_influencia.shp", "red_topologica.shp",
+                   "punto_descarga.shp", "envolvente.shp"):
+        candidata = vector / nombre
+        if not candidata.is_file():
+            continue
+        try:
+            info = shapefile.leer_shapefile(candidata)
+        except (ErrorFormato, ErrorRutas, OSError):
+            continue
+        if info.crs_wkt and (info.crs_epsg or "").upper() == esperado:
+            return info.crs_wkt
+
+    try:
+        from pyproj import CRS
+        from pyproj.exceptions import CRSError
+    except ImportError:
+        return ""
+    try:
+        # WKT1_GDAL y no WKT1_ESRI: el sabor ESRI no escribe el nodo AUTHORITY,
+        # de modo que el .prj resultante no permite confirmar el codigo EPSG y
+        # el propio adaptador leeria la capa como "sin sistema declarado".
+        return CRS.from_user_input(esperado).to_wkt("WKT1_GDAL")
+    except (CRSError, ValueError):
+        return ""
+
+
 def _referencia_drenada(configuracion, base) -> dict[str, Any] | None:
     """Superficie drenada de referencia, o None si el estudio no la sostiene."""
     try:
@@ -707,20 +856,77 @@ def _importar(configuracion, base, resultado, logger) -> None:
         if not declarado:
             resultado.hallazgos.append(Hallazgo(
                 ADVERTENCIA, f"importar.{nombre}.crs",
-                f"la capa de {nombre} no trae .prj legible. Se asume el CRS de "
-                f"calculo ({esperado}), y si no lo fuera todo lo que sigue "
-                "quedaria desplazado sin ninguna senal.",
+                f"la capa de {nombre} no trae .prj legible y pyproj tampoco "
+                f"reconoce su definicion. Se asume el CRS de calculo "
+                f"({esperado}), y si no lo fuera todo lo que sigue quedaria "
+                "desplazado sin ninguna senal.",
             ))
-        elif declarado != esperado:
+        elif resumen.get("crs_identificado_por") == "pyproj":
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, f"importar.{nombre}.crs_identificado",
+                f"el .prj de {nombre} no declara el codigo EPSG, como es "
+                f"habitual en el WKT que escriben ArcGIS y HEC-HMS. Se "
+                f"identifico como {declarado} comparando la definicion completa "
+                "con la base de datos de pyproj, exigiendo coincidencia total.",
+            ))
+        elif declarado != esperado and nombre != "subcuencas":
+            # Las corrientes no se reproyectan: el adaptador escribe puntos y
+            # poligonos, no lineas. Se detiene en lugar de mezclarlas.
             resultado.hallazgos.append(Hallazgo(
                 BLOQUEANTE, f"importar.{nombre}.crs",
                 f"la capa de {nombre} declara {declarado} y el calculo ocurre en "
-                f"{esperado}. Reproyectar antes de continuar: mezclarlos "
-                "produce areas y longitudes equivocadas.",
+                f"{esperado}. Reproyectarla en QGIS antes de continuar: el "
+                "adaptador de este entorno no escribe geometria de lineas, y "
+                "mezclar sistemas produce areas y longitudes equivocadas.",
             ))
 
+    # --- Reproyeccion de las subcuencas --------------------------------------
+    # El paso manual ocurre fuera de la cadena y devuelve la capa en el sistema
+    # que tuviera el proyecto de HEC-HMS. Se reproyecta y SE DECLARA: lo que la
+    # convencion prohibe es la reproyeccion implicita, no la reproyeccion.
+    ruta_trabajo = ruta_sub
+    reproyectada: dict[str, Any] | None = None
+    declarado_sub = (resultado.subcuencas.get("crs_epsg") or "").upper()
+    if declarado_sub and declarado_sub != esperado:
+        destino_sig = rutas.directorio("sig_vector", base, crear=True)
+        wkt = _wkt_de_calculo(base, esperado)
+        if not wkt:
+            resultado.hallazgos.append(Hallazgo(
+                BLOQUEANTE, "importar.subcuencas.crs",
+                f"la capa declara {declarado_sub} y el calculo ocurre en "
+                f"{esperado}, pero no se pudo obtener la definicion del sistema "
+                "de destino ni de las capas del estudio ni de pyproj. "
+                "Reproyectarla en QGIS antes de continuar.",
+            ))
+            return
+        try:
+            reproyectada = reproyectar_poligonos(
+                ruta_sub, destino_sig / "subcuencas.shp",
+                declarado_sub, esperado, wkt)
+        except (ImportError, ErrorFormato, ErrorRutas, OSError,
+                TypeError, ValueError) as exc:
+            resultado.hallazgos.append(Hallazgo(
+                BLOQUEANTE, "importar.subcuencas.crs",
+                f"la capa declara {declarado_sub} y no se pudo reproyectar a "
+                f"{esperado}: {exc}. Reproyectarla en QGIS antes de continuar.",
+            ))
+            return
+        ruta_trabajo = reproyectada["ruta"]
+        resultado.subcuencas["crs_epsg"] = esperado
+        resultado.subcuencas["crs_origen"] = declarado_sub
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "importar.subcuencas.crs",
+            f"la capa llego en {declarado_sub} y el calculo ocurre en "
+            f"{esperado}: se reproyecto al importarla. El desplazamiento entre "
+            f"ambos sistemas es de {reproyectada['desplazamiento_km']:.0f} km, "
+            "de modo que sin esto el cruce con las isoyetas o con el DEM no "
+            "habria dado error sino una interseccion vacia. Se conservaron "
+            f"{reproyectada['campos_conservados']} campo(s) de atributos. El "
+            "archivo original del paso manual no se toca.",
+        ))
+
     try:
-        delimitada = float(shapefile.area_poligonos(ruta_sub)) / 1e6
+        delimitada = float(shapefile.area_poligonos(ruta_trabajo)) / 1e6
     except (ErrorFormato, ErrorRutas, TypeError, ValueError) as exc:
         resultado.hallazgos.append(Hallazgo(
             BLOQUEANTE, "importar.area",
@@ -814,7 +1020,7 @@ def _importar(configuracion, base, resultado, logger) -> None:
     # --- Subcuencas diminutas ------------------------------------------------
     minimo = float(configuracion.obtener(
         "hec_hms.intercambio.area_minima_subcuenca_km2"))
-    pequenas = subcuencas_pequenas(ruta_sub, minimo)
+    pequenas = subcuencas_pequenas(ruta_trabajo, minimo)
     if pequenas:
         listado = escribir_pequenas(
             rutas.directorio("procesado", base, crear=True)
@@ -860,8 +1066,13 @@ def _importar(configuracion, base, resultado, logger) -> None:
         ))
 
     # --- Publicacion ---------------------------------------------------------
+    # La reproyectada ya se escribio en su sitio y con su nombre: volver a
+    # copiarla desde el origen la devolveria al sistema equivocado.
     destino = rutas.directorio("sig_vector", base, crear=True)
-    publicar = [(ruta_sub, "subcuencas")]
+    publicar = [] if reproyectada else [(ruta_sub, "subcuencas")]
+    if reproyectada:
+        resultado.productos.append(rutas.relativa(ruta_trabajo, base))
+        resultado.subcuencas["ruta"] = rutas.relativa(ruta_trabajo, base)
     if origen == "hec_hms":
         publicar.append((ruta_cor, "corrientes"))
     for ruta, nombre in publicar:

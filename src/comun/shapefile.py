@@ -45,6 +45,8 @@ __all__ = [
     "leer_shapefile",
     "leer_registros",
     "escribir_puntos",
+    "escribir_poligonos",
+    "campos_desde_dbf",
     "leer_geometrias",
     "leer_puntos",
     "longitud_lineas",
@@ -52,6 +54,7 @@ __all__ = [
     "distancia_maxima",
     "valores_unicos",
     "area_poligonos",
+    "areas_poligonos",
     "epsg_de_wkt",
 ]
 
@@ -866,14 +869,213 @@ def escribir_puntos(
     return base.with_suffix(".shp")
 
 
+ESTRUCTURA_PRIMERO_EXTERIOR = "primero_exterior"
+ESTRUCTURA_CONSERVAR = "conservar"
+
+
+def escribir_poligonos(
+    destino: str | Path,
+    poligonos: Sequence[Sequence[Sequence[tuple[float, float]]]],
+    campos: Sequence,
+    valores: Sequence[dict],
+    wkt_crs: str,
+    codificacion: str = "UTF-8",
+    estructura: str = ESTRUCTURA_PRIMERO_EXTERIOR,
+) -> Path:
+    """
+    Escribe una capa de polígonos completa: .shp, .shx, .dbf, .prj y .cpg.
+
+    Cada entidad es una lista de anillos y cada anillo una lista de vértices.
+
+    EL FORMATO NO MARCA LOS HUECOS CON NINGUNA BANDERA: los distingue solo por el
+    sentido de giro, exterior horario e interior antihorario. Un anillo mal
+    orientado no produce error al escribir ni al abrir, y el área sale mal en
+    silencio. De ahí que haya que declarar qué significan los anillos recibidos:
+
+        'primero_exterior'  el primero es el contorno y los siguientes son
+                            huecos. Es lo natural cuando la geometría se
+                            construye aquí, y la orientación se impone.
+        'conservar'         cada anillo ya viene con el sentido que le
+                            corresponde y se respeta. Es lo que hay que usar al
+                            copiar una capa ajena, porque en ella el sentido ES
+                            la estructura.
+
+    Imponer la primera regla sobre una capa copiada corrompe las entidades de
+    varias piezas, que son un caso corriente y no una rareza. Medido sobre la
+    exportación de HEC-HMS de este estudio: 125 subcuencas con 151 anillos,
+    todos horarios y ningún hueco, de los cuales 26 son contornos de subcuencas
+    partidas en dos o más trozos. Tratarlos como huecos restó 80,88 km² de 220,60
+    sin emitir ninguna señal.
+
+    En ambos modos se cierran los anillos abiertos. Un anillo cuyo último vértice
+    no repite al primero deja un lado sin cerrar, y el área de Gauss lo cierra
+    por su cuenta con una recta que nadie declaró.
+
+    Excepciones
+    -----------
+    ErrorFormato
+        Si las listas no tienen la misma longitud, si un anillo tiene menos de
+        tres vértices distintos, si la estructura declarada no existe, o si los
+        campos no son escribibles.
+    """
+    from .campos import validar_campos
+
+    base = Path(destino)
+    if base.suffix.lower() == ".shp":
+        base = base.with_suffix("")
+
+    if len(poligonos) != len(valores):
+        raise ErrorFormato(
+            f"Se recibieron {len(poligonos)} polígono(s) y {len(valores)} "
+            "juego(s) de atributos."
+        )
+    if not campos:
+        raise ErrorFormato("Una capa debe declarar al menos un campo.")
+    if estructura not in (ESTRUCTURA_PRIMERO_EXTERIOR, ESTRUCTURA_CONSERVAR):
+        raise ErrorFormato(
+            f"estructura {estructura!r} desconocida; se admite "
+            f"{ESTRUCTURA_PRIMERO_EXTERIOR!r} o {ESTRUCTURA_CONSERVAR!r}."
+        )
+
+    validar_campos(campos)
+    base.parent.mkdir(parents=True, exist_ok=True)
+
+    normalizados = [_normalizar_anillos(anillos, numero, estructura)
+                    for numero, anillos in enumerate(poligonos, start=1)]
+
+    _escribir_shp_shx_poligonos(base, normalizados)
+    _escribir_dbf(base.with_suffix(".dbf"), campos, valores, codificacion)
+    base.with_suffix(".prj").write_text(wkt_crs, encoding="utf-8")
+    base.with_suffix(".cpg").write_text(codificacion, encoding="ascii")
+
+    return base.with_suffix(".shp")
+
+
+def _area_con_signo(anillo: Sequence[tuple[float, float]]) -> float:
+    """Área de Gauss del anillo. Negativa si gira en sentido horario."""
+    acumulado = 0.0
+    for uno, otro in zip(anillo, anillo[1:]):
+        acumulado += uno[0] * otro[1] - otro[0] * uno[1]
+    return acumulado / 2.0
+
+
+def _normalizar_anillos(
+    anillos: Sequence[Sequence[tuple[float, float]]],
+    numero: int,
+    estructura: str,
+) -> list[list[tuple[float, float]]]:
+    """Cierra cada anillo y, si se pidió, le impone el sentido de giro."""
+    if not anillos:
+        raise ErrorFormato(f"el polígono {numero} no tiene ningún anillo.")
+
+    normalizados: list[list[tuple[float, float]]] = []
+    for orden, anillo in enumerate(anillos):
+        vertices = [(float(x), float(y)) for x, y in anillo]
+        if vertices and vertices[0] != vertices[-1]:
+            vertices.append(vertices[0])
+        if len(vertices) < 4:
+            raise ErrorFormato(
+                f"el anillo {orden} del polígono {numero} tiene "
+                f"{len(vertices)} vértice(s); un anillo cerrado necesita al "
+                "menos cuatro, es decir tres distintos."
+            )
+        if estructura == ESTRUCTURA_PRIMERO_EXTERIOR:
+            # Exterior horario (área con signo negativa), huecos al revés.
+            horario = _area_con_signo(vertices) < 0
+            if (orden == 0) != horario:
+                vertices.reverse()
+        normalizados.append(vertices)
+    return normalizados
+
+
+def _escribir_shp_shx_poligonos(
+    base: Path, poligonos: Sequence[Sequence[Sequence[tuple[float, float]]]],
+) -> None:
+    """Escribe la geometría poligonal y su índice."""
+    todos = [punto for anillos in poligonos for anillo in anillos
+             for punto in anillo]
+    if todos:
+        extension = (min(p[0] for p in todos), min(p[1] for p in todos),
+                     max(p[0] for p in todos), max(p[1] for p in todos))
+    else:
+        extension = (0.0, 0.0, 0.0, 0.0)
+
+    registros = b""
+    indice = b""
+    desplazamiento = 50  # la cabecera del archivo ocupa 50 palabras
+
+    for numero, anillos in enumerate(poligonos, start=1):
+        puntos = [punto for anillo in anillos for punto in anillo]
+        partes, acumulado = [], 0
+        for anillo in anillos:
+            partes.append(acumulado)
+            acumulado += len(anillo)
+
+        contenido = struct.pack("<i", _TIPO_POLIGONO)
+        contenido += struct.pack("<4d",
+                                 min(p[0] for p in puntos),
+                                 min(p[1] for p in puntos),
+                                 max(p[0] for p in puntos),
+                                 max(p[1] for p in puntos))
+        contenido += struct.pack("<2i", len(partes), len(puntos))
+        contenido += struct.pack(f"<{len(partes)}i", *partes)
+        for x, y in puntos:
+            contenido += struct.pack("<2d", x, y)
+
+        palabras = len(contenido) // 2
+        registros += struct.pack(">2i", numero, palabras) + contenido
+        indice += struct.pack(">2i", desplazamiento, palabras)
+        desplazamiento += palabras + 4
+
+    base.with_suffix(".shp").write_bytes(
+        _cabecera_shapefile((100 + len(registros)) // 2, extension,
+                            _TIPO_POLIGONO) + registros
+    )
+    base.with_suffix(".shx").write_bytes(
+        _cabecera_shapefile((100 + len(indice)) // 2, extension,
+                            _TIPO_POLIGONO) + indice
+    )
+
+
+def campos_desde_dbf(info: InfoShapefile) -> list:
+    """
+    Traduce la tabla de atributos leída a campos de salida.
+
+    Permite reescribir una capa ajena conservando sus atributos, que es lo que
+    hace falta para reproyectar. En el caso de HEC-HMS eso importa: el .dbf trae
+    los parámetros que el propio programa calculó (`long_len`, `basin_slo`,
+    `drain_den`), y son un contraste independiente para el M10. Perderlos al
+    reproyectar sería tirar una verificación.
+    """
+    from .campos import CampoSalida
+
+    equivalencias = {"C": "texto", "D": "fecha", "L": "texto",
+                     "M": "texto", "F": "decimal"}
+    salida = []
+    for campo in info.campos:
+        if campo.tipo == "N":
+            tipo = "entero" if campo.decimales == 0 else "decimal"
+        else:
+            tipo = equivalencias.get(campo.tipo, "texto")
+        salida.append(CampoSalida(
+            corto=campo.nombre[:10],
+            descriptivo=campo.nombre,
+            tipo=tipo,
+            longitud=campo.longitud,
+            precision=campo.decimales,
+        ))
+    return salida
+
+
 def _cabecera_shapefile(longitud_palabras: int,
-                        extension: tuple[float, float, float, float]) -> bytes:
+                        extension: tuple[float, float, float, float],
+                        tipo: int = _TIPO_PUNTO) -> bytes:
     """Construye los 100 bytes de cabecera comunes al .shp y al .shx."""
     x_min, y_min, x_max, y_max = extension
     cabecera = struct.pack(">i", _CODIGO_ARCHIVO_SHP) + b"\x00" * 20
     cabecera += struct.pack(">i", longitud_palabras)
     cabecera += struct.pack("<i", 1000)
-    cabecera += struct.pack("<i", _TIPO_PUNTO)
+    cabecera += struct.pack("<i", tipo)
     cabecera += struct.pack("<4d", x_min, y_min, x_max, y_max)
     cabecera += struct.pack("<4d", 0.0, 0.0, 0.0, 0.0)
     return cabecera
