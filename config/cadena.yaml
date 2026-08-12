@@ -179,7 +179,7 @@ pasos:
     nombre: "Factor de reducción por área"
     script: "src/M11c_arf.py"
     entorno: venv
-    estado: pendiente
+    estado: disponible
 
   # --- Tormenta de diseño ---------------------------------------------------
   - modulo: M12a
