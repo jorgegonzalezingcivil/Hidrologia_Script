@@ -538,5 +538,125 @@ class PruebaCatalogoReal(unittest.TestCase):
         codigos = [f["CODIGO"].strip() for f in filas]
         self.assertEqual(len(codigos), len(set(codigos)))
 
+
+
+class PruebaVerificacionContraLaRed(unittest.TestCase):
+    """
+    Una estación de caudal sirve para calibrar si cae sobre la red que DRENA
+    AL PUNTO. La cota no lo decide.
+
+    Es el caso que motivó programarlo: LLANO LARGO tiene 36 años de nivel, la
+    mejor serie del área, está 367 m MÁS ALTA que el punto, y sobre la
+    Quebrada Idaza, que no drena al punto. El tramo más cercano de la red
+    trazada queda a 8,8 km. Por longitud de serie parecía la solución de la
+    calibración; por posición no sirve.
+    """
+
+    def setUp(self) -> None:
+        import shutil
+        import struct
+        import tempfile
+
+        self.temporal = Path(tempfile.mkdtemp())
+        self._shutil = shutil
+        # Red de juguete: dos corrientes paralelas, una drena al punto y la
+        # otra no. Se escribe como shapefile porque la función lee de disco.
+        self.ruta = self.temporal / "red.shp"
+        self._escribir_red(struct)
+
+    def tearDown(self) -> None:
+        self._shutil.rmtree(self.temporal, ignore_errors=True)
+
+    def _escribir_red(self, struct) -> None:
+        # Tramo 0: de (0,0) a (0,1000).  Tramo 1: de (5000,0) a (5000,1000).
+        lineas = [[(0.0, 0.0), (0.0, 1000.0)],
+                  [(5000.0, 0.0), (5000.0, 1000.0)]]
+        registros = b""
+        for numero, puntos in enumerate(lineas, start=1):
+            contenido = struct.pack("<i", 3)
+            xs = [p[0] for p in puntos]; ys = [p[1] for p in puntos]
+            contenido += struct.pack("<4d", min(xs), min(ys), max(xs), max(ys))
+            contenido += struct.pack("<i", 1) + struct.pack("<i", len(puntos))
+            contenido += struct.pack("<i", 0)
+            for x, y in puntos:
+                contenido += struct.pack("<2d", x, y)
+            registros += struct.pack(">i", numero)
+            registros += struct.pack(">i", len(contenido) // 2) + contenido
+        cabecera = struct.pack(">i", 9994) + b"\x00" * 20
+        cabecera += struct.pack(">i", (100 + len(registros)) // 2)
+        cabecera += struct.pack("<i", 1000) + struct.pack("<i", 3)
+        cabecera += struct.pack("<4d", 0.0, 0.0, 5000.0, 1000.0)
+        cabecera += struct.pack("<4d", 0.0, 0.0, 0.0, 0.0)
+        self.ruta.write_bytes(cabecera + registros)
+        self.ruta.with_suffix(".shx").write_bytes(cabecera)
+
+        from test_m00c import escribir_dbf  # reutiliza el constructor de dBase
+
+        campos = ("id_tramo", "receptor", "long_m", "nombre")
+        # dBase de cuatro campos: se escribe uno por uno con el ayudante y se
+        # combinan a mano no es posible, de modo que se usa un dbf minimo.
+        self._escribir_dbf_multiple(struct, campos,
+                                    [("0", "-1", "1000", "Rio Bueno"),
+                                     ("1", "-1", "1000", "Quebrada Ajena")])
+        del escribir_dbf
+
+    def _escribir_dbf_multiple(self, struct, campos, filas) -> None:
+        largo = 24
+        longitud_registro = 1 + largo * len(campos)
+        longitud_cabecera = 32 + 32 * len(campos) + 1
+        cabecera = bytes([0x03, 126, 1, 1])
+        cabecera += struct.pack("<I", len(filas))
+        cabecera += struct.pack("<H", longitud_cabecera)
+        cabecera += struct.pack("<H", longitud_registro)
+        cabecera += b"\x00" * 20
+        for campo in campos:
+            cabecera += campo.encode("ascii")[:10].ljust(11, b"\x00")
+            cabecera += b"C" + b"\x00" * 4 + bytes([largo, 0]) + b"\x00" * 14
+        cuerpo = b""
+        for fila in filas:
+            cuerpo += b" " + b"".join(
+                v.encode("utf-8").ljust(largo, b" ") for v in fila)
+        self.ruta.with_suffix(".dbf").write_bytes(
+            cabecera + b"\x0d" + cuerpo + b"\x1a")
+
+    def _estacion(self, codigo, este, norte):
+        # La función reproyecta de EPSG:4686 a EPSG:9377; para la prueba se
+        # usa el mismo CRS en los dos, de modo que las coordenadas pasan tal
+        # cual y la geometría es la que se comprueba.
+        return m03.Estacion(valores={"codigo": codigo, "categoria": "LG"},
+                            latitud=norte, longitud=este, variables=("caudal",))
+
+    def _verificar(self, estaciones, aguas_arriba):
+        return m03.verificar_con_la_red(
+            estaciones, self.ruta, aguas_arriba,
+            "EPSG:9377", "EPSG:9377", 200.0)
+
+    def test_sobre_la_red_que_drena_es_apta(self) -> None:
+        v = self._verificar([self._estacion("A", 0.0, 500.0)], {0})
+        self.assertEqual(v["A"]["apta"], m03.APTA_RED)
+        self.assertEqual(v["A"]["corriente"], "Rio Bueno")
+
+    def test_sobre_otra_corriente_no_es_apta(self) -> None:
+        # Aunque este mas cerca del punto o tenga mejor serie.
+        v = self._verificar([self._estacion("B", 5000.0, 500.0)], {0})
+        self.assertEqual(v["B"]["apta"], m03.NO_APTA_RED)
+        self.assertIn("no drena", v["B"]["detalle"])
+
+    def test_lejos_de_toda_corriente_queda_en_duda(self) -> None:
+        v = self._verificar([self._estacion("C", 50000.0, 500.0)], {0})
+        self.assertEqual(v["C"]["apta"], m03.DUDOSA)
+
+    def test_reporta_cuanta_red_controla(self) -> None:
+        # Una estacion en cabecera controla poco y no sirve para calibrar el
+        # conjunto, aunque este sobre la red correcta.
+        v = self._verificar([self._estacion("A", 0.0, 500.0)], {0})
+        self.assertGreater(v["A"]["red_controlada_km"], 0.0)
+        self.assertIsNotNone(v["A"]["fraccion_de_la_cuenca"])
+
+    def test_una_estacion_sin_coordenadas_se_omite(self) -> None:
+        sin = m03.Estacion(valores={"codigo": "D", "categoria": "LG"},
+                           latitud=None, longitud=None, variables=("caudal",))
+        self.assertEqual(self._verificar([sin], {0}), {})
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

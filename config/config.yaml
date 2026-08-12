@@ -343,6 +343,14 @@ estaciones:
   # es que la metadata se contradice y el dato no: si la estacion no tiene
   # registro reciente, el M04b lo vera en la matriz de sensibilidad. Descartarla
   # por una ficha inconsistente seria perder una serie por un error de la ficha.
+  # Radio dentro del cual se busca a que corriente pertenece una estacion de
+  # caudal, para decidir si sirve para calibrar. El criterio no es la cota sino
+  # la RED: una estacion sirve si cae sobre la que drena al punto.
+  #
+  # Medido sobre este estudio: LLANO LARGO tiene 36 anios de nivel, la mejor
+  # serie del area, y esta sobre la Quebrada Idaza, que no drena al punto. El
+  # tramo mas cercano de la red trazada queda a 8,8 km.
+  tolerancia_red_m: 200.0
   precedencia_estado: ["Activa", "En Mantenimiento", "Suspendida"]
   campos:
     codigo: "CODIGO"

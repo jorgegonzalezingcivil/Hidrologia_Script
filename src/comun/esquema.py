@@ -905,6 +905,9 @@ ESQUEMA: dict[str, Campo] = {
         "recorte de los embalses al area", no_vacio=True,
     ),
 
+    "estaciones.tolerancia_red_m": numero(
+        "radio de enganche de una estacion de caudal a la red", minimo=0.0,
+    ),
     "estaciones.precedencia_estado": lista(
         "precedencia del estado ante un catalogo que se contradice",
         texto("estado"),

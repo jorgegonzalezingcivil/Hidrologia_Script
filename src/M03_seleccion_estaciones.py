@@ -54,6 +54,7 @@ if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
 from comun import campos as mod_campos  # noqa: E402
+import red_drenaje  # noqa: E402  (solo sus funciones de grafo)
 from comun import esquema, geometria, registro, rutas, shapefile  # noqa: E402
 from comun.campos import CampoSalida  # noqa: E402
 from comun.config import Config, cargar  # noqa: E402
@@ -103,6 +104,7 @@ CAMPOS_ESTACION: tuple[CampoSalida, ...] = (
     CampoSalida("dist_km", "Distancia al punto de descarga", "decimal",
                 12, 3, "km"),
     CampoSalida("apta_cal", "Aptitud para calibrar", "texto", 24),
+    CampoSalida("detalle_c", "Detalle de la aptitud", "texto", 80),
 )
 
 
@@ -132,6 +134,7 @@ class ResultadoM03:
     por_variable: dict[str, int] = field(default_factory=dict)
     por_categoria: dict[str, int] = field(default_factory=dict)
     por_estado: dict[str, int] = field(default_factory=dict)
+    calibracion: dict = field(default_factory=dict)
     duplicados: list = field(default_factory=list)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
@@ -414,8 +417,15 @@ CATEGORIAS_CAUDAL = ("LG", "LM", "RM")
 
 NO_APTA_COTA = "no: aguas abajo"
 NO_APTA_TIPO = "no mide caudal"
+
+# El Catalogo Nacional publica su ubicacion en MAGNA geografico, no en
+# WGS84. Confundirlos desplaza las estaciones unos metros, que sobre la
+# tolerancia de enganche a la red decide si una estacion cae en el cauce.
+CRS_CATALOGO = "EPSG:4686"
 DUDOSA = "verificar con la red"
 DUDOSA_BANDA = "en la banda: verificar"
+APTA_RED = "si: sobre la red que drena"
+NO_APTA_RED = "no: otra cuenca"
 
 
 def evaluar_aptitud_calibracion(
@@ -482,6 +492,96 @@ def evaluar_aptitud_calibracion(
     return diferencia, distancia, DUDOSA
 
 
+def verificar_con_la_red(
+    estaciones,
+    ruta_red: Path,
+    aguas_arriba: set[int],
+    crs_catalogo: str,
+    crs_calculo: str,
+    tolerancia_m: float,
+) -> dict[str, dict[str, Any]]:
+    """
+    Comprueba sobre la RED cuáles estaciones de caudal sirven para calibrar.
+
+    El veredicto por cota no decide: solo descarta lo que está claramente
+    aguas abajo y deja el resto en 'verificar con la red'. Esta función hace
+    esa verificación, que hasta ahora quedaba pendiente de que alguien la
+    hiciera a mano.
+
+    El criterio es exacto y no admite matices: una estación sirve si cae sobre
+    la red que DRENA AL PUNTO. Si cae sobre otra corriente, mide otra cuenca,
+    por larga y buena que sea su serie.
+
+    Medido sobre este estudio, y es el caso que motivó programarlo: la estación
+    LLANO LARGO tiene 36 años de nivel y 35 de caudal medio diario, la mejor
+    serie del área con diferencia. Está a 35,4 km del punto, 367 m más alta, y
+    sobre la Quebrada Idaza, que no drena al punto. El tramo más cercano de la
+    red trazada queda a 8,8 km. Por longitud de serie parecía la solución de la
+    calibración; por posición no sirve.
+
+    De las que sí caen sobre la red se reporta cuánta red controlan, que es la
+    medida de qué fracción de la cuenca vigilan: una estación en una cabecera
+    controla poco y no sirve para calibrar el conjunto.
+    """
+    from pyproj import Transformer
+
+    registros = list(shapefile.leer_registros(
+        ruta_red, ["id_tramo", "receptor", "long_m", "nombre"]))
+    geometrias = shapefile.leer_geometrias(ruta_red)
+    afluentes: dict[int, list[int]] = {}
+    longitudes: dict[int, float] = {}
+    vertices: dict[int, list] = {}
+    nombres: dict[int, str] = {}
+    for registro_tramo, entidad in zip(registros, geometrias):
+        identificador = int(registro_tramo["id_tramo"])
+        longitudes[identificador] = float(registro_tramo["long_m"])
+        nombres[identificador] = registro_tramo["nombre"]
+        vertices[identificador] = [p for parte in entidad for p in parte]
+        receptor = int(registro_tramo["receptor"])
+        if receptor >= 0:
+            afluentes.setdefault(receptor, []).append(identificador)
+
+    total_traza = sum(longitudes.get(i, 0.0) for i in aguas_arriba)
+    conversor = Transformer.from_crs(crs_catalogo, crs_calculo, always_xy=True)
+    veredictos: dict[str, dict[str, Any]] = {}
+
+    for estacion in estaciones:
+        codigo = str(estacion.valores.get("codigo", "")).strip()
+        if estacion.longitud is None or estacion.latitud is None:
+            continue
+        este, norte = conversor.transform(estacion.longitud, estacion.latitud)
+        enganche = red_drenaje.enganchar_punto(
+            afluentes, longitudes, vertices, este, norte, tolerancia_m)
+
+        if enganche.get("tramo") is None:
+            veredictos[codigo] = {
+                "apta": DUDOSA,
+                "detalle": f"no hay red a menos de {tolerancia_m:.0f} m",
+            }
+            continue
+
+        tramo = enganche["tramo"]
+        sobre_la_traza = tramo in aguas_arriba
+        arriba = red_drenaje.trazar_aguas_arriba(afluentes, tramo)
+        controla = sum(longitudes.get(t, 0.0) for t in arriba) / 1000.0
+        veredictos[codigo] = {
+            "apta": APTA_RED if sobre_la_traza else NO_APTA_RED,
+            "tramo": tramo,
+            "corriente": nombres.get(tramo, ""),
+            "distancia_a_la_red_m": enganche["distancia_m"],
+            "red_controlada_km": round(controla, 2),
+            "fraccion_de_la_cuenca": (round(controla * 1000.0 / total_traza, 4)
+                                      if sobre_la_traza and total_traza else None),
+            "detalle": (
+                f"sobre {nombres.get(tramo, 'la red')}, controla "
+                f"{controla:.1f} km de cauce"
+                if sobre_la_traza else
+                f"sobre {nombres.get(tramo, 'otra corriente')}, que no drena "
+                "al punto"),
+        }
+    return veredictos
+
+
 def revisar_calibracion(
     seleccionadas, longitud_punto, latitud_punto, cota_punto,
 ) -> list[Hallazgo]:
@@ -504,6 +604,33 @@ def revisar_calibracion(
             "del M14b no aplica (CLAUDE.md, seccion 6).",
         )]
 
+    # Si la red ya dio veredicto, MANDA ELLA. El criterio por cota solo sirve
+    # mientras no hay red: descarta lo que esta claramente aguas abajo y deja
+    # el resto en duda. Dejar los dos hablando produce un reporte que se
+    # contradice consigo mismo, y eso es peor que no reportar: sobre este
+    # estudio, el veredicto por cota llamaba 'aguas abajo' a una estacion que
+    # esta 367 m mas alta y en otra vertiente.
+    verificadas = [e for e in de_caudal
+                   if e.valores.get("apta_cal") in (APTA_RED, NO_APTA_RED)]
+    if verificadas:
+        aptas = [e for e in verificadas
+                 if e.valores.get("apta_cal") == APTA_RED]
+        hallazgos = [Hallazgo(
+            INFORMATIVO, "calibracion",
+            f"{len(de_caudal)} estacion(es) de caudal o nivel en el area, "
+            f"{len(verificadas)} verificada(s) contra la red de drenaje: "
+            f"{len(aptas)} cae(n) sobre la red que drena al punto.",
+        )]
+        if not aptas:
+            hallazgos.append(Hallazgo(
+                ADVERTENCIA, "calibracion",
+                "ninguna estacion de caudal cae sobre la red que drena al "
+                "punto: todas miden otras cuencas. La calibracion del M14b no "
+                "tiene base y debe documentarse. No es lo mismo que no haber "
+                "estaciones: las hay, y con serie larga, pero en otro sitio.",
+            ))
+        return hallazgos
+
     posibles = [e for e in de_caudal
                 if e.valores.get("apta_cal") in (DUDOSA, DUDOSA_BANDA)]
     en_banda = [e for e in de_caudal
@@ -514,9 +641,10 @@ def revisar_calibracion(
         INFORMATIVO, "calibracion",
         f"{len(de_caudal)} estacion(es) de caudal o nivel en el area: "
         f"{abajo} descartada(s) por estar aguas abajo del punto y "
-        f"{len(posibles)} por verificar con la red de drenaje, "
+        f"{len(posibles)} SIN verificar contra la red de drenaje, "
         f"de las cuales {len(en_banda)} caen dentro de la banda de "
-        "incertidumbre del modelo de elevación.",
+        "incertidumbre del modelo de elevación. El veredicto por cota no "
+        "decide: ejecutar el M02b para que la red permita verificarlo.",
     )]
 
     if not posibles:
@@ -702,6 +830,82 @@ def ejecutar(
             estacion.valores["dif_cota"] = dif
             estacion.valores["dist_km"] = dist
             estacion.valores["apta_cal"] = apta
+        # --- Verificacion contra la red ------------------------------------
+        # La cota sola no decide: descarta lo que esta claramente aguas abajo
+        # y deja el resto en 'verificar con la red'. Aqui se hace esa
+        # verificacion, que hasta ahora quedaba pendiente de que alguien la
+        # hiciera a mano.
+        ruta_red = rutas.resolver(
+            configuracion.obtener("red_topologica.salida_red"), base)
+        reporte_m02 = rutas.directorio("procesado", base) / "M02_delimitacion.json"
+        aguas_arriba: set[int] = set()
+        if reporte_m02.is_file():
+            try:
+                datos_m02 = json.loads(reporte_m02.read_text(encoding="utf-8"))
+                aguas_arriba = {int(i) for i in
+                                ((datos_m02.get("acotado") or {})
+                                 .get("aguas_arriba") or ())}
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                aguas_arriba = set()
+
+        de_caudal = [e for e in resultado.seleccionadas
+                     if (e.valores.get("categoria") or "").strip().upper()
+                     in CATEGORIAS_CAUDAL]
+        if de_caudal and ruta_red.is_file() and aguas_arriba:
+            try:
+                veredictos = verificar_con_la_red(
+                    de_caudal, ruta_red, aguas_arriba, CRS_CATALOGO,
+                    str(configuracion.obtener("crs.calculo")),
+                    float(configuracion.obtener(
+                        "estaciones.tolerancia_red_m")))
+            except (ErrorFormato, ErrorRutas, ImportError) as error:
+                veredictos = {}
+                resultado.hallazgos.append(Hallazgo(
+                    ADVERTENCIA, "calibracion.red",
+                    f"no se pudo verificar contra la red: {error}"))
+            for estacion in de_caudal:
+                codigo = str(estacion.valores.get("codigo", "")).strip()
+                veredicto = veredictos.get(codigo)
+                if not veredicto:
+                    continue
+                estacion.valores["apta_cal"] = veredicto["apta"]
+                estacion.valores["detalle_cal"] = veredicto["detalle"]
+            resultado.calibracion = veredictos
+            aptas = [c for c, v in veredictos.items() if v["apta"] == APTA_RED]
+            ajenas = [c for c, v in veredictos.items() if v["apta"] == NO_APTA_RED]
+            if aptas:
+                detalle = "; ".join(
+                    f"{c} ({veredictos[c]['corriente'] or 'sin nombre'}, "
+                    f"controla {veredictos[c]['red_controlada_km']:.0f} km, "
+                    f"{100 * (veredictos[c]['fraccion_de_la_cuenca'] or 0):.0f} % "
+                    "de la red de la cuenca)" for c in aptas)
+                resultado.hallazgos.append(Hallazgo(
+                    INFORMATIVO, "calibracion.aptas",
+                    f"{len(aptas)} estacion(es) de caudal caen SOBRE la red que "
+                    f"drena al punto: {detalle}. La fraccion de red controlada "
+                    "dice que parte de la cuenca vigila cada una: una estacion "
+                    "en cabecera no sirve para calibrar el conjunto.",
+                ))
+            if ajenas:
+                detalle = "; ".join(
+                    f"{c} ({veredictos[c]['corriente'] or 'sin nombre'})"
+                    for c in ajenas)
+                resultado.hallazgos.append(Hallazgo(
+                    ADVERTENCIA if not aptas else INFORMATIVO,
+                    "calibracion.otra_cuenca",
+                    f"{len(ajenas)} estacion(es) de caudal caen sobre "
+                    f"corrientes que NO drenan al punto: {detalle}. Miden otra "
+                    "cuenca, por larga y buena que sea su serie, y no sirven "
+                    "para calibrar este modelo.",
+                ))
+        elif de_caudal and not ruta_red.is_file():
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "calibracion.red",
+                f"no existe la red del M02b en {rutas.relativa(ruta_red, base)}: "
+                "la aptitud de las estaciones de caudal queda sin verificar y "
+                "el veredicto por cota no basta para decidirla.",
+            ))
+
         for estacion in resultado.descartadas:
             estacion.valores.setdefault("dif_cota", None)
             estacion.valores.setdefault("dist_km", None)
