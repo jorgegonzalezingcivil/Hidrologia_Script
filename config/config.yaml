@@ -820,7 +820,19 @@ frecuencia:
 zonificacion_pluviometrica:
   diferencia_maxima_pct: 5.0
   considerar_gradiente_altitudinal: true
+  # EL GRADIENTE NO SE APLICA POR DECRETO, SE MIDE. Con 'considerar' en true, el
+  # M11 lee del reporte del M08 el ajuste altitud-precipitacion que aquel midio
+  # y solo lo usa si alcanza este r2. Por debajo se abstiene y lo declara como
+  # excepcion a la seccion 6: aplicar un gradiente sin correlacion le daria a la
+  # zonificacion la apariencia de un metodo apoyandola en una relacion que se
+  # midio y no esta.
+  r2_minimo_gradiente: 0.30
   ponderar_por_area: true
+  # Periodo de retorno con el que se agrupan las subcuencas en zonas. Se declara
+  # porque el reparto cambia con el: los campos de periodo alto tienen mas
+  # dispersion, y zonificar con ellos arrastra la incertidumbre del ajuste
+  # estadistico a la definicion de las zonas.
+  periodo_referencia: "2.33"
 
 # -----------------------------------------------------------------------------
 # M11c - FACTOR DE REDUCCIÓN POR ÁREA

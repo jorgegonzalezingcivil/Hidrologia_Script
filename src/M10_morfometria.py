@@ -489,14 +489,10 @@ def _mascara_de_fila(info, aristas, fila: int, np_) -> Any:
     inflaría el área en un borde de media celda alrededor de toda la divisoria.
     """
     mascara = np_.zeros(info.ancho, dtype=bool)
-    y = info.y_de_fila(fila)
-    for x_inicio, x_fin in geometria.tramos_de_barrido(aristas, y):
-        desde = math.ceil((x_inicio - info.origen_x) / info.tamano_x - 0.5)
-        hasta = math.ceil((x_fin - info.origen_x) / info.tamano_x - 0.5) - 1
-        desde = max(int(desde), 0)
-        hasta = min(int(hasta), info.ancho - 1)
-        if hasta >= desde:
-            mascara[desde:hasta + 1] = True
+    for desde, hasta in geometria.columnas_de_fila(
+            aristas, info.y_de_fila(fila), info.origen_x, info.tamano_x,
+            info.ancho):
+        mascara[desde:hasta + 1] = True
     return mascara
 
 

@@ -775,6 +775,13 @@ ESQUEMA: dict[str, Campo] = {
     "zonificacion_pluviometrica.considerar_gradiente_altitudinal": booleano(
         "incorporar el gradiente altitudinal",
     ),
+    "zonificacion_pluviometrica.r2_minimo_gradiente": numero(
+        "r2 mínimo para admitir el gradiente altitudinal", minimo=0.0,
+        maximo=1.0,
+    ),
+    "zonificacion_pluviometrica.periodo_referencia": texto(
+        "periodo de retorno con el que se agrupan las zonas", no_vacio=True,
+    ),
     "zonificacion_pluviometrica.ponderar_por_area": booleano("ponderar por área"),
 
     # --- M11c ----------------------------------------------------------------

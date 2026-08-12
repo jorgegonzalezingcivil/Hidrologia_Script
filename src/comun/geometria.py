@@ -32,6 +32,7 @@ __all__ = [
     "punto_en_alguno",
     "envolvente",
     "perimetro_exterior",
+    "columnas_de_fila",
     "IndiceEtiquetado",
 ]
 
@@ -156,6 +157,36 @@ def envolvente(poligonos: Sequence[Poligono]) -> tuple[float, float, float, floa
     if not xs:
         raise ErrorFormato("No hay vértices de los que obtener una envolvente.")
     return (min(xs), min(ys), max(xs), max(ys))
+
+
+def columnas_de_fila(
+    aristas: Sequence[tuple[float, float, float, float]],
+    y: float,
+    origen_x: float,
+    tamano_x: float,
+    ancho: int,
+) -> list[tuple[int, int]]:
+    """
+    Rangos de columnas de una fila de ráster que caen dentro de la geometría.
+
+    Devuelve pares (desde, hasta), ambos incluidos.
+
+    LA CELDA SE RESUELVE POR SU CENTRO, que es la convención de estadística
+    zonal de GDAL y de QGIS. El criterio alternativo, celda tocada, inflaría el
+    área en un borde de media celda alrededor de todo el contorno. Vive aquí y
+    no en cada módulo porque es un convenio, y un convenio duplicado es un
+    convenio que acaba divergiendo: dos módulos que midieran la misma cuenca con
+    criterios distintos darían áreas distintas sin que nada lo señalara.
+    """
+    rangos: list[tuple[int, int]] = []
+    for x_inicio, x_fin in tramos_de_barrido(aristas, y):
+        desde = math.ceil((x_inicio - origen_x) / tamano_x - 0.5)
+        hasta = math.ceil((x_fin - origen_x) / tamano_x - 0.5) - 1
+        desde = max(int(desde), 0)
+        hasta = min(int(hasta), ancho - 1)
+        if hasta >= desde:
+            rangos.append((desde, hasta))
+    return rangos
 
 
 class IndiceEtiquetado:

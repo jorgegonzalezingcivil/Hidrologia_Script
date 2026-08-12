@@ -168,8 +168,12 @@ pasos:
   - modulo: M11
     nombre: "Zonificación pluviométrica y precipitación media"
     script: "src/M11_zonificacion.py"
-    entorno: qgis
-    estado: pendiente
+    # La sección 8 lo declaraba en QGIS porque se pensó que interpolaría. No
+    # interpola: el M06 y el M08 ya dejaron los campos escritos, y lo que hace
+    # es estadística zonal, que el venv resuelve con el lector de GeoTIFF y el
+    # barrido de comun.geometria.
+    entorno: venv
+    estado: disponible
 
   - modulo: M11c
     nombre: "Factor de reducción por área"
