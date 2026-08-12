@@ -859,7 +859,10 @@ idf:
     # DECISION CON MARGEN Y ESPECIFICA DEL ESTUDIO. Relacion entre la maxima en
     # 24 h y la maxima en una hora. Gobierna el NIVEL entero de la curva, de
     # modo que exige fuente escrita: no se hereda de otro estudio.
-    coeficiente_24h_a_1h: 0.369
+    # null = se CALIBRA con el dato del estudio, exigiendo que la curva acumule
+    # exactamente la Pmax24h en 1.440 min. Un numero aqui lo fija a mano y
+    # entonces la fuente es obligatoria.
+    coeficiente_24h_a_1h: null
     fuente_coeficiente: ""
   coeficientes_invias: "data/referencia/idf_coef_invias.csv"
   consultar_idf_ideam: true

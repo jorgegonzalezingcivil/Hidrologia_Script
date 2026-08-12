@@ -169,6 +169,41 @@ class PruebaIntensidadSilva(unittest.TestCase):
             m12a.intensidad_silva(60.0, 87.7, self.COEF, self.B, -0.1)
 
 
+class PruebaCalibracionDelCoeficiente(unittest.TestCase):
+    """
+    El coeficiente de paso de 24 h a 1 h es ESPECIFICO DEL ESTUDIO.
+
+    Criterio del numeral 5.5.2: la curva debe acumular exactamente la Pmax24h
+    propia en 1.440 minutos. Heredar el 0,369 del informe de referencia haria
+    que acumulase 1,44 veces esa lamina.
+    """
+
+    def test_la_curva_calibrada_acumula_la_lamina_de_24_horas(self) -> None:
+        calibrado = m12a.calibrar_coeficiente_1h(10.0, 0.6)
+        coeficiente = calibrado["coeficiente_24h_a_1h"]
+        pmax = 57.3
+        intensidad = m12a.intensidad_silva(1440.0, pmax, coeficiente, 10.0, 0.6)
+        self.assertAlmostEqual(
+            m12a.lamina_de_intensidad(intensidad, 1440.0), pmax, delta=0.05)
+
+    def test_no_depende_de_la_lamina(self) -> None:
+        # El valor de P24h se cancela: por eso se resuelve sin iterar.
+        calibrado = m12a.calibrar_coeficiente_1h(10.0, 0.6)
+        self.assertAlmostEqual(calibrado["lamina_en_24h_sobre_p24"], 1.0,
+                               places=3)
+
+    def test_el_valor_heredado_no_cumple_el_criterio(self) -> None:
+        # Es la razon por la que no se arrastra de otro proyecto.
+        pmax = 57.3
+        intensidad = m12a.intensidad_silva(1440.0, pmax, 0.369, 10.0, 0.6)
+        acumulada = m12a.lamina_de_intensidad(intensidad, 1440.0)
+        self.assertAlmostEqual(acumulada / pmax, 1.437, delta=0.01)
+
+    def test_parametros_invalidos(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m12a.calibrar_coeficiente_1h(10.0, 0.0)
+
+
 class PruebaDesagregacion(unittest.TestCase):
     """Las tres hipótesis se calculan en paralelo y no se adopta ninguna."""
 

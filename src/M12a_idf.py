@@ -90,6 +90,7 @@ class ResultadoM12a:
     verificacion: list[dict[str, Any]] = field(default_factory=list)
     desagregacion: list[dict[str, Any]] = field(default_factory=list)
     cambio_climatico: list[dict[str, Any]] = field(default_factory=list)
+    silva: dict[str, Any] = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -235,6 +236,42 @@ def intensidad_silva(
     intensidad_1h = coeficiente_1h * pmax24_mm
     k = intensidad_1h * (60.0 + b_min) ** n
     return k / (duracion_min + b_min) ** n
+
+
+def calibrar_coeficiente_1h(b_min: float, n: float) -> dict[str, Any]:
+    """
+    Coeficiente de paso de 24 h a 1 h que hace la curva consistente con su dato.
+
+    El criterio es el del numeral 5.5.2 del informe de referencia: la lámina que
+    la curva acumula en 24 horas debe ser la Pmáx24h del propio estudio. Con la
+    forma de Talbot eso se resuelve solo, sin iterar y sin depender del valor de
+    la lámina, que se cancela:
+
+        coef = 1 / (24 * ((60 + b) / (1440 + b))^n)
+
+    El coeficiente ES ESPECÍFICO DEL ESTUDIO y por eso no se hereda. El informe
+    de referencia adoptó 0,369 para su serie de 126,78 mm, calibrado en un anexo
+    de memoria de cálculo que no acompaña al documento: con b = 10 y n = 0,6 ese
+    valor hace que la curva acumule 1,437 veces la Pmáx24h en 24 horas, de modo
+    que no es el que sale de este criterio y no puede trasladarse sin más.
+
+    Se calibra y se DECLARA, en lugar de arrastrar el número de otro proyecto.
+    Quien prefiera un valor propio lo escribe en la configuración con su fuente,
+    y entonces este cálculo no se usa.
+    """
+    if b_min < 0 or n <= 0:
+        raise ErrorHidrologia(
+            f"b ({b_min} min) no puede ser negativo y n ({n}) debe ser "
+            "positivo.")
+    razon = ((60.0 + b_min) / (MINUTOS_EN_24H + b_min)) ** n
+    coeficiente = 1.0 / (24.0 * razon)
+    return {
+        "coeficiente_24h_a_1h": round(coeficiente, 4),
+        "b_min": b_min,
+        "n": n,
+        "criterio": "la curva acumula exactamente la Pmax24h en 1.440 min",
+        "lamina_en_24h_sobre_p24": round(coeficiente * razon * 24.0, 4),
+    }
 
 
 def lamina_de_intensidad(intensidad_mm_h: float, duracion_min: float) -> float:
@@ -436,10 +473,29 @@ def _resolver_curvas(configuracion, base, resultado, cuantiles, duraciones,
                         for m in configuracion.obtener("idf.metodologias")]
         b_silva = float(configuracion.obtener("idf.silva.b_min"))
         n_silva = float(configuracion.obtener("idf.silva.n"))
-        coeficiente_1h = float(configuracion.obtener(
-            "idf.silva.coeficiente_24h_a_1h"))
+        declarado = configuracion.obtener("idf.silva.coeficiente_24h_a_1h", None)
         fuente_1h = str(configuracion.obtener(
             "idf.silva.fuente_coeficiente", "") or "").strip()
+        if declarado is None:
+            calibracion = calibrar_coeficiente_1h(b_silva, n_silva)
+            coeficiente_1h = calibracion["coeficiente_24h_a_1h"]
+            resultado.silva = calibracion
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "idf.silva_calibrado",
+                f"el coeficiente de paso de 24 h a 1 h se CALIBRO en "
+                f"{coeficiente_1h:.4f} con el criterio del numeral 5.5.2: la "
+                "curva acumula exactamente la Pmax24h de este estudio en 1.440 "
+                f"minutos, con b = {b_silva:.0f} min y n = {n_silva}. No se "
+                "heredo de otro proyecto: el 0,369 del informe de referencia "
+                "corresponde a su propia serie y con estos b y n haria que la "
+                "curva acumulase 1,44 veces la Pmax24h.",
+            ))
+        else:
+            coeficiente_1h = float(declarado)
+            resultado.silva = {"coeficiente_24h_a_1h": coeficiente_1h,
+                               "b_min": b_silva, "n": n_silva,
+                               "criterio": "declarado en la configuracion",
+                               "fuente": fuente_1h}
         # La media de la serie ancla la curva regional a esta cuenca. Se toma
         # el cuantil de 2,33 anios, que es la media de una Gumbel.
         media = cuantiles.get(2.33) or statistics.fmean(cuantiles.values())
@@ -463,7 +519,7 @@ def _resolver_curvas(configuracion, base, resultado, cuantiles, duraciones,
         logger.info("%d punto(s) de curva | region %s | media de anclaje "
                     "%.1f mm", len(resultado.curvas), resultado.region, media)
 
-        if "silva" in metodologias and not fuente_1h:
+        if "silva" in metodologias and declarado is not None and not fuente_1h:
             resultado.hallazgos.append(Hallazgo(
                 ADVERTENCIA, "idf.silva_sin_fuente",
                 f"el coeficiente de paso de 24 h a 1 h ({coeficiente_1h}) no "
@@ -714,8 +770,66 @@ def _resolver_cambio_climatico(configuracion, base, resultado, delimitador,
             ))
 
 
+# Periodos que lleva la figura de COMPARACION. Con ocho curvas por metodologia
+# la figura se vuelve ilegible; el informe de referencia usa tres, que bastan
+# para ver si los metodos se cruzan y donde.
+PERIODOS_DE_COMPARACION = (2.33, 25.0, 100.0)
+
+
+def _dibujar_idf(graficos, estilo, resultado, periodos, limite, duracion_diseno,
+                 series, titulo, pie):
+    """
+    Arma una figura de curvas IDF, en ejes lineales.
+
+    UNA IDF SE LEE POR SU FORMA: la caída abrupta de los primeros minutos y el
+    aplanamiento posterior. En log-log una ley potencial es una recta y la
+    figura deja de parecerse a lo que es, aunque los valores sean los mismos.
+    Se acota además a la duración de diseño, porque llevarla a 1.440 minutos
+    aplasta contra el eje justo el tramo que se usa.
+    """
+    colores = graficos.rampa(len(periodos), estilo)
+    with graficos.figura(estilo, titulo=titulo, etiqueta_x="Duración (min)",
+                         etiqueta_y="Intensidad (mm/h)") as (fig, ax):
+        for color, periodo in zip(colores, periodos):
+            de_ese = sorted((f for f in resultado.curvas
+                             if f["periodo_retorno"] == periodo
+                             and f["duracion_min"] <= limite),
+                            key=lambda f: f["duracion_min"])
+            equis = [f["duracion_min"] for f in de_ese]
+            for columna, estilo_linea, sufijo in series:
+                valores = [f.get(columna) for f in de_ese]
+                if not any(v is not None for v in valores):
+                    continue
+                ax.plot(equis, valores, color=color, linewidth=1.3,
+                        linestyle=estilo_linea, zorder=2,
+                        label=f"T {periodo:g}{sufijo}")
+
+        ax.set_xlim(0, limite * 1.05)
+        ax.set_ylim(bottom=0)
+        ax.axvline(duracion_diseno, color="#b03a2e", linewidth=1.0,
+                   linestyle="--", zorder=3)
+        ax.annotate(f"diseño {duracion_diseno:.0f} min",
+                    xy=(duracion_diseno, 0), xytext=(-5, 6),
+                    textcoords="offset points", color="#b03a2e",
+                    fontsize=estilo.tamano_fuente - 1, ha="right",
+                    va="bottom", zorder=4)
+        ax.legend(title="Periodo de retorno", loc="upper right", frameon=False,
+                  fontsize=estilo.tamano_fuente - 2,
+                  ncols=2 if len(periodos) > 4 else 1)
+        if pie:
+            fig.text(0.01, -0.02, pie,
+                     fontsize=estilo.tamano_fuente - 2, color="#555555")
+        return fig
+
+
 def _escribir_figura(configuracion, base, resultado, logger) -> None:
-    """Dibuja las curvas IDF de las dos metodologías, por periodo de retorno."""
+    """
+    Tres figuras: cada metodología por separado y la comparación.
+
+    Separarlas no es cosmético. Con dos metodologías y ocho periodos, una sola
+    figura lleva dieciséis curvas y no se lee ninguna. El informe las presenta
+    así: una por método con todos sus periodos, y una de contraste con tres.
+    """
     if not resultado.curvas:
         return
     try:
@@ -730,56 +844,38 @@ def _escribir_figura(configuracion, base, resultado, logger) -> None:
     directorio = rutas.resolver(
         configuracion.obtener("graficos.directorio"), base)
     periodos = sorted({f["periodo_retorno"] for f in resultado.curvas})
-    colores = graficos.rampa(len(periodos), estilo)
     duracion_diseno = float(configuracion.obtener("tormenta.duracion_h")) * 60.0
-    # EJES LINEALES Y ACOTADOS A LA DURACION DE DISENO. Una IDF se lee por su
-    # forma, la caida abrupta de los primeros minutos y el aplanamiento
-    # posterior, y eso solo se ve en lineal: en log-log la ley potencial es una
-    # recta y la figura deja de parecerse a lo que un revisor espera. Llevarla
-    # hasta 1.440 minutos aplastaria contra el eje justo el tramo que interesa.
-    # Asi la presenta el informe de referencia, numeral 5.5, hasta 180 minutos.
     limite = duracion_diseno
 
-    with graficos.figura(
-            estilo,
-            titulo=f"Curvas IDF, región {resultado.region}",
-            etiqueta_x="Duración (min)",
-            etiqueta_y="Intensidad (mm/h)") as (fig, ax):
-        for color, periodo in zip(colores, periodos):
-            de_ese = sorted((f for f in resultado.curvas
-                             if f["periodo_retorno"] == periodo
-                             and f["duracion_min"] <= limite),
-                            key=lambda f: f["duracion_min"])
-            equis = [f["duracion_min"] for f in de_ese]
-            ax.plot(equis, [f.get("i_invias_mm_h") for f in de_ese],
-                    color=color, linewidth=1.3, label=f"T {periodo:g}",
-                    zorder=2)
-            ax.plot(equis, [f.get("i_silva_mm_h") for f in de_ese],
-                    color=color, linewidth=1.0, linestyle=":", zorder=2)
+    figuras = [
+        ("M12a_idf_invias", periodos,
+         [("i_invias_mm_h", "-", "")],
+         f"Curvas IDF, método INVIAS, región {resultado.region}",
+         "Vargas y Díaz-Granados, regionalización del INVIAS. La tabla llega a "
+         "1.440 min; la figura se acota a la duración de diseño."),
+        ("M12a_idf_silva", periodos,
+         [("i_silva_mm_h", "-", "")],
+         "Curvas IDF, método Silva",
+         "Silva (1998), anclada en la Pmáx24h de las estaciones del estudio."),
+        ("M12a_idf_comparacion",
+         [p for p in periodos if p in PERIODOS_DE_COMPARACION] or periodos[:3],
+         [("i_invias_mm_h", "-", " INVIAS"), ("i_silva_mm_h", "--", " Silva")],
+         "Curvas IDF, comparación de metodologías",
+         "Línea continua: INVIAS. Discontinua: Silva. Donde se separan, al "
+         "menos una no describe esta cuenca."),
+    ]
 
-        ax.set_xlim(0, limite * 1.05)
-        ax.set_ylim(bottom=0)
-        ax.axvline(duracion_diseno, color="#b03a2e", linewidth=1.0,
-                   linestyle="--", zorder=3)
-        # El rotulo va abajo: arriba se solapaba con la leyenda, que ocupa la
-        # esquina donde arrancan las curvas de periodo alto.
-        ax.annotate(f"diseño {duracion_diseno:.0f} min",
-                    xy=(duracion_diseno, 0),
-                    xytext=(-5, 6), textcoords="offset points",
-                    color="#b03a2e", fontsize=estilo.tamano_fuente - 1,
-                    ha="right", va="bottom", zorder=4)
-        ax.legend(title="Periodo de retorno", loc="upper right", frameon=False,
-                  fontsize=estilo.tamano_fuente - 2, ncols=2)
-        fig.text(0.01, -0.02,
-                 "Línea continua: INVIAS (Vargas y Díaz-Granados). "
-                 "Punteada: Silva (1998). La tabla llega a 1.440 min; la "
-                 "figura se acota a la duración de diseño.",
-                 fontsize=estilo.tamano_fuente - 2, color="#555555")
-
-        for ruta in graficos.guardar(fig, directorio / "M12a_curvas_idf",
-                                     estilo):
+    for nombre, sus_periodos, series, titulo, pie in figuras:
+        columnas = [c for c, _, _ in series]
+        if not any(f.get(c) is not None
+                   for f in resultado.curvas for c in columnas):
+            continue
+        figura = _dibujar_idf(graficos, estilo, resultado, sus_periodos, limite,
+                              duracion_diseno, series, titulo, pie)
+        for ruta in graficos.guardar(figura, directorio / nombre, estilo):
             resultado.productos.append(rutas.relativa(ruta, base))
-    logger.info("Curvas IDF dibujadas para %d periodo(s)", len(periodos))
+    logger.info("Figuras de IDF escritas en %s",
+                rutas.relativa(directorio, base))
 
 
 def _escribir_csv(destino: Path, filas, delimitador: str) -> None:
@@ -845,6 +941,7 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "verificacion": resultado.verificacion,
         "desagregacion": resultado.desagregacion,
         "cambio_climatico": resultado.cambio_climatico,
+        "silva": resultado.silva,
         "productos": resultado.productos,
         "resumen": conteo,
         "codigo_salida": codigo,
