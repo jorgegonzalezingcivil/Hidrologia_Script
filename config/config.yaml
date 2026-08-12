@@ -851,6 +851,12 @@ idf:
   # intensidad de diseno sin que nada mas lo senale.
   region: "andina"               # andina | caribe | pacifica | orinoquia | amazonia
   metodologias: [invias, silva]
+  # CUAL DE LAS DOS ALIMENTA LA HIPOTESIS h2_idf. Vacio o null = se calculan las
+  # dos por separado y NINGUNA se adopta, de modo que la columna h2_idf_mm queda
+  # vacia y el M12b no tiene de donde tomarla. Integrar una curva u otra no da
+  # lo mismo y la hipotesis hereda la diferencia entera: la eleccion es del
+  # consultor y debe quedar escrita en el informe.
+  metodologia_adoptada: null     # invias | silva | null
   # Metodo de Silva (1998): I = K / (d + b)^n, con d en MINUTOS y K anclada en
   # la intensidad de una hora. No es una ley potencial.
   silva:

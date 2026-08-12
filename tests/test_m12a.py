@@ -205,26 +205,50 @@ class PruebaCalibracionDelCoeficiente(unittest.TestCase):
 
 
 class PruebaDesagregacion(unittest.TestCase):
-    """Las tres hipótesis se calculan en paralelo y no se adopta ninguna."""
+    """
+    Las tres hipotesis se calculan en paralelo y no se adopta ninguna.
+
+    'h2_idf' se calcula ademas por CADA metodologia: integrar la curva de
+    INVIAS o la de Silva no da lo mismo y la hipotesis hereda la diferencia.
+    """
+
+    INTENSIDADES = {"invias": 10.0, "silva": 6.0}
 
     def test_h1_toma_la_lamina_entera(self) -> None:
         salida = m12a.desagregar(57.3, 180.0, None, None)
         self.assertAlmostEqual(salida["h1_directa_mm"], 57.3, places=2)
         self.assertAlmostEqual(salida["h1_directa_sobre_p24"], 1.0, places=4)
 
-    def test_h2_integra_la_curva_sobre_la_duracion(self) -> None:
-        salida = m12a.desagregar(57.3, 180.0, 10.0, None)
-        self.assertAlmostEqual(salida["h2_idf_mm"], 30.0, places=2)
+    def test_h2_se_calcula_por_metodologia(self) -> None:
+        salida = m12a.desagregar(57.3, 180.0, self.INTENSIDADES, None)
+        self.assertAlmostEqual(salida["h2_idf_invias_mm"], 30.0, places=2)
+        self.assertAlmostEqual(salida["h2_idf_silva_mm"], 18.0, places=2)
+
+    def test_sin_metodologia_declarada_no_hay_columna_adoptada(self) -> None:
+        # El M12b no debe tener de donde tomarla mientras nadie elija.
+        salida = m12a.desagregar(57.3, 180.0, self.INTENSIDADES, None)
+        self.assertNotIn("h2_idf_mm", salida)
+
+    def test_la_metodologia_declarada_ocupa_la_columna(self) -> None:
+        salida = m12a.desagregar(57.3, 180.0, self.INTENSIDADES, None, "silva")
+        self.assertAlmostEqual(salida["h2_idf_mm"], 18.0, places=2)
+        self.assertEqual(salida["h2_idf_metodologia"], "silva")
+
+    def test_una_metodologia_sin_curva_no_ocupa_la_columna(self) -> None:
+        salida = m12a.desagregar(57.3, 180.0, {"invias": None}, None, "invias")
+        self.assertNotIn("h2_idf_mm", salida)
 
     def test_h3_solo_aparece_con_coeficiente(self) -> None:
-        sin_el = m12a.desagregar(57.3, 180.0, 10.0, None)
+        sin_el = m12a.desagregar(57.3, 180.0, self.INTENSIDADES, None)
         self.assertNotIn("h3_factor_mm", sin_el)
-        con_el = m12a.desagregar(57.3, 180.0, 10.0, 0.6)
+        con_el = m12a.desagregar(57.3, 180.0, self.INTENSIDADES, 0.6)
         self.assertAlmostEqual(con_el["h3_factor_mm"], 34.38, places=2)
 
     def test_el_cociente_permite_comparar_las_tres(self) -> None:
-        salida = m12a.desagregar(57.3, 180.0, 10.0, 0.6)
+        salida = m12a.desagregar(57.3, 180.0, self.INTENSIDADES, 0.6, "invias")
         self.assertAlmostEqual(salida["h3_factor_sobre_p24"], 0.6, places=3)
+        self.assertAlmostEqual(salida["h2_idf_sobre_p24"], 30.0 / 57.3,
+                               places=3)
 
 
 class PruebaCambioClimatico(unittest.TestCase):

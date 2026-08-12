@@ -280,8 +280,11 @@ def lamina_de_intensidad(intensidad_mm_h: float, duracion_min: float) -> float:
 
 
 def desagregar(
-    pmax24_mm: float, duracion_min: float, intensidad_idf_mm_h: float | None,
+    pmax24_mm: float,
+    duracion_min: float,
+    intensidades: dict[str, float | None] | None,
     coeficiente: float | None,
+    metodologia_adoptada: str = "",
 ) -> dict[str, Any]:
     """
     Las tres hipótesis de paso de P24h a la duración de diseño, en paralelo.
@@ -293,15 +296,33 @@ def desagregar(
     'h1_directa' asigna la lámina de 24 horas a la duración de diseño. Es la más
     conservadora con diferencia y rara vez defendible, pero se calcula porque
     marca la cota superior de las otras dos.
+
+    'h2_idf' SE CALCULA POR CADA METODOLOGÍA, porque integrar la curva de INVIAS
+    o la de Silva no da lo mismo: son dos estimaciones distintas de la misma
+    intensidad y la hipótesis hereda la diferencia entera. Mientras no se declare
+    cuál se adopta, se entregan las dos por separado y ninguna ocupa la columna
+    'h2_idf_mm', que es la que consumiría el M12b.
     """
     hipotesis: dict[str, Any] = {
         "duracion_min": duracion_min,
         "pmax24_mm": round(pmax24_mm, 2),
         "h1_directa_mm": round(pmax24_mm, 2),
     }
-    if intensidad_idf_mm_h is not None:
-        hipotesis["h2_idf_mm"] = round(
-            lamina_de_intensidad(intensidad_idf_mm_h, duracion_min), 2)
+
+    for metodo, intensidad in (intensidades or {}).items():
+        if intensidad is None:
+            continue
+        lamina = round(lamina_de_intensidad(intensidad, duracion_min), 2)
+        hipotesis[f"h2_idf_{metodo}_mm"] = lamina
+        if pmax24_mm > 0:
+            hipotesis[f"h2_idf_{metodo}_sobre_p24"] = round(
+                lamina / pmax24_mm, 4)
+
+    adoptada = (metodologia_adoptada or "").strip().lower()
+    if adoptada and hipotesis.get(f"h2_idf_{adoptada}_mm") is not None:
+        hipotesis["h2_idf_mm"] = hipotesis[f"h2_idf_{adoptada}_mm"]
+        hipotesis["h2_idf_metodologia"] = adoptada
+
     if coeficiente is not None:
         hipotesis["h3_factor_mm"] = round(pmax24_mm * coeficiente, 2)
 
@@ -624,14 +645,50 @@ def _resolver_desagregacion(configuracion, resultado, cuantiles,
             "tormenta.coeficiente_desagregacion.fuente", "") or "").strip()
         coeficiente = float(coeficiente) if coeficiente is not None else None
 
+        adoptada = str(configuracion.obtener(
+            "idf.metodologia_adoptada", "") or "").strip().lower()
         for periodo, pmax in cuantiles.items():
             fila = next((f for f in resultado.curvas
                          if f["periodo_retorno"] == periodo
                          and f["duracion_min"] == duracion_min), None)
-            intensidad = fila.get("i_invias_mm_h") if fila else None
-            hipotesis = desagregar(pmax, duracion_min, intensidad, coeficiente)
+            intensidades = {
+                "invias": (fila or {}).get("i_invias_mm_h"),
+                "silva": (fila or {}).get("i_silva_mm_h"),
+            }
+            hipotesis = desagregar(pmax, duracion_min, intensidades,
+                                   coeficiente, adoptada)
             hipotesis["periodo_retorno"] = periodo
             resultado.desagregacion.append(hipotesis)
+
+        if not adoptada:
+            muestra = resultado.desagregacion[0] if resultado.desagregacion else {}
+            por_metodo = "; ".join(
+                f"{m}: {muestra[f'h2_idf_{m}_mm']:.1f} mm "
+                f"({muestra[f'h2_idf_{m}_sobre_p24']:.0%} de P24h)"
+                for m in ("invias", "silva")
+                if muestra.get(f"h2_idf_{m}_mm") is not None)
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "desagregacion.sin_metodologia",
+                "'h2_idf' se calculo por CADA metodologia y ninguna se adopto: "
+                "idf.metodologia_adoptada esta sin declarar. Integrar la curva "
+                "de INVIAS o la de Silva no da lo mismo, y la hipotesis hereda "
+                f"la diferencia entera. Para T {muestra.get('periodo_retorno')} "
+                f"anios: {por_metodo}. Mientras no se declare, la columna "
+                "'h2_idf_mm' queda vacia y el M12b no tiene de donde tomarla.",
+            ))
+        elif adoptada not in ("invias", "silva"):
+            resultado.hallazgos.append(Hallazgo(
+                BLOQUEANTE, "desagregacion.metodologia_desconocida",
+                f"idf.metodologia_adoptada declara {adoptada!r}, que no es "
+                "ninguna de las calculadas ('invias', 'silva').",
+            ))
+        else:
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "desagregacion.metodologia",
+                f"'h2_idf' integra la curva de {adoptada.upper()}, declarada en "
+                "idf.metodologia_adoptada. Es la que el M12b usara si se adopta "
+                "esa hipotesis.",
+            ))
 
         adoptada = configuracion.obtener("tormenta.hipotesis_adoptada", None)
         if resultado.desagregacion:

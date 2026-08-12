@@ -797,6 +797,25 @@ ESQUEMA: dict[str, Campo] = {
         "región de la regionalización de curvas IDF",
         opciones=("andina", "caribe", "pacifica", "orinoquia", "amazonia"),
     ),
+    "idf.metodologia_adoptada": texto(
+        "metodología que alimenta la hipótesis h2_idf",
+        opciones=("invias", "silva"), requerido=False, permite_nulo=True,
+    ),
+    "idf.silva.b_min": numero(
+        "tiempo característico de la zona en el método de Silva",
+        minimo=0.0, maximo=60.0,
+    ),
+    "idf.silva.n": numero(
+        "exponente de decaimiento del método de Silva",
+        minimo=0.1, maximo=1.5,
+    ),
+    "idf.silva.coeficiente_24h_a_1h": numero(
+        "relación entre la máxima en 24 h y la de una hora",
+        minimo=0.01, maximo=1.0, requerido=False, permite_nulo=True,
+    ),
+    "idf.silva.fuente_coeficiente": texto(
+        "fuente del coeficiente de paso a una hora", requerido=False,
+    ),
     "idf.metodologias": lista(
         "metodologías de curvas IDF",
         texto("metodología", opciones=("invias", "silva", "ideam")),
