@@ -25,16 +25,24 @@ a subcuenca daría factores cercanos a uno sobre áreas de un kilómetro cuadrad
 dejaría la lluvia prácticamente sin reducir, que es el error de concepto más
 común con este factor.
 
-LA DURACIÓN IMPORTA Y AQUÍ HAY UNA COSTURA. El ARF crece con la duración: a
-igual área, tres horas se reducen más que veinticuatro. Este módulo tiene en la
-mano P24h, de modo que aplica el factor de 24 h y obtiene una P24h AREAL, que es
-una magnitud con sentido propio. El factor de la duración de diseño se calcula
-también y se declara, junto con el cociente que falta por aplicar, para que el
-M12b lo use tras la desagregación sin volver a reducir lo ya reducido.
+ESTE MÓDULO EVALÚA, NO APLICA. El factor depende de la DURACIÓN: sobre la misma
+área, tres horas se reducen más que veinticuatro, porque un aguacero corto es más
+localizado y uno largo da tiempo a que el frente barra la cuenca entera. Aquí solo
+hay P24h, y la lámina de diseño son 3 h: la desagregación de una a otra es del
+M12a, y hasta que no ocurre no existe la lámina a la que corresponde el factor.
+
+La primera versión aplicaba el de 24 h y dejaba un residual para el M12b. Daba el
+mismo número, pero repartía un factor entre dos módulos y confiaba en que nadie
+olvidase la segunda mitad: quien corriese el M12b sin leer la advertencia se
+quedaba con la lluvia de diseño un 8,7 % alta y nada lo señalaba. Se aplica UNA
+vez, en el módulo que tiene la lámina de la duración correcta.
+
+Es además lo que dice la sección 6: del ARF, "se evalúa siempre". No dice que se
+aplique aquí.
 
 Productos:
     data/02_procesado/precipitacion/arf.csv
-    data/02_procesado/precipitacion/precipitacion_areal.csv
+    data/05_resultados/graficos/M11c_curvas_arf.png y .svg
     data/02_procesado/M11c_arf.json
 
 Uso:
@@ -88,7 +96,6 @@ class ResultadoM11c:
     area_km2: float = 0.0
     factores: list[dict[str, Any]] = field(default_factory=list)
     adoptado: dict[str, Any] = field(default_factory=dict)
-    subcuencas: list[dict[str, Any]] = field(default_factory=list)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -245,45 +252,6 @@ def arf_analitico(area_km2: float, duracion_h: float) -> float:
     return 1.0 - math.exp(-termino) + math.exp(-termino - 0.01 * area_km2)
 
 
-def aplicar_factor(
-    subcuencas: Sequence[dict[str, Any]], factor: float, columnas: Sequence[str],
-) -> list[dict[str, Any]]:
-    """
-    Aplica el factor a cada columna de precipitación, conservando la original.
-
-    Se conservan las dos, la puntual y la areal. Sustituir en el sitio dejaría
-    una tabla en la que no se puede comprobar qué se aplicó ni deshacerlo.
-    """
-    salida = []
-    for subcuenca in subcuencas:
-        fila = dict(subcuenca)
-        for columna in columnas:
-            valor = subcuenca.get(columna)
-            if valor is None:
-                continue
-            try:
-                fila[columna.replace("_mm", "_areal_mm")] = round(
-                    float(valor) * factor, 2)
-            except (TypeError, ValueError):
-                continue
-        fila["arf"] = round(factor, 4)
-        salida.append(fila)
-    return salida
-
-
-def leer_precipitacion(ruta: Path, delimitador: str) -> list[dict[str, Any]]:
-    """Lee la tabla que dejó el M11, con una fila por subcuenca."""
-    if not ruta.is_file():
-        raise ErrorRutas(
-            f"no se encuentra {ruta}: ejecutar antes el M11, que es quien "
-            "promedia los campos por subcuenca.")
-    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
-        filas = list(csv.DictReader(manejador, delimiter=delimitador))
-    if not filas:
-        raise ErrorFormato(f"{ruta.name} no contiene ninguna subcuenca.")
-    return filas
-
-
 # =============================================================================
 # Ejecución
 # =============================================================================
@@ -320,20 +288,18 @@ def ejecutar(
     duracion_diseno = float(configuracion.obtener("tormenta.duracion_h"))
 
     try:
-        subcuencas = leer_precipitacion(
-            directorio / "precipitacion_por_subcuenca.csv", delimitador)
         tabla = leer_tabla_arf(
             rutas.resolver(configuracion.obtener("arf.tabla"), base),
             delimitador)
+        area = _area_de_la_cuenca(directorio, delimitador)
     except (ErrorFormato, ErrorRutas) as error:
         resultado.hallazgos.append(Hallazgo(
             BLOQUEANTE, "arf.insumos", str(error)))
         return _cerrar(logger, resultado, base, ruta_json, inicio,
                        SALIDA_BLOQUEANTE)
 
-    area = sum(float(s.get("area_km2") or 0.0) for s in subcuencas)
     resultado.area_km2 = round(area, 3)
-    logger.info("%d subcuenca(s), area total %.2f km2", len(subcuencas), area)
+    logger.info("Area de la cuenca %.2f km2", area)
 
     # --- Factores ------------------------------------------------------------
     with registro.bloque(logger, "Factor de reduccion"):
@@ -360,16 +326,38 @@ def ejecutar(
 
         _resolver_factores(resultado, duracion_diseno, logger)
 
-    # --- Aplicacion ----------------------------------------------------------
-    with registro.bloque(logger, "Aplicacion"):
-        _resolver_aplicacion(configuracion, resultado, subcuencas, logger)
+    # --- Figura --------------------------------------------------------------
+    with registro.bloque(logger, "Curvas de referencia"):
+        _escribir_figura(configuracion, base, resultado, tabla, logger)
 
     _escribir_productos(base, resultado, delimitador, logger)
     return _cerrar(logger, resultado, base, ruta_json, inicio, SALIDA_CORRECTA)
 
 
+def _area_de_la_cuenca(directorio: Path, delimitador: str) -> float:
+    """
+    Área total, sumada de la tabla que dejó el M11.
+
+    Se lee de un archivo y no se recalcula de la capa: si el M11 promedió la
+    lluvia sobre un conjunto de subcuencas, el factor tiene que corresponder a
+    ESE conjunto y no a otro que se midiera aparte.
+    """
+    ruta = directorio / "precipitacion_por_subcuenca.csv"
+    if not ruta.is_file():
+        raise ErrorRutas(
+            f"no se encuentra {ruta.name}: ejecutar antes el M11, que es quien "
+            "promedia los campos por subcuenca.")
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        filas = list(csv.DictReader(manejador, delimiter=delimitador))
+    area = sum(float(f.get("area_km2") or 0.0) for f in filas)
+    if area <= 0:
+        raise ErrorFormato(
+            f"{ruta.name} no suma area positiva: sin area no hay factor.")
+    return area
+
+
 def _resolver_factores(resultado, duracion_diseno, logger) -> None:
-    """Declara los dos factores, su contraste analítico y la costura pendiente."""
+    """Declara los factores y a qué lámina corresponde cada uno."""
     de_serie = resultado.factores[0]
     de_diseno = resultado.factores[1]
 
@@ -399,77 +387,108 @@ def _resolver_factores(resultado, duracion_diseno, logger) -> None:
             "corresponde a esta region. Mirar antes de adoptar.",
         ))
 
-    residual = (de_diseno["arf"] / de_serie["arf"]) if de_serie["arf"] else None
     resultado.adoptado = {
         "arf_serie_24h": de_serie["arf"],
         "arf_diseno": de_diseno["arf"],
         "duracion_diseno_h": duracion_diseno,
-        "residual_para_el_m12b": round(residual, 4) if residual else None,
+        "aplicado_aqui": False,
+        "aplica_el": "M12b, sobre la lamina desagregada a la duracion de diseno",
     }
     resultado.hallazgos.append(Hallazgo(
         INFORMATIVO, "arf.factores",
-        f"sobre {resultado.area_km2:.1f} km2 de cuenca: ARF de "
-        f"{de_serie['arf']:.3f} a 24 h, que es la duracion de la serie de Pmax, "
-        f"y {de_diseno['arf']:.3f} a {duracion_diseno:.0f} h, que es la de la "
-        f"tormenta de diseno. Se aplica el primero, porque es el que "
-        "corresponde al dato que hay en la mano, y queda un residual de "
-        f"{residual:.4f} que el M12b debe aplicar TRAS la desagregacion. "
-        "Aplicar aqui el de la tormenta reduciria una P24h con el factor de "
-        "otra duracion; no aplicar el residual despues dejaria la lluvia de "
-        "diseno sin la reduccion que le toca.",
+        f"sobre {resultado.area_km2:.1f} km2 de cuenca, el factor vale "
+        f"{de_diseno['arf']:.3f} a {duracion_diseno:.0f} h, que es la duracion "
+        f"de la tormenta de diseno, y {de_serie['arf']:.3f} a 24 h, que es la "
+        "de la serie de Pmax. Un aguacero corto es mas localizado y uno largo "
+        "da tiempo a que el frente barra la cuenca entera: por eso a menor "
+        "duracion hay que reducir mas.",
     ))
     resultado.hallazgos.append(Hallazgo(
-        ADVERTENCIA, "arf.residual_pendiente",
-        f"queda un factor residual de {residual:.4f} sin aplicar. El M12b debe "
-        "aplicarlo a la precipitacion desagregada a la duracion de diseno. Si "
-        "no lo hace, la lluvia de diseno queda reducida con el factor de 24 h y "
-        f"no con el de {duracion_diseno:.0f} h, es decir un "
-        f"{100.0 * (1 - residual):.1f} % por encima de lo que corresponde, del "
-        "lado inseguro.",
+        ADVERTENCIA, "arf.no_se_aplica_aqui",
+        f"el factor NO se aplica en este modulo. La lamina que hay aqui es de "
+        f"24 h y la de diseno es de {duracion_diseno:.0f} h: la desagregacion "
+        "entre una y otra es del M12a, y hasta que no ocurre no existe la "
+        f"lamina a la que corresponde {de_diseno['arf']:.3f}. EL M12b DEBE "
+        f"APLICARLO una sola vez sobre la lamina ya desagregada. Si no lo hace, "
+        f"la lluvia de diseno queda un {100.0 * (1 / de_diseno['arf'] - 1):.1f} "
+        "% por encima de lo que corresponde, del lado inseguro.",
     ))
 
 
-def _resolver_aplicacion(configuracion, resultado, subcuencas, logger) -> None:
-    """Aplica o no el factor, según la política declarada, y lo deja escrito."""
-    politica = str(configuracion.obtener("arf.aplicar")).strip().lower()
-    factor = resultado.adoptado["arf_serie_24h"]
-    columnas = [c for c in subcuencas[0] if c.startswith("p_T")
-                and c.endswith("_mm")]
+def _escribir_figura(configuracion, base, resultado, tabla, logger) -> None:
+    """
+    Curvas de referencia del ARF, con la cuenca del estudio situada sobre ellas.
 
-    if not columnas:
+    La figura contesta de un vistazo la pregunta que la cifra sola no contesta:
+    dónde cae este estudio dentro del rango en que la tabla fue medida. Una
+    cuenca en el tramo plano de las curvas admite un error de área sin que el
+    factor se mueva; una en el tramo empinado, no.
+
+    EL EJE DE ÁREAS ES LOGARÍTMICO, como el de las curvas originales y como la
+    interpolación que hace el módulo. Dibujarlo lineal amontonaría todas las
+    áreas pequeñas contra el margen y daría una impresión de linealidad que la
+    relación no tiene.
+    """
+    try:
+        import graficos
+    except ImportError as error:
         resultado.hallazgos.append(Hallazgo(
-            BLOQUEANTE, "arf.sin_columnas",
-            "la tabla del M11 no trae ninguna columna de precipitacion "
-            "'p_T*_mm' que reducir.",
-        ))
+            ADVERTENCIA, "graficos.ausente",
+            f"no se pudo dibujar las curvas de ARF: {error}"))
         return
 
-    if politica == "forzar_no":
-        resultado.subcuencas = [dict(s, arf=1.0) for s in subcuencas]
-        resultado.adoptado["aplicado"] = False
-        resultado.hallazgos.append(Hallazgo(
-            ADVERTENCIA, "arf.no_aplicado",
-            f"por decision declarada ('forzar_no') NO se aplica el factor, que "
-            f"habria sido {factor:.3f}. La precipitacion de diseno queda un "
-            f"{100.0 * (1 / factor - 1):.1f} % por encima de la que resultaria "
-            "de aplicarlo. Es una decision del consultor y debe justificarse en "
-            "el informe, no basta con declararla en la configuracion.",
-        ))
-        return
+    estilo = graficos.Estilo.desde_config(configuracion)
+    directorio = rutas.resolver(
+        configuracion.obtener("graficos.directorio"), base)
+    duraciones = sorted({f["duracion_h"] for f in tabla})
+    areas = sorted({f["area_km2"] for f in tabla})
+    por_clave = {(f["area_km2"], f["duracion_h"]): f["arf"] for f in tabla}
+    colores = graficos.rampa(len(duraciones), estilo)
+    de_diseno = resultado.factores[1]
 
-    resultado.subcuencas = aplicar_factor(subcuencas, factor, columnas)
-    resultado.adoptado["aplicado"] = True
-    resultado.adoptado["politica"] = politica
-    logger.info("Factor %.4f aplicado a %d columna(s) de %d subcuenca(s)",
-                factor, len(columnas), len(resultado.subcuencas))
-    resultado.hallazgos.append(Hallazgo(
-        INFORMATIVO, "arf.aplicado",
-        f"factor {factor:.3f} aplicado a {len(columnas)} periodo(s) de retorno "
-        f"en {len(resultado.subcuencas)} subcuenca(s), politica {politica!r}. "
-        "Se conservan las dos columnas, la puntual y la areal: sustituir en el "
-        "sitio dejaria una tabla en la que no se puede comprobar que se aplico "
-        "ni deshacerlo.",
-    ))
+    with graficos.figura(
+            estilo,
+            titulo="Factor de reducción por área",
+            etiqueta_x="Área de la cuenca (km²)",
+            etiqueta_y="ARF") as (fig, ax):
+        for color, duracion in zip(colores, duraciones):
+            valores = [por_clave.get((a, duracion)) for a in areas]
+            ax.plot(areas, valores, marker="o", markersize=3, color=color,
+                    linewidth=1.2, label=f"{duracion:g} h", zorder=2)
+
+        ax.set_xscale("log")
+
+        # La cuenca del estudio: una vertical y el punto sobre cada curva de
+        # interés, con su valor rotulado.
+        area = resultado.area_km2
+        ax.axvline(area, color="#b03a2e", linewidth=1.0, linestyle="--",
+                   zorder=3)
+        ax.annotate(f"{area:.0f} km²", xy=(area, ax.get_ylim()[0]),
+                    xytext=(3, 4), textcoords="offset points",
+                    color="#b03a2e", fontsize=estilo.tamano_fuente - 1,
+                    rotation=90, va="bottom", zorder=4)
+
+        for factor, etiqueta in ((de_diseno, "diseño"),
+                                 (resultado.factores[0], "serie")):
+            ax.plot([area], [factor["arf"]], marker="D", markersize=6,
+                    color="#b03a2e", zorder=5)
+            ax.annotate(
+                f"{factor['duracion_h']:g} h: {factor['arf']:.3f} ({etiqueta})",
+                xy=(area, factor["arf"]), xytext=(8, 0),
+                textcoords="offset points", color="#b03a2e",
+                fontsize=estilo.tamano_fuente - 1, va="center", zorder=5)
+
+        ax.legend(title="Duración", loc="lower left", frameon=False,
+                  fontsize=estilo.tamano_fuente - 1)
+        origen = next((f.get("origen") for f in tabla if f.get("origen")), "")
+        if origen:
+            fig.text(0.01, -0.02, f"Curvas: {origen}",
+                     fontsize=estilo.tamano_fuente - 2, color="#555555")
+
+        for ruta in graficos.guardar(
+                fig, directorio / "M11c_curvas_arf", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+    logger.info("Curvas de ARF dibujadas con %d duracion(es)", len(duraciones))
 
 
 def _escribir_csv(destino: Path, filas, delimitador: str) -> None:
@@ -494,11 +513,9 @@ def _escribir_csv(destino: Path, filas, delimitador: str) -> None:
 def _escribir_productos(base, resultado, delimitador, logger) -> None:
     """Escribe la tabla de factores y la de precipitación areal."""
     directorio = rutas.directorio("procesado", base, crear=True) / "precipitacion"
-    for nombre, contenido in (("arf.csv", resultado.factores),
-                              ("precipitacion_areal.csv", resultado.subcuencas)):
-        destino = directorio / nombre
-        _escribir_csv(destino, contenido, delimitador)
-        resultado.productos.append(rutas.relativa(destino, base))
+    destino = directorio / "arf.csv"
+    _escribir_csv(destino, resultado.factores, delimitador)
+    resultado.productos.append(rutas.relativa(destino, base))
     logger.info("Productos escritos en %s", rutas.relativa(directorio, base))
 
 

@@ -150,27 +150,32 @@ class PruebaAnalitico(unittest.TestCase):
                         m11c.arf_analitico(200.0, 24.0))
 
 
-class PruebaAplicacion(unittest.TestCase):
-    FILAS = [{"subcuenca": "A", "area_km2": 1.0,
-              "p_T2.33_mm": "40.0", "p_T100_mm": "90.0"}]
+class PruebaComposicionDeFactores(unittest.TestCase):
+    """
+    El factor se aplica UNA vez, sobre la lámina de su propia duración.
 
-    def test_conserva_la_columna_puntual(self) -> None:
-        # Sustituir en el sitio dejaría una tabla en la que no se puede
-        # comprobar qué se aplicó ni deshacerlo.
-        salida = m11c.aplicar_factor(self.FILAS, 0.9,
-                                     ["p_T2.33_mm", "p_T100_mm"])
-        self.assertEqual(salida[0]["p_T2.33_mm"], "40.0")
-        self.assertAlmostEqual(salida[0]["p_T2.33_areal_mm"], 36.0, places=2)
-        self.assertAlmostEqual(salida[0]["p_T100_areal_mm"], 81.0, places=2)
+    La primera versión aplicaba el de 24 h aquí y dejaba un residual para el
+    M12b. Daba el mismo número, pero repartía un factor entre dos módulos y
+    confiaba en que nadie olvidase la segunda mitad.
+    """
 
-    def test_deja_escrito_el_factor(self) -> None:
-        salida = m11c.aplicar_factor(self.FILAS, 0.9372, ["p_T2.33_mm"])
-        self.assertAlmostEqual(salida[0]["arf"], 0.9372, places=4)
+    def test_las_dos_rutas_dan_el_mismo_resultado(self) -> None:
+        # Es lo que justifica el cambio: si difirieran, sería una decisión
+        # técnica y no una simplificación.
+        de_24 = m11c.interpolar_arf(TABLA, 200.0, 24.0)["arf"]
+        de_3 = m11c.interpolar_arf(TABLA, 200.0, 3.0)["arf"]
+        residual = de_3 / de_24
+        self.assertAlmostEqual(de_24 * residual, de_3, places=6)
 
-    def test_una_columna_vacia_no_revienta(self) -> None:
-        salida = m11c.aplicar_factor(
-            [{"subcuenca": "A", "p_T5_mm": None}], 0.9, ["p_T5_mm"])
-        self.assertNotIn("p_T5_areal_mm", salida[0])
+    def test_el_factor_de_diseno_reduce_mas_que_el_de_la_serie(self) -> None:
+        # Un aguacero corto es más localizado: sobre la misma área hay que
+        # reducir más a 3 h que a 24 h.
+        self.assertLess(m11c.interpolar_arf(TABLA, 200.0, 3.0)["arf"],
+                        m11c.interpolar_arf(TABLA, 200.0, 24.0)["arf"])
+
+    def test_el_modulo_ya_no_aplica_el_factor(self) -> None:
+        # Aplicar aquí reduciría una P24h con el factor de otra duración.
+        self.assertFalse(hasattr(m11c, "aplicar_factor"))
 
 
 class PruebaConfiguracion(unittest.TestCase):
