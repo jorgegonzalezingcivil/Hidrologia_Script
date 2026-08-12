@@ -851,6 +851,16 @@ idf:
   # intensidad de diseno sin que nada mas lo senale.
   region: "andina"               # andina | caribe | pacifica | orinoquia | amazonia
   metodologias: [invias, silva]
+  # Metodo de Silva (1998): I = K / (d + b)^n, con d en MINUTOS y K anclada en
+  # la intensidad de una hora. No es una ley potencial.
+  silva:
+    b_min: 10.0                  # tiempo caracteristico de la zona, entre 5 y 20 min
+    n: 0.6                       # entre 0,5 y 0,6; 0,6 para lluvias mas intensas
+    # DECISION CON MARGEN Y ESPECIFICA DEL ESTUDIO. Relacion entre la maxima en
+    # 24 h y la maxima en una hora. Gobierna el NIVEL entero de la curva, de
+    # modo que exige fuente escrita: no se hereda de otro estudio.
+    coeficiente_24h_a_1h: 0.369
+    fuente_coeficiente: ""
   coeficientes_invias: "data/referencia/idf_coef_invias.csv"
   consultar_idf_ideam: true
   antiguedad_maxima_anios: 15    # advertir si la IDF publicada es más antigua

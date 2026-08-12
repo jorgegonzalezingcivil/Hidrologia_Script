@@ -122,24 +122,51 @@ class PruebaContraElInformeDeReferencia(unittest.TestCase):
 
 
 class PruebaIntensidadSilva(unittest.TestCase):
-    def test_reproduce_la_lamina_de_24_horas(self) -> None:
-        # Por construcción: en t = 1440 min devuelve la P24h de partida, y por
-        # eso en ese punto no verifica nada.
-        intensidad = m12a.intensidad_silva(1440.0, 10.0, 57.3)
-        self.assertAlmostEqual(
-            m12a.lamina_de_intensidad(intensidad, 1440.0), 57.3, places=4)
+    """
+    Silva (1998): I = K / (d + b)^n, con d en minutos. NO es una ley potencial.
+
+    La primera version lo implemento como P(t) = P24h * (t/1440)^0,25, que es
+    una regla de desagregacion corriente pero no es este metodo, y hacia decaer
+    la curva con exponente 0,75 en lugar de 0,6.
+    """
+
+    B, N, COEF = 10.0, 0.6, 0.369
+
+    def _i(self, duracion, pmax=87.7):
+        return m12a.intensidad_silva(duracion, pmax, self.COEF, self.B, self.N)
+
+    def test_reproduce_la_k_del_informe_de_referencia(self) -> None:
+        # Tabla 59 del numeral 5.5.2: Pmax24 de 87,7 mm da Pmax1h de 32,35 mm
+        # y K de 413,95 con b = 10 min y n = 0,6.
+        # El informe publica 32,35 y 0,369 x 87,7 da 32,3613: el coeficiente
+        # que uso viene redondeado a tres decimales en el texto.
+        intensidad_1h = self.COEF * 87.7
+        self.assertAlmostEqual(intensidad_1h, 32.35, delta=0.02)
+        k = intensidad_1h * (60.0 + self.B) ** self.N
+        self.assertAlmostEqual(k, 413.95, delta=0.2)
+
+    def test_la_curva_pasa_por_su_ancla_de_una_hora(self) -> None:
+        self.assertAlmostEqual(self._i(60.0), self.COEF * 87.7, places=6)
+
+    def test_decae_con_exponente_n_y_no_con_una_potencia_de_la_duracion(self) -> None:
+        # Con la forma de Talbot el cociente entre dos duraciones depende de
+        # (d + b) y no de d: es lo que separa este metodo de la ley potencial.
+        esperado = ((180.0 + self.B) / (30.0 + self.B)) ** -self.N
+        self.assertAlmostEqual(self._i(180.0) / self._i(30.0), esperado,
+                               places=6)
 
     def test_la_intensidad_crece_al_acortar_la_duracion(self) -> None:
-        self.assertGreater(m12a.intensidad_silva(5.0, 10.0, 57.3),
-                           m12a.intensidad_silva(180.0, 10.0, 57.3))
+        self.assertGreater(self._i(5.0), self._i(180.0))
 
-    def test_la_lamina_crece_con_la_duracion(self) -> None:
-        # La intensidad baja pero la lámina acumulada sube: son cosas distintas.
-        corta = m12a.lamina_de_intensidad(
-            m12a.intensidad_silva(5.0, 10.0, 57.3), 5.0)
-        larga = m12a.lamina_de_intensidad(
-            m12a.intensidad_silva(180.0, 10.0, 57.3), 180.0)
-        self.assertLess(corta, larga)
+    def test_escala_linealmente_con_la_lamina_de_24_horas(self) -> None:
+        self.assertAlmostEqual(self._i(60.0, 100.0) / self._i(60.0, 50.0), 2.0,
+                               places=6)
+
+    def test_magnitudes_no_positivas(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m12a.intensidad_silva(0.0, 87.7, self.COEF, self.B, self.N)
+        with self.assertRaises(ErrorHidrologia):
+            m12a.intensidad_silva(60.0, 87.7, self.COEF, self.B, -0.1)
 
 
 class PruebaDesagregacion(unittest.TestCase):

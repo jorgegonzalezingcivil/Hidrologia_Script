@@ -191,28 +191,50 @@ def intensidad_invias(
 
 
 def intensidad_silva(
-    duracion_min: float, periodo_retorno: float, pmax24_mm: float,
+    duracion_min: float, pmax24_mm: float, coeficiente_1h: float,
+    b_min: float, n: float,
 ) -> float:
     """
-    Intensidad por el método de Silva, que desagrega desde la Pmáx24h del sitio.
+    Intensidad por el método de Silva (1998), en la forma que publica su fuente.
 
-    Reparte la lámina de 24 horas sobre duraciones menores con una ley
-    potencial, anclada en la propia Pmáx24h del periodo de retorno pedido:
+        I = K / (d + b)^n
 
-        P(t) = P24h * (t / 1440)^n     con n = 0,25 (Hershfield)
-        i(t) = 60 * P(t) / t
+    con d en MINUTOS, b un tiempo característico de la zona y n el exponente de
+    decaimiento. K se obtiene anclando la curva en la intensidad de UNA HORA:
 
-    NO ES INDEPENDIENTE DEL ANÁLISIS DE FRECUENCIA, y ahí está su virtud y su
-    límite. Reproduce por construcción la P24h del M07 en t = 1440 min, de modo
-    que en ese punto no verifica nada; a cambio, a duraciones cortas describe la
-    cuenca con su propio dato y no con un coeficiente regional.
+        P1h = coeficiente_1h * P24h
+        K   = P1h * (60 + b)^n
+
+    NO ES UNA LEY POTENCIAL. La primera versión de este módulo la implementó
+    como P(t) = P24h * (t/1440)^0,25, que es una regla de desagregación
+    corriente pero no es Silva. La diferencia no es de matiz: con la forma de
+    Talbot la curva decae con exponente n = 0,6 y con la potencial lo hacía con
+    0,75, de modo que quedaba SIEMPRE por debajo de INVIAS y la separación
+    crecía con la duración. En el informe de referencia las dos curvas SE
+    CRUZAN, con INVIAS arriba en los primeros minutos y Silva arriba a partir
+    de la media hora, y ese cruce es la firma de que los exponentes son 0,66 y
+    0,6 y no 0,66 y 0,75.
+
+    Los tres parámetros se declaran en la configuración. 'b' está entre 5 y 20
+    minutos y 'n' entre 0,5 y 0,6, siendo 0,6 el asociado a lluvias más
+    intensas. El coeficiente de paso de 24 h a 1 h es específico del estudio y
+    exige fuente escrita: gobierna el nivel entero de la curva.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si alguna magnitud no es positiva.
     """
-    if duracion_min <= 0 or pmax24_mm <= 0:
+    if duracion_min <= 0 or pmax24_mm <= 0 or coeficiente_1h <= 0:
         raise ErrorHidrologia(
-            f"duración ({duracion_min} min) y Pmáx24h ({pmax24_mm} mm) deben "
-            "ser positivas.")
-    lamina = pmax24_mm * (duracion_min / MINUTOS_EN_24H) ** 0.25
-    return 60.0 * lamina / duracion_min
+            f"duración ({duracion_min} min), Pmáx24h ({pmax24_mm} mm) y "
+            f"coeficiente de paso a 1 h ({coeficiente_1h}) deben ser positivos.")
+    if b_min < 0 or n <= 0:
+        raise ErrorHidrologia(
+            f"b ({b_min} min) no puede ser negativo y n ({n}) debe ser positivo.")
+    intensidad_1h = coeficiente_1h * pmax24_mm
+    k = intensidad_1h * (60.0 + b_min) ** n
+    return k / (duracion_min + b_min) ** n
 
 
 def lamina_de_intensidad(intensidad_mm_h: float, duracion_min: float) -> float:
@@ -412,6 +434,12 @@ def _resolver_curvas(configuracion, base, resultado, cuantiles, duraciones,
         region = tabla[resultado.region]
         metodologias = [str(m).strip().lower()
                         for m in configuracion.obtener("idf.metodologias")]
+        b_silva = float(configuracion.obtener("idf.silva.b_min"))
+        n_silva = float(configuracion.obtener("idf.silva.n"))
+        coeficiente_1h = float(configuracion.obtener(
+            "idf.silva.coeficiente_24h_a_1h"))
+        fuente_1h = str(configuracion.obtener(
+            "idf.silva.fuente_coeficiente", "") or "").strip()
         # La media de la serie ancla la curva regional a esta cuenca. Se toma
         # el cuantil de 2,33 anios, que es la media de una Gumbel.
         media = cuantiles.get(2.33) or statistics.fmean(cuantiles.values())
@@ -423,8 +451,8 @@ def _resolver_curvas(configuracion, base, resultado, cuantiles, duraciones,
                     fila["i_invias_mm_h"] = round(intensidad_invias(
                         duracion, periodo, media, region), 3)
                 if "silva" in metodologias:
-                    fila["i_silva_mm_h"] = round(
-                        intensidad_silva(duracion, periodo, pmax), 3)
+                    fila["i_silva_mm_h"] = round(intensidad_silva(
+                        duracion, pmax, coeficiente_1h, b_silva, n_silva), 3)
                 uno = fila.get("i_invias_mm_h")
                 otro = fila.get("i_silva_mm_h")
                 if uno and otro:
@@ -434,6 +462,16 @@ def _resolver_curvas(configuracion, base, resultado, cuantiles, duraciones,
 
         logger.info("%d punto(s) de curva | region %s | media de anclaje "
                     "%.1f mm", len(resultado.curvas), resultado.region, media)
+
+        if "silva" in metodologias and not fuente_1h:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "idf.silva_sin_fuente",
+                f"el coeficiente de paso de 24 h a 1 h ({coeficiente_1h}) no "
+                "tiene fuente declarada. Gobierna el NIVEL entero de la curva "
+                "de Silva: multiplicarlo por dos duplica toda la intensidad. Es "
+                "especifico del estudio y no puede heredarse de otro sin "
+                "escribir de donde sale.",
+            ))
 
         if not region["validado"]:
             resultado.hallazgos.append(Hallazgo(
@@ -694,6 +732,13 @@ def _escribir_figura(configuracion, base, resultado, logger) -> None:
     periodos = sorted({f["periodo_retorno"] for f in resultado.curvas})
     colores = graficos.rampa(len(periodos), estilo)
     duracion_diseno = float(configuracion.obtener("tormenta.duracion_h")) * 60.0
+    # EJES LINEALES Y ACOTADOS A LA DURACION DE DISENO. Una IDF se lee por su
+    # forma, la caida abrupta de los primeros minutos y el aplanamiento
+    # posterior, y eso solo se ve en lineal: en log-log la ley potencial es una
+    # recta y la figura deja de parecerse a lo que un revisor espera. Llevarla
+    # hasta 1.440 minutos aplastaria contra el eje justo el tramo que interesa.
+    # Asi la presenta el informe de referencia, numeral 5.5, hasta 180 minutos.
+    limite = duracion_diseno
 
     with graficos.figura(
             estilo,
@@ -702,7 +747,8 @@ def _escribir_figura(configuracion, base, resultado, logger) -> None:
             etiqueta_y="Intensidad (mm/h)") as (fig, ax):
         for color, periodo in zip(colores, periodos):
             de_ese = sorted((f for f in resultado.curvas
-                             if f["periodo_retorno"] == periodo),
+                             if f["periodo_retorno"] == periodo
+                             and f["duracion_min"] <= limite),
                             key=lambda f: f["duracion_min"])
             equis = [f["duracion_min"] for f in de_ese]
             ax.plot(equis, [f.get("i_invias_mm_h") for f in de_ese],
@@ -711,20 +757,23 @@ def _escribir_figura(configuracion, base, resultado, logger) -> None:
             ax.plot(equis, [f.get("i_silva_mm_h") for f in de_ese],
                     color=color, linewidth=1.0, linestyle=":", zorder=2)
 
-        ax.set_xscale("log")
-        ax.set_yscale("log")
+        ax.set_xlim(0, limite * 1.05)
+        ax.set_ylim(bottom=0)
         ax.axvline(duracion_diseno, color="#b03a2e", linewidth=1.0,
                    linestyle="--", zorder=3)
+        # El rotulo va abajo: arriba se solapaba con la leyenda, que ocupa la
+        # esquina donde arrancan las curvas de periodo alto.
         ax.annotate(f"diseño {duracion_diseno:.0f} min",
-                    xy=(duracion_diseno, ax.get_ylim()[0]),
-                    xytext=(3, 4), textcoords="offset points",
+                    xy=(duracion_diseno, 0),
+                    xytext=(-5, 6), textcoords="offset points",
                     color="#b03a2e", fontsize=estilo.tamano_fuente - 1,
-                    rotation=90, va="bottom", zorder=4)
+                    ha="right", va="bottom", zorder=4)
         ax.legend(title="Periodo de retorno", loc="upper right", frameon=False,
                   fontsize=estilo.tamano_fuente - 2, ncols=2)
         fig.text(0.01, -0.02,
                  "Línea continua: INVIAS (Vargas y Díaz-Granados). "
-                 "Punteada: Silva.",
+                 "Punteada: Silva (1998). La tabla llega a 1.440 min; la "
+                 "figura se acota a la duración de diseño.",
                  fontsize=estilo.tamano_fuente - 2, color="#555555")
 
         for ruta in graficos.guardar(fig, directorio / "M12a_curvas_idf",
