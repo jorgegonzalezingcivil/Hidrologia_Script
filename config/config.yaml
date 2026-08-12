@@ -1082,10 +1082,21 @@ hec_hms:
     # mancha alrededor de los cauces. Sirve para detectar el orden de magnitud
     # equivocado, no para arbitrar una diferencia del 20%.
     banda_area_pct: 50.0
-    # Area minima de subcuenca. Por debajo suele tratarse de un artefacto del
-    # trazado y no de una unidad hidrologica. Se mide sobre la GEOMETRIA: la
-    # exportacion de HEC-HMS no trae campo de area.
+    # Area por debajo de la cual una subcuenca se marca como pequena. Se mide
+    # sobre la GEOMETRIA: la exportacion de HEC-HMS no trae campo de area.
     area_minima_subcuenca_km2: 0.5
+    # DECISION CON MARGEN, y por eso se declara aqui y viaja al reporte
+    # (CLAUDE.md, seccion 7). El M09 nunca elimina ni fusiona nada: identifica,
+    # lista en CSV y deja constancia del criterio.
+    #
+    #   conservar  el modelo de HEC-HMS ya esta construido con ellas y sus
+    #              parametros se calculan como los de cualquier otra. A cambio,
+    #              el M10 debe vigilar el tiempo: en un area de hectareas el Tc
+    #              cae fuera del rango de validez de las formulas y el rezago
+    #              puede quedar por debajo del intervalo de calculo, que
+    #              HEC-HMS no puede resolver.
+    #   fusionar   se recomienda unirlas a su vecina. Se hace en HEC-HMS.
+    politica_subcuencas_pequenas: "conservar"   # conservar | fusionar
 
 calibracion:
   activar_si_hay_series: true

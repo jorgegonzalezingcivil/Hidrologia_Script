@@ -1039,6 +1039,10 @@ ESQUEMA: dict[str, Campo] = {
     "hec_hms.intercambio.area_minima_subcuenca_km2": numero(
         "área mínima admitida de subcuenca", minimo=0.0, maximo=1000.0,
     ),
+    "hec_hms.intercambio.politica_subcuencas_pequenas": texto(
+        "qué se hace con las subcuencas por debajo del área mínima",
+        opciones=("conservar", "fusionar"),
+    ),
 
     "calibracion.activar_si_hay_series": booleano(
         "activar la calibración si existen series utilizables",

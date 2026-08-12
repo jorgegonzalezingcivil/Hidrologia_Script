@@ -311,12 +311,12 @@ def subcuencas_pequenas(
     ruta: Path, minimo_km2: float,
 ) -> list[dict[str, Any]]:
     """
-    Subcuencas por debajo del área mínima, que suelen ser artefactos.
+    Subcuencas por debajo del área mínima declarada.
 
-    Una subcuenca de unas hectáreas junto a otras de decenas de kilómetros
-    cuadrados no es una unidad hidrológica: es un residuo del trazado, y
-    arrastrarla al modelo produce un hidrograma sin sentido físico y un tiempo
-    de concentración absurdo.
+    NO se eliminan ni se sugiere eliminarlas. Qué hacer con ellas lo decide el
+    consultor y se declara en 'hec_hms.intercambio.politica_subcuencas_pequenas';
+    este módulo solo las identifica y las lista, porque el modelo de HEC-HMS ya
+    está construido con las que haya y quien decida debe poder verlas.
 
     EL ÁREA SE MIDE SOBRE LA GEOMETRÍA, no se lee de un atributo. La exportación
     de HEC-HMS trae los parámetros que el programa calculó (`long_len`,
@@ -325,9 +325,6 @@ def subcuencas_pequenas(
     ninguna subcuenca diminuta. Medido sobre la exportación de este estudio:
     por atributo ninguna, por geometría 24 por debajo de 0,5 km², la menor de
     0,006 km², es decir seis mil metros cuadrados.
-
-    Se reporta sin eliminar: fusionarla con su vecina es decisión del consultor
-    y se hace en HEC-HMS, no aquí.
     """
     try:
         areas = shapefile.areas_poligonos(ruta)
@@ -825,15 +822,41 @@ def _importar(configuracion, base, resultado, logger) -> None:
         resultado.productos.append(rutas.relativa(listado, base))
         menor = min(fila["area_km2"] for fila in pequenas)
         suma = sum(fila["area_km2"] for fila in pequenas)
+        politica = str(configuracion.obtener(
+            "hec_hms.intercambio.politica_subcuencas_pequenas")).strip().lower()
+        if politica == "conservar":
+            criterio = (
+                "CRITERIO ADOPTADO: se conservan. El modelo de HEC-HMS esta "
+                "construido con ellas y sus parametros se calculan como los de "
+                "cualquier otra. Lo que hay que vigilar aguas abajo es el "
+                "tiempo: en un area asi el tiempo de concentracion cae por "
+                "debajo del rango de validez de las formulas y el rezago "
+                "resultante puede quedar por debajo del intervalo de calculo, "
+                "y HEC-HMS no puede resolver un hidrograma cuyo rezago es menor "
+                "que su paso de tiempo. El M10 debe declararlo subcuenca por "
+                "subcuenca")
+        else:
+            criterio = (
+                "CRITERIO ADOPTADO: fusionar. Una subcuenca de unas hectareas "
+                "junto a otras de decenas de kilometros cuadrados suele ser un "
+                "residuo del trazado y no una unidad hidrologica. Se hace en "
+                "HEC-HMS, no aqui")
+        resultado.verificaciones.append({
+            "prueba": "subcuencas_pequenas",
+            "minimo_km2": minimo,
+            "cuantas": len(pequenas),
+            "de": resultado.subcuencas["entidades"],
+            "menor_km2": menor,
+            "suma_km2": round(suma, 3),
+            "politica": politica,
+        })
         resultado.hallazgos.append(Hallazgo(
             ADVERTENCIA, "importar.subcuencas_pequenas",
             f"{len(pequenas)} de {resultado.subcuencas['entidades']} subcuenca(s) "
             f"por debajo de {minimo} km2, la menor de {menor:.4f} km2, "
-            f"{suma:.2f} km2 en total. Suelen ser artefactos del trazado y no "
-            "unidades hidrologicas: arrastrarlas produce un hidrograma sin "
-            "sentido fisico y un tiempo de concentracion absurdo. La lista esta "
-            f"en {rutas.relativa(listado, base)}. Fusionarlas es decision del "
-            "consultor y se hace en HEC-HMS.",
+            f"{suma:.2f} km2 en total, el "
+            f"{100.0 * suma / max(delimitada, 1e-9):.1f}% del area. La lista "
+            f"esta en {rutas.relativa(listado, base)}. {criterio}.",
         ))
 
     # --- Publicacion ---------------------------------------------------------

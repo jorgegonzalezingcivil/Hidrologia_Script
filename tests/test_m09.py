@@ -305,6 +305,13 @@ class PruebaConfiguracion(unittest.TestCase):
         self.assertGreaterEqual(banda, 10.0)
         self.assertLessEqual(banda, 100.0)
 
+    def test_la_politica_de_subcuencas_pequenas_se_declara(self) -> None:
+        # El M09 nunca elimina ni fusiona: identifica y deja constancia del
+        # criterio, que es lo que exige la sección 7 del CLAUDE.md.
+        politica = str(_CFG.obtener(
+            "hec_hms.intercambio.politica_subcuencas_pequenas"))
+        self.assertIn(politica, ("conservar", "fusionar"))
+
     def test_el_esquema_declara_las_dos_claves_nuevas(self) -> None:
         # Sin esquema, un estudio que no las tenga fallaría al leerlas en
         # lugar de ser rechazado al validar la configuración.
