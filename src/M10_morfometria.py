@@ -125,12 +125,31 @@ def parametros_geometricos(ruta: Path) -> dict[str, float]:
     círculo de igual área: vale 1 en una cuenca circular y crece con la
     irregularidad. Por encima de 1,5 la cuenca es alargada, y eso amortigua el
     hidrograma porque el agua de las cabeceras llega desfasada.
+
+    EL PERÍMETRO ES EL DEL CONTORNO, no la suma del de cada subcuenca. Cuando la
+    delimitación llega partida en unidades, sumar sus perímetros cuenta dos
+    veces cada linde interior. Medido sobre las 125 subcuencas de este estudio:
+    1.002,6 km sumando frente a 145,3 km de contorno, y un Gravelius de 19,06
+    donde correspondía 2,74. Diecinueve es imposible en una cuenca real, pero
+    nada en el cálculo lo señalaba: el número salía, entraba en la tabla y de
+    ahí al informe.
+
+    Si el mosaico no es una cobertura limpia, el contorno no se puede obtener
+    por conteo de aristas y se cae a la suma, declarándolo en 'perimetro_metodo'
+    para que quien lea la tabla sepa qué tiene delante.
     """
     area_m2 = float(shapefile.area_poligonos(ruta))
-    perimetro_m = float(shapefile.perimetro_poligonos(ruta))
     axial_m = float(shapefile.distancia_maxima(ruta))
     if area_m2 <= 0:
         raise ErrorFormato(f"{ruta.name} no encierra área positiva.")
+
+    contorno = geometria.perimetro_exterior(shapefile.leer_geometrias(ruta))
+    if contorno["cobertura_limpia"]:
+        perimetro_m = float(contorno["perimetro_m"])
+        metodo = "contorno"
+    else:
+        perimetro_m = float(shapefile.perimetro_poligonos(ruta))
+        metodo = "suma_de_piezas"
 
     area_km2 = area_m2 / 1e6
     perimetro_km = perimetro_m / 1000.0
@@ -138,6 +157,10 @@ def parametros_geometricos(ruta: Path) -> dict[str, float]:
     return {
         "area_km2": round(area_km2, 3),
         "perimetro_km": round(perimetro_km, 3),
+        "perimetro_metodo": metodo,
+        "aristas_frontera": contorno["aristas_frontera"],
+        "aristas_compartidas": contorno["aristas_compartidas"],
+        "aristas_repetidas": contorno["aristas_repetidas"],
         "longitud_axial_km": round(axial_km, 3),
         "ancho_medio_km": round(area_km2 / axial_km, 3) if axial_km else None,
         # Coeficiente de forma de Horton: área sobre el cuadrado de la longitud.
@@ -1734,13 +1757,25 @@ def ejecutar(
                     parametros["area_km2"], parametros["perimetro_km"],
                     parametros["longitud_axial_km"],
                     parametros["coef_compacidad"])
-        if parametros["coef_compacidad"] > 1.5:
+        if parametros["perimetro_metodo"] == "suma_de_piezas":
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "morfometria.perimetro",
+                f"el perimetro es la SUMA del de cada pieza y no el contorno de "
+                f"la cuenca, porque el mosaico no es una cobertura limpia: "
+                f"{parametros['aristas_repetidas']} arista(s) aparecen mas de "
+                "dos veces. Sumar cuenta dos veces cada linde interior y el "
+                "coeficiente de compacidad sale inflado en la misma proporcion: "
+                "no usarlo hasta corregir la topologia de las subcuencas.",
+            ))
+        elif parametros["coef_compacidad"] > 1.5:
             resultado.hallazgos.append(Hallazgo(
                 INFORMATIVO, "morfometria.forma",
-                f"coeficiente de compacidad {parametros['coef_compacidad']:.2f}: "
-                "la cuenca es alargada. Eso amortigua el hidrograma, porque el "
-                "agua de las cabeceras llega desfasada respecto a la cercana al "
-                "cierre.",
+                f"coeficiente de compacidad {parametros['coef_compacidad']:.2f}, "
+                f"sobre un contorno de {parametros['perimetro_km']:.1f} km "
+                f"obtenido de las {parametros['aristas_frontera']} aristas que "
+                f"no comparten dos subcuencas: la cuenca es alargada. Eso "
+                "amortigua el hidrograma, porque el agua de las cabeceras llega "
+                "desfasada respecto a la cercana al cierre.",
             ))
 
     # --- Drenaje -------------------------------------------------------------
@@ -1886,12 +1921,23 @@ def ejecutar(
 
         if not resultado.adoptados["procede_adoptar"]:
             fuera = [e for e in resultado.tiempos if not e["aplicable"]][:4]
+            # La causa de no adoptar es una de dos, y el mensaje debe decir
+            # cual. Anunciar siempre que faltan formulas afirmaba algo falso
+            # cuando lo que sobraba era dispersion: aqui habia 6 aplicables
+            # frente a un minimo de 5, y el texto sostenia lo contrario.
+            if aplicables < minimo:
+                causa = (f"solo {aplicables} formula(s) aplican a una cuenca de "
+                         f"{parametros['area_km2']:.0f} km2, por debajo del "
+                         f"minimo de {minimo}")
+            else:
+                causa = (f"{aplicables} formula(s) aplican a una cuenca de "
+                         f"{parametros['area_km2']:.0f} km2, por encima del "
+                         f"minimo de {minimo}, pero su dispersion excede lo "
+                         "admitido y ninguna mediana representa a ese conjunto")
             resultado.hallazgos.append(Hallazgo(
                 ADVERTENCIA if aplicables else BLOQUEANTE,
                 "tiempo_concentracion.no_adoptable",
-                f"solo {aplicables} formula(s) aplican a una cuenca de "
-                f"{parametros['area_km2']:.0f} km2, por debajo del minimo de "
-                f"{minimo}. NO se adopta la mediana, como exige CLAUDE.md, "
+                f"{causa}. NO se adopta la mediana, como exige CLAUDE.md, "
                 "seccion 7. Las formulas de Tc se calibraron casi todas en "
                 "cuencas pequenas, y usarlas fuera de su rango es la "
                 "extrapolacion mas frecuente y menos justificada de la "

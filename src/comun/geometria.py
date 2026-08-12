@@ -18,8 +18,9 @@ referencia en que están los puntos a evaluar.
 
 from __future__ import annotations
 
+import math
 import re
-from typing import Sequence
+from typing import Any, Sequence
 
 from .errores import ErrorFormato
 
@@ -30,6 +31,7 @@ __all__ = [
     "punto_en_poligono",
     "punto_en_alguno",
     "envolvente",
+    "perimetro_exterior",
 ]
 
 # Un anillo es una secuencia de vértices; un polígono, su anillo exterior
@@ -153,6 +155,61 @@ def envolvente(poligonos: Sequence[Poligono]) -> tuple[float, float, float, floa
     if not xs:
         raise ErrorFormato("No hay vértices de los que obtener una envolvente.")
     return (min(xs), min(ys), max(xs), max(ys))
+
+
+def perimetro_exterior(
+    poligonos: Sequence[Poligono], tolerancia_m: float = 0.01,
+) -> dict[str, Any]:
+    """
+    Perímetro del contorno de un mosaico de polígonos contiguos.
+
+    Sumar el perímetro de cada pieza NO da el perímetro del conjunto: cada linde
+    interior se cuenta dos veces. Sobre las 125 subcuencas de este estudio la
+    suma da 1.002,6 km y el contorno real 145,3 km, siete veces menos. El
+    coeficiente de compacidad de Gravelius, que divide el perímetro por la raíz
+    del área, pasaba de 19,06 a 2,74: de un valor imposible en una cuenca real a
+    uno que dice lo que se espera que diga.
+
+    El método es de conteo, no de geometría: en un mosaico sin huecos ni solapes
+    cada linde interior aparece exactamente DOS veces, una por cada pieza que lo
+    comparte, y cada tramo del contorno una sola. Se suman los que aparecen una
+    vez. Exige que las piezas compartan vértices, que es el caso cuando salen de
+    una misma delimitación sobre una malla.
+
+    Se devuelve también el recuento, porque es el que dice si el resultado vale.
+    Un mosaico con aristas que aparecen tres veces o más no es una cobertura
+    limpia, y ahí el conteo deja de significar lo que se supone: quien llame debe
+    mirar 'cobertura_limpia' antes de usar el perímetro.
+    """
+    escala = 1.0 / tolerancia_m if tolerancia_m > 0 else 1.0
+    cuenta: dict[tuple[tuple[int, int], tuple[int, int]], int] = {}
+    largo: dict[tuple[tuple[int, int], tuple[int, int]], float] = {}
+
+    for poligono in poligonos:
+        for anillo in poligono:
+            for uno, otro in zip(anillo, anillo[1:]):
+                izquierda = (round(uno[0] * escala), round(uno[1] * escala))
+                derecha = (round(otro[0] * escala), round(otro[1] * escala))
+                if izquierda == derecha:
+                    continue
+                clave = ((izquierda, derecha) if izquierda < derecha
+                         else (derecha, izquierda))
+                cuenta[clave] = cuenta.get(clave, 0) + 1
+                if clave not in largo:
+                    largo[clave] = math.hypot(otro[0] - uno[0],
+                                              otro[1] - uno[1])
+
+    frontera = [clave for clave, veces in cuenta.items() if veces == 1]
+    compartidas = sum(1 for veces in cuenta.values() if veces == 2)
+    repetidas = sum(1 for veces in cuenta.values() if veces > 2)
+
+    return {
+        "perimetro_m": sum(largo[clave] for clave in frontera),
+        "aristas_frontera": len(frontera),
+        "aristas_compartidas": compartidas,
+        "aristas_repetidas": repetidas,
+        "cobertura_limpia": repetidas == 0 and len(frontera) > 0,
+    }
 
 
 # =============================================================================

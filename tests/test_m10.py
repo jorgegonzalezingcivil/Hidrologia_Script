@@ -19,7 +19,7 @@ if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
 import M10_morfometria as m10  # noqa: E402
-from comun import shapefile  # noqa: E402
+from comun import geometria, shapefile  # noqa: E402
 from comun.config import cargar  # noqa: E402
 from comun.errores import ErrorHidrologia, ErrorRutas  # noqa: E402
 
@@ -597,6 +597,57 @@ class PruebaGrupoHidrologico(unittest.TestCase):
     def test_un_paso_mas_fino_no_cambia_el_dominante(self) -> None:
         self.assertEqual(self._muestreo(paso=1000.0)["grupo_dominante"],
                          self._muestreo(paso=500.0)["grupo_dominante"])
+
+
+def _cuadricula(columnas: int, filas: int, lado: float = 1000.0):
+    """Mosaico de celdas contiguas que comparten sus lindes, como un catastro."""
+    piezas = []
+    for columna in range(columnas):
+        for fila in range(filas):
+            x, y = columna * lado, fila * lado
+            piezas.append([[(x, y), (x, y + lado), (x + lado, y + lado),
+                            (x + lado, y), (x, y)]])
+    return piezas
+
+
+class PruebaPerimetroExterior(unittest.TestCase):
+    """
+    Sumar el perímetro de cada subcuenca cuenta dos veces cada linde interior.
+
+    Medido sobre las 125 subcuencas de este estudio: 1.002,6 km sumando frente a
+    145,3 km de contorno, y un Gravelius de 19,06 donde correspondía 2,74.
+    Diecinueve es imposible en una cuenca real, y nada en el cálculo lo señalaba.
+    """
+
+    def test_el_contorno_no_cuenta_los_lindes_interiores(self) -> None:
+        # 3x3 celdas de 1 km: el contorno son 12 km, la suma de las nueve
+        # piezas son 36 km.
+        resultado = geometria.perimetro_exterior(_cuadricula(3, 3))
+        self.assertAlmostEqual(resultado["perimetro_m"], 12_000.0, places=3)
+        self.assertEqual(resultado["aristas_frontera"], 12)
+        self.assertEqual(resultado["aristas_compartidas"], 12)
+        self.assertTrue(resultado["cobertura_limpia"])
+
+    def test_una_pieza_sola_da_su_propio_perimetro(self) -> None:
+        resultado = geometria.perimetro_exterior(_cuadricula(1, 1))
+        self.assertAlmostEqual(resultado["perimetro_m"], 4_000.0, places=3)
+
+    def test_una_cobertura_con_solapes_se_declara_sucia(self) -> None:
+        # La misma pieza tres veces: sus aristas aparecen tres veces y el
+        # conteo deja de significar lo que se supone.
+        pieza = _cuadricula(1, 1)
+        resultado = geometria.perimetro_exterior(pieza * 3)
+        self.assertGreater(resultado["aristas_repetidas"], 0)
+        self.assertFalse(resultado["cobertura_limpia"])
+
+    def test_las_piezas_separadas_suman_sus_contornos(self) -> None:
+        lejos = [[[(0.0, 0.0), (0.0, 100.0), (100.0, 100.0), (100.0, 0.0),
+                   (0.0, 0.0)]],
+                 [[(9000.0, 0.0), (9000.0, 100.0), (9100.0, 100.0),
+                   (9100.0, 0.0), (9000.0, 0.0)]]]
+        resultado = geometria.perimetro_exterior(lejos)
+        self.assertAlmostEqual(resultado["perimetro_m"], 800.0, places=3)
+        self.assertEqual(resultado["aristas_compartidas"], 0)
 
 
 class PruebaModoDeAnalisis(unittest.TestCase):
