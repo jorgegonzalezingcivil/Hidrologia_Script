@@ -170,18 +170,71 @@ def media_zonal(
                                               float(dentro.max()))
 
     salida = []
-    for registro_zona in acumulado:
-        if not registro_zona["celdas"]:
-            salida.append({"media": None, "minimo": None, "maximo": None,
-                           "celdas": 0})
+    for indice, registro_zona in enumerate(acumulado):
+        if registro_zona["celdas"]:
+            salida.append({
+                "media": registro_zona["suma"] / registro_zona["celdas"],
+                "minimo": registro_zona["minimo"],
+                "maximo": registro_zona["maximo"],
+                "celdas": registro_zona["celdas"],
+                "origen": "zonal",
+            })
             continue
+        # SIN NINGUNA CELDA DENTRO. Ocurre cuando la subcuenca es más pequeña
+        # que la celda del campo interpolado y ningún centro cae en ella: dos
+        # de las 125 de este estudio, de 61 y 120 áreas. No es ausencia de
+        # lluvia, es ausencia de MUESTREO, y dejarla sin valor la sacaría del
+        # modelo. Se toma el valor del campo en su centroide, que es lo que un
+        # campo continuo dice en ese punto.
+        valor = _valor_en_centroide(ruta_raster, entidades[indice], info, np_)
         salida.append({
-            "media": registro_zona["suma"] / registro_zona["celdas"],
-            "minimo": registro_zona["minimo"],
-            "maximo": registro_zona["maximo"],
-            "celdas": registro_zona["celdas"],
+            "media": valor,
+            "minimo": valor,
+            "maximo": valor,
+            "celdas": 0,
+            "origen": "centroide" if valor is not None else "sin_dato",
         })
     return salida
+
+
+def _valor_en_centroide(ruta_raster, anillos, info, np_) -> float | None:
+    """
+    Valor del ráster en el centroide del polígono, o en la celda válida más
+    cercana si ahí no hay dato.
+
+    La búsqueda se ensancha en anillos alrededor de la celda del centroide y se
+    detiene en cuanto encuentra dato. Se limita a unas pocas celdas: si a esa
+    distancia sigue sin haber campo, el problema no es de muestreo y devolver
+    None es más honesto que traer un valor de lejos.
+    """
+    try:
+        x, y = geometria.centroide([list(anillo) for anillo in anillos])
+    except ErrorFormato:
+        return None
+
+    fila = info.fila_de(y)
+    columna = info.columna_de(x)
+    with raster.LectorRaster(ruta_raster) as lector:
+        for radio in range(0, 4):
+            for desplazamiento_fila in range(-radio, radio + 1):
+                objetivo = fila + desplazamiento_fila
+                if not 0 <= objetivo < info.alto:
+                    continue
+                valores = np_.frombuffer(lector.fila(objetivo),
+                                         dtype=info.descriptor)
+                for desplazamiento_columna in range(-radio, radio + 1):
+                    if max(abs(desplazamiento_fila),
+                           abs(desplazamiento_columna)) != radio:
+                        continue
+                    destino = columna + desplazamiento_columna
+                    if not 0 <= destino < info.ancho:
+                        continue
+                    valor = float(valores[destino])
+                    if info.nodato is not None and valor == info.nodato:
+                        continue
+                    if math.isfinite(valor):
+                        return valor
+    return None
 
 
 def fraccion_fuera_del_rango(
@@ -440,6 +493,8 @@ def ejecutar(
                 subcuenca[f"p_T{etiqueta}_mm"] = (
                     round(valores["media"], 2)
                     if valores["media"] is not None else None)
+                if valores["origen"] != "zonal":
+                    subcuenca["origen_precipitacion"] = valores["origen"]
             con_dato = [v["media"] for v in zonal if v["media"] is not None]
             area_total = sum(s["area_km2"] for s in resultado.subcuencas)
             ponderada = sum(
@@ -458,15 +513,38 @@ def ejecutar(
             logger.info("T %s anios: %d subcuencas, media ponderada %.1f mm",
                         etiqueta, len(con_dato), ponderada or 0.0)
 
+        for subcuenca in resultado.subcuencas:
+            subcuenca.setdefault("origen_precipitacion", "zonal")
+
+        por_centroide = [s for s in resultado.subcuencas
+                         if s["origen_precipitacion"] == "centroide"]
+        if por_centroide:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "subcuencas.precipitacion_por_centroide",
+                f"{len(por_centroide)} subcuenca(s) no contienen ningun centro "
+                f"de celda del campo interpolado: "
+                f"{[s['subcuenca'] for s in por_centroide]}, de "
+                + ", ".join(f"{s['area_km2'] * 100:.1f} ha"
+                            for s in por_centroide)
+                + ". Son mas pequenas que la celda del raster, de modo que no "
+                "es ausencia de lluvia sino de MUESTREO. CRITERIO ADOPTADO: se "
+                "les asigna el valor del campo en su centroide, que es lo que "
+                "un campo continuo dice en ese punto. Dejarlas sin valor las "
+                "sacaria del modelo, y sobre areas de esta magnitud la "
+                "diferencia con el promedio zonal es despreciable frente al "
+                "error de interpolacion, que el M08 midio entre el 6,7 y el "
+                "42,6 % segun el periodo.",
+            ))
+
         sin_dato = [s["subcuenca"] for s in resultado.subcuencas
                     if all(s.get(f"p_T{e}_mm") is None for e, _ in campos)]
         if sin_dato:
             resultado.hallazgos.append(Hallazgo(
-                ADVERTENCIA, "subcuencas.sin_precipitacion",
-                f"{len(sin_dato)} subcuenca(s) sin ninguna celda de los campos "
-                f"de precipitacion: {sin_dato[:6]}. Suelen ser las diminutas, "
-                "mas pequenas que la celda del raster interpolado. Sin lluvia "
-                "asignada no pueden entrar en el modelo.",
+                BLOQUEANTE, "subcuencas.sin_precipitacion",
+                f"{len(sin_dato)} subcuenca(s) siguen sin precipitacion "
+                f"despues de buscarla en su centroide: {sin_dato[:6]}. Ahi el "
+                "campo no llega, y sin lluvia asignada no pueden entrar en el "
+                "modelo.",
             ))
 
     # --- Gradiente altitudinal: se lee, no se decreta ------------------------

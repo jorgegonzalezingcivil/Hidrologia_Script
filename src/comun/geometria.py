@@ -32,6 +32,7 @@ __all__ = [
     "punto_en_alguno",
     "envolvente",
     "perimetro_exterior",
+    "centroide",
     "columnas_de_fila",
     "IndiceEtiquetado",
 ]
@@ -157,6 +158,49 @@ def envolvente(poligonos: Sequence[Poligono]) -> tuple[float, float, float, floa
     if not xs:
         raise ErrorFormato("No hay vértices de los que obtener una envolvente.")
     return (min(xs), min(ys), max(xs), max(ys))
+
+
+def centroide(poligono: Poligono) -> tuple[float, float]:
+    """
+    Centroide de área de un polígono, descontando sus huecos.
+
+    Se obtiene con la fórmula de Gauss sobre cada anillo, ponderando por el área
+    con signo: un anillo interior aporta área negativa y desplaza el centroide
+    lejos del hueco, que es lo correcto.
+
+    NO es el centro de la envolvente. Sobre una forma alargada o curvada los dos
+    difieren, y el de la envolvente puede caer fuera del propio polígono.
+
+    Si el polígono degenera y encierra área nula, se devuelve la media de sus
+    vértices: es lo único que queda, y sigue estando dentro de su extensión.
+
+    Excepciones
+    -----------
+    ErrorFormato
+        Si no hay ningún vértice.
+    """
+    x_total = y_total = area_total = 0.0
+    vertices: list[tuple[float, float]] = []
+
+    for anillo in poligono:
+        vertices.extend(anillo)
+        area = x_parcial = y_parcial = 0.0
+        for uno, otro in zip(anillo, list(anillo[1:]) + [anillo[0]]):
+            cruz = uno[0] * otro[1] - otro[0] * uno[1]
+            area += cruz
+            x_parcial += (uno[0] + otro[0]) * cruz
+            y_parcial += (uno[1] + otro[1]) * cruz
+        if area:
+            x_total += x_parcial / 6.0
+            y_total += y_parcial / 6.0
+            area_total += area / 2.0
+
+    if not vertices:
+        raise ErrorFormato("el polígono no tiene ningún vértice.")
+    if area_total == 0.0:
+        return (sum(v[0] for v in vertices) / len(vertices),
+                sum(v[1] for v in vertices) / len(vertices))
+    return (x_total / area_total, y_total / area_total)
 
 
 def columnas_de_fila(

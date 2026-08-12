@@ -19,7 +19,9 @@ if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
 import M11_zonificacion as m11  # noqa: E402
+from comun import geometria  # noqa: E402
 from comun.config import cargar  # noqa: E402
+from comun.errores import ErrorFormato  # noqa: E402
 
 _CFG = cargar(raiz=_RAIZ_REPO)
 
@@ -103,6 +105,47 @@ class PruebaGradienteMedido(unittest.TestCase):
     def test_un_reporte_sin_ajuste_devuelve_vacio(self) -> None:
         self.assertEqual(
             m11.leer_gradiente_medido(self._escribir({"por_periodo": {}})), {})
+
+
+class PruebaCentroide(unittest.TestCase):
+    """
+    El respaldo por centroide existe para las subcuencas más pequeñas que la
+    celda del campo interpolado: no es ausencia de lluvia, es de muestreo.
+    """
+
+    CUADRADO = [[(0.0, 0.0), (0.0, 10.0), (10.0, 10.0), (10.0, 0.0),
+                 (0.0, 0.0)]]
+
+    def test_el_centroide_de_un_cuadrado_es_su_centro(self) -> None:
+        x, y = geometria.centroide(self.CUADRADO)
+        self.assertAlmostEqual(x, 5.0, places=6)
+        self.assertAlmostEqual(y, 5.0, places=6)
+
+    def test_un_hueco_desplaza_el_centroide(self) -> None:
+        # Hueco en la mitad derecha: el centroide se corre a la izquierda.
+        hueco = [(6.0, 2.0), (8.0, 2.0), (8.0, 8.0), (6.0, 8.0), (6.0, 2.0)]
+        x, _ = geometria.centroide([self.CUADRADO[0], hueco])
+        self.assertLess(x, 5.0)
+
+    def test_una_forma_en_ele_no_da_el_centro_de_la_envolvente(self) -> None:
+        ele = [[(0.0, 0.0), (0.0, 10.0), (2.0, 10.0), (2.0, 2.0),
+                (10.0, 2.0), (10.0, 0.0), (0.0, 0.0)]]
+        x, y = geometria.centroide(ele)
+        envolvente = geometria.envolvente([ele])
+        centro_caja = ((envolvente[0] + envolvente[2]) / 2,
+                       (envolvente[1] + envolvente[3]) / 2)
+        self.assertNotAlmostEqual(x, centro_caja[0], places=3)
+        self.assertNotAlmostEqual(y, centro_caja[1], places=3)
+
+    def test_un_poligono_degenerado_no_revienta(self) -> None:
+        recta = [[(0.0, 0.0), (5.0, 0.0), (10.0, 0.0), (0.0, 0.0)]]
+        x, y = geometria.centroide(recta)
+        self.assertTrue(0.0 <= x <= 10.0)
+        self.assertAlmostEqual(y, 0.0, places=6)
+
+    def test_sin_vertices_es_error_explicito(self) -> None:
+        with self.assertRaises(ErrorFormato):
+            geometria.centroide([])
 
 
 class PruebaConfiguracion(unittest.TestCase):
