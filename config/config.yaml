@@ -105,6 +105,15 @@ referencia_nacional:
   directorio: "C:/SIG_Referencia_Nacional"
   drenaje_sencillo: "Drenaje_Sencillo.shp"
   drenaje_doble: "Drenaje_Doble.shp"
+  # El IGAC representa los embalses como POLIGONO APARTE, y ni las lineas del
+  # drenaje sencillo ni el eje del drenaje doble los atraviesan: la red queda
+  # cortada en cada embalse. Medido sobre el Embalse San Rafael, en el Rio
+  # Teusaca: la traza aguas arriba del punto se detiene en su orilla norte, y
+  # el rio continua 12,7 km al sur con 47 km de cauce que quedaban fuera.
+  #
+  # Se incorporan a la derivacion del eje junto con el drenaje doble, de modo
+  # que el esqueleto los atraviese y la red no se interrumpa.
+  embalses: "Embalse.shp"
   escala: "1:100000"
   fuente: "IGAC"
   fecha: "2021-07-29"
@@ -151,6 +160,7 @@ referencia_nacional:
   salida_recorte_cobertura: "data/03_SIG/vector/cobertura_clc_area.shp"
   salida_recorte_sencillo: "data/03_SIG/vector/drenaje_sencillo_area.shp"
   salida_recorte_doble: "data/03_SIG/vector/drenaje_doble_area.shp"
+  salida_recorte_embalses: "data/03_SIG/vector/embalses_area.shp"
   salida_grafo: "data/02_procesado/red_drenaje_grafo.json"
 
 subzonas_hidrograficas:

@@ -959,12 +959,29 @@ def ejecutar(
                     configuracion, base, resultado.plan, logger
                 )
 
-        with registro.bloque(logger, "Extracción del modelo de elevación"):
-            _extraer_escenas(configuracion, base, logger)
-
-        with registro.bloque(logger, "Mosaico, reproyección y recorte"):
-            ruta_dem = preparar_dem(configuracion, base, objetivo, crs_calculo, logger)
+        # Si el DEM ya está y no se va a descargar nada, se reutiliza. Un
+        # estudio puede heredarlo de otro que comparta subzona, y entonces no
+        # tiene las escenas crudas: exigirlas obligaría a volver a descargar
+        # 2,2 GB para producir un archivo idéntico al que ya existe.
+        ruta_dem = rutas.resolver(
+            configuracion.obtener("dem.delimitacion.salida_dem"), base)
+        if sin_descarga and ruta_dem.is_file():
             resultado.dem = rutas.relativa(ruta_dem, base)
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "dem.reutilizado",
+                f"se reutiliza el DEM existente en {resultado.dem} y se omiten "
+                "la extracción y el mosaico. Su procedencia debe quedar "
+                "declarada en el informe si viene de otro estudio.",
+            ))
+            logger.info("DEM reutilizado: %s", resultado.dem)
+        else:
+            with registro.bloque(logger, "Extracción del modelo de elevación"):
+                _extraer_escenas(configuracion, base, logger)
+
+            with registro.bloque(logger, "Mosaico, reproyección y recorte"):
+                ruta_dem = preparar_dem(configuracion, base, objetivo,
+                                        crs_calculo, logger)
+                resultado.dem = rutas.relativa(ruta_dem, base)
 
     if fase != "preliminar":
         with registro.bloque(logger, "Acotado del área con la red del M02b"):
@@ -990,7 +1007,7 @@ def ejecutar(
 
     with registro.bloque(logger, "Escritura del área de influencia"):
         _escribir_area(configuracion, base, area, escenario, ruta_dem,
-                       crs_calculo, resultado, logger)
+                       crs_calculo, resultado, logger, solo_area)
 
     codigo = (SALIDA_BLOQUEANTE if esquema.hay_bloqueantes(resultado.hallazgos)
               else SALIDA_CORRECTA)
@@ -1170,7 +1187,7 @@ def _a_geografico(geometrias: dict, crs_calculo, configuracion) -> dict[str, str
 
 
 def _escribir_area(configuracion, base, area, escenario, ruta_dem, crs_calculo,
-                   resultado, logger) -> None:
+                   resultado, logger, solo_area: bool = False) -> None:
     """Escribe el área de influencia, su envolvente y el área de estaciones."""
     from qgis.core import QgsGeometry
 
@@ -1202,6 +1219,14 @@ def _escribir_area(configuracion, base, area, escenario, ruta_dem, crs_calculo,
     _registrar_producto(resultado, base, destino_env, CAMPOS_MARCO, delimitador)
 
     # --- Recorte del drenaje nacional ---------------------------------------
+    # SOLO EN LA PRIMERA FASE. El recorte se hace a la extensión de BÚSQUEDA,
+    # que es la subzona, y no al área de influencia. En la segunda fase el área
+    # ya está acotada por el trazado de la red, y volver a recortar sobre ella
+    # dejaría al M02b una red más pequeña, que en el siguiente acotado daría un
+    # área aún menor: una realimentación que encoge el estudio en cada pasada
+    # sin que nada lo señale.
+    if solo_area:
+        return
     # Las capas del IGAC pesan 645 MB y viven fuera del repositorio. El recorte
     # a la envolvente pesa unos cientos de kilobytes y es lo que se versiona.
     #
@@ -1218,6 +1243,10 @@ def _escribir_area(configuracion, base, area, escenario, ruta_dem, crs_calculo,
          "referencia_nacional.salida_recorte_sencillo"),
         ("referencia_nacional.drenaje_doble",
          "referencia_nacional.salida_recorte_doble"),
+        # Los embalses cortan la red: el IGAC los dibuja como poligono aparte y
+        # ni las lineas ni el eje del drenaje doble los atraviesan.
+        ("referencia_nacional.embalses",
+         "referencia_nacional.salida_recorte_embalses"),
     ):
         origen_capa = directorio_nacional / configuracion.obtener(clave_origen)
         destino_capa = rutas.resolver(

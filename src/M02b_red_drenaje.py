@@ -315,8 +315,13 @@ def ejecutar(
         configuracion.obtener("referencia_nacional.salida_recorte_doble"), base)
     ruta_dem = rutas.resolver(
         configuracion.obtener("dem.delimitacion.salida_dem"), base)
+    # La extensión de trabajo es la de BÚSQUEDA, la subzona del M01, y no el
+    # área de influencia. El área se acota trazando sobre esta misma red, de
+    # modo que usarla aquí realimentaría: red más pequeña, área más pequeña,
+    # red más pequeña todavía, encogiendo el estudio en cada pasada sin que
+    # nada lo señale.
     ruta_area = rutas.resolver(
-        configuracion.obtener("dem.delimitacion.salida_area_influencia"), base)
+        configuracion.obtener("subzonas_hidrograficas.salida_subzona"), base)
 
     registro.registrar_cabecera(
         logger, MODULO, DESCRIPCION, config=configuracion,
@@ -324,7 +329,7 @@ def ejecutar(
             "drenaje sencillo": rutas.relativa(ruta_sencillo, base),
             "drenaje doble": rutas.relativa(ruta_doble, base),
             "modelo de elevación": rutas.relativa(ruta_dem, base),
-            "área de influencia": rutas.relativa(ruta_area, base),
+            "extensión de trabajo": rutas.relativa(ruta_area, base),
         },
         parametros=configuracion.parametros((
             "crs.calculo",
@@ -395,6 +400,21 @@ def ejecutar(
         destino_eje = rutas.resolver(
             configuracion.obtener("red_topologica.salida_eje"), base)
         with tempfile.TemporaryDirectory() as temporal:
+            # LOS EMBALSES NO SE RASTERIZAN CON LOS CAUCES. Se intentó, y
+            # el resultado lo desmiente: un embalse tiene lámina plana y su
+            # esqueleto recorre los brazos laterales del polígono, no un cauce.
+            # Medido sobre el Embalse San Rafael, la cadena derivada sube de
+            # 2.789 a 3.097 m, imposible en un curso de agua.
+            #
+            # 'orientar_eje' decide el sentido por componente con una
+            # referencia de cota, y sobre una mancha ramificada eso no tiene
+            # solución: la dirección de flujo dentro de un embalse no existe.
+            #
+            # Un embalse es un NODO y no un tramo: entra agua por varios
+            # afluentes y sale por uno. Conectarlo exige unir sus entradas con
+            # su salida, no inventarle un canal. El recorte de embalses se
+            # produce y se conserva para ese trabajo, que queda PENDIENTE, y
+            # mientras tanto la red sigue cortada en cada embalse.
             red.eje_de_poligonos(
                 ruta_doble, destino_eje,
                 float(configuracion.obtener("red_topologica.resolucion_eje_m")),

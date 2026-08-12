@@ -898,6 +898,13 @@ ESQUEMA: dict[str, Campo] = {
         minimo=0.0, maximo=1.0,
     ),
 
+    "referencia_nacional.embalses": texto(
+        "capa nacional de embalses", no_vacio=True,
+    ),
+    "referencia_nacional.salida_recorte_embalses": texto(
+        "recorte de los embalses al area", no_vacio=True,
+    ),
+
     "estaciones.precedencia_estado": lista(
         "precedencia del estado ante un catalogo que se contradice",
         texto("estado"),
