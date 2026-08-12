@@ -1,0 +1,33 @@
+clase;descripcion;condicion_hidrologica;cn_a;cn_b;cn_c;cn_d;origen
+bosque_denso;Bosque denso, con sotobosque y hojarasca sin perturbar;buena;30;55;70;77;SCS TR-55 (1986) tabla 2-2c, Woods good
+bosque_regular;Bosque con pastoreo o quema ocasional, hojarasca parcial;regular;36;60;73;79;SCS TR-55 (1986) tabla 2-2c, Woods fair
+bosque_pobre;Bosque muy intervenido, sin hojarasca ni sotobosque;mala;45;66;77;83;SCS TR-55 (1986) tabla 2-2c, Woods poor
+bosque_pastos;Combinacion de arbolado y pasto, arboricultura;regular;43;65;76;82;SCS TR-55 (1986) tabla 2-2c, Woods-grass combination fair
+arbustal_denso;Matorral denso con buena cobertura del suelo;buena;30;48;65;73;SCS TR-55 (1986) tabla 2-2c, Brush good
+arbustal_abierto;Matorral abierto, cobertura del suelo parcial;regular;35;56;70;77;SCS TR-55 (1986) tabla 2-2c, Brush fair
+arbustal_ralo;Matorral ralo o degradado;mala;48;67;77;83;SCS TR-55 (1986) tabla 2-2c, Brush poor
+herbazal_denso;Herbazal o pradera natural con cobertura continua;buena;39;61;74;80;SCS TR-55 (1986) tabla 2-2c, Pasture-grassland good
+herbazal_abierto;Herbazal abierto o con afloramientos;regular;49;69;79;84;SCS TR-55 (1986) tabla 2-2c, Pasture-grassland fair
+pasto_manejado;Pradera de corte, cobertura continua sin pastoreo;buena;30;58;71;78;SCS TR-55 (1986) tabla 2-2c, Meadow continuous grass
+pasto_limpio;Pasto en buena condicion, pastoreo ligero;buena;39;61;74;80;SCS TR-55 (1986) tabla 2-2c, Pasture good
+pasto_enmalezado;Pasto en condicion regular, pastoreo moderado;regular;49;69;79;84;SCS TR-55 (1986) tabla 2-2c, Pasture fair
+pasto_degradado;Pasto sobrepastoreado, suelo expuesto;mala;68;79;86;89;SCS TR-55 (1986) tabla 2-2c, Pasture poor
+cultivo_hilera;Cultivo en hilera, surco recto, residuos retirados;regular;67;78;85;89;SCS TR-55 (1986) tabla 2-2b, Row crops straight row good
+cultivo_hilera_contorno;Cultivo en hilera con practicas de conservacion;buena;65;75;82;86;SCS TR-55 (1986) tabla 2-2b, Row crops contoured good
+cultivo_denso;Cultivo de grano fino o cobertura densa;buena;63;75;83;87;SCS TR-55 (1986) tabla 2-2b, Small grain straight row good
+cultivo_permanente;Cultivo permanente arboreo o arbustivo con cobertura;buena;43;65;76;82;SCS TR-55 (1986) tabla 2-2c, Woods-grass combination fair
+cultivo_arroz;Cultivo inundado con lamina de agua permanente;buena;62;71;78;81;SCS TR-55 (1986) tabla 2-2b, adaptado a arroz anegado
+cultivo_confinado;Invernadero o cubierta plastica, escorrentia casi total;mala;89;92;94;95;SCS TR-55 (1986) tabla 2-2a, Commercial 85% impermeable
+mosaico_agropecuario;Mosaico de pastos y cultivos sin espacios naturales;regular;62;71;78;81;Media de cultivo_hilera y pasto_limpio, TR-55 tabla 2-2b y 2-2c
+mosaico_con_naturales;Mosaico agropecuario con espacios naturales;regular;51;66;76;81;Media de cultivo_hilera, pasto_limpio y bosque_regular, TR-55
+zona_verde_urbana;Parque, jardin o cesped con mas del 75% de cobertura;buena;39;61;74;80;SCS TR-55 (1986) tabla 2-2a, Open space good
+urbano_discontinuo;Tejido residencial, 38% de superficie impermeable;mala;61;75;83;87;SCS TR-55 (1986) tabla 2-2a, Residential 1/4 acre
+urbano_continuo;Tejido urbano denso, 65% de superficie impermeable;mala;77;85;90;92;SCS TR-55 (1986) tabla 2-2a, Residential 1/8 acre
+comercial;Zona comercial o de servicios, 85% impermeable;mala;89;92;94;95;SCS TR-55 (1986) tabla 2-2a, Commercial and business
+industrial;Zona industrial, 72% de superficie impermeable;mala;81;88;91;93;SCS TR-55 (1986) tabla 2-2a, Industrial districts
+pavimento;Via pavimentada, pista o cubierta impermeable;mala;98;98;98;98;SCS TR-55 (1986) tabla 2-2a, Paved streets and roads
+suelo_desnudo;Tierra desnuda, area degradada o recien movida;mala;77;86;91;94;SCS TR-55 (1986) tabla 2-2b, Fallow bare soil
+afloramiento_rocoso;Roca expuesta, escorrentia practicamente total;mala;94;96;97;98;SCS TR-55 (1986), superficie impermeable natural
+arenal;Arenal o deposito suelto de alta infiltracion;buena;63;77;85;88;SCS TR-55 (1986) tabla 2-2b, Fallow crop residue
+humedal;Zona pantanosa, almacenamiento superficial;buena;85;85;85;85;SCS NEH-630 cap. 9, zonas con almacenamiento permanente
+agua;Rio, laguna, embalse o cuerpo de agua;buena;100;100;100;100;SCS NEH-630 cap. 9, superficie de agua libre

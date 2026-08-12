@@ -986,6 +986,15 @@ tiempo_concentracion:
   filtrar_por_tipo_cuenca: true
   valor_adoptado: "mediana"      # mediana del subconjunto aplicable
   min_formulas_aplicables: 5     # por debajo: advertir, no adoptar automáticamente
+  # FORMULA UNICA POR SUBCUENCA. Vacio = regla de la mediana del subconjunto
+  # aplicable. Con un nombre, esa formula manda, siempre que la matriz la
+  # declare aplicable: declararla no exime de su rango de calibracion.
+  #
+  # 'scs_lag' es la coherente con transform: scs_uh (CLAUDE.md, seccion 7). La
+  # mediana no era adoptable en 116 de 124 subcuencas por dispersion, con
+  # valores entre 0,55 y 6,30 h en una misma unidad: promediar eso no da un
+  # valor central sino uno arbitrario.
+  formula_adoptada: "scs_lag"
   cv_maximo_admisible: 0.60      # por encima: advertir
   reportar_sensibilidad_caudal: true
 
@@ -1013,6 +1022,10 @@ numero_curva:
   # HYSOGs tiene celda de unos 231 m: muestrear mas fino no aporta detalle y
   # multiplica el coste.
   muestreo_suelos_m: 250.0
+  # Paso de la malla con que se cruza la cobertura con el grupo de suelo. Mas
+  # fino que el de suelos porque la cobertura Corine tiene poligonos de pocas
+  # hectareas: con 250 m, una subcuenca pequena no recibe ninguna muestra.
+  muestreo_cobertura_m: 50.0
   # DECISION CON MARGEN. Los grupos duales (A/D, B/D, C/D) describen un suelo
   # cuyo grupo depende de si esta drenado. 'no_drenado' los asigna al grupo D,
   # el mas desfavorable y el del lado seguro para el diseno; 'drenado' los

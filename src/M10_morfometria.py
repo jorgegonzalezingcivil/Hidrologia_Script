@@ -1259,6 +1259,7 @@ def tiempos_de_subcuenca(
     cv_maximo: float,
     criterio_rezago: str,
     intervalo_min: float,
+    formula_adoptada: str = "",
 ) -> dict[str, Any]:
     """
     Tiempo de concentración y de rezago de UNA subcuenca.
@@ -1287,12 +1288,44 @@ def tiempos_de_subcuenca(
         subcuenca.get("pendiente_flujo"), magnitudes)
     resumen = resumir_adopcion(evaluadas, minimo_formulas, cv_maximo)
 
+    # UNA FORMULA DECLARADA MANDA SOBRE LA MEDIANA. La seccion 7 exige coherencia
+    # entre el parametro calculado y el metodo de transformacion de HEC-HMS: con
+    # 'scs_uh' la formula coherente es la de retardo del SCS, que no promedia
+    # trece formulas calibradas en poblaciones distintas sino que usa la del
+    # propio metodo. Medido en esta cuenca, la mediana no era adoptable en 116
+    # de 124 subcuencas por dispersion, con valores entre 0,55 y 6,30 h en una
+    # misma unidad: promediar eso no da un valor central, da uno arbitrario.
+    #
+    # La formula declarada tiene que seguir siendo APLICABLE segun la matriz.
+    # Declararla no exime de su rango de calibracion.
+    if formula_adoptada:
+        elegida = next((e for e in evaluadas
+                        if e["formula"] == formula_adoptada), None)
+        if elegida is not None and elegida["aplicable"] \
+                and elegida.get("tc_horas") is not None:
+            resumen = dict(resumen, procede_adoptar=True,
+                           criterio=f"formula {formula_adoptada}",
+                           tc_horas=elegida["tc_horas"],
+                           tc_minutos=elegida["tc_minutos"])
+        else:
+            motivo = "no aplicable" if elegida is not None and not elegida[
+                "aplicable"] else "no calculable"
+            resumen = dict(resumen, procede_adoptar=False,
+                           criterio=f"formula {formula_adoptada}",
+                           tc_horas=None, tc_minutos=None,
+                           motivo_formula=(
+                               f"{formula_adoptada}: {motivo}"
+                               + (f" ({elegida['motivo']})" if elegida
+                                  and elegida.get("motivo") else "")))
+
     tc_horas = resumen.get("tc_horas")
     rezago = tiempo_de_rezago(tc_horas, criterio_rezago, intervalo_min)
     tlag_min = rezago.get("tlag_minutos")
 
     if resumen["procede_adoptar"]:
         motivo = ""
+    elif resumen.get("motivo_formula"):
+        motivo = resumen["motivo_formula"]
     elif resumen["formulas_aplicables"] < minimo_formulas:
         motivo = "menos formulas aplicables que el minimo"
     elif resumen["dispersion_excesiva"]:
@@ -1307,6 +1340,7 @@ def tiempos_de_subcuenca(
         "tc_horas": tc_horas,
         "tc_minutos": round(tc_horas * 60.0, 2) if tc_horas else None,
         "procede_adoptar": resumen["procede_adoptar"],
+        "criterio_tc": resumen.get("criterio"),
         "motivo_sin_tc": motivo,
         "tlag_horas": rezago.get("tlag_horas"),
         "tlag_minutos": tlag_min,
@@ -1487,7 +1521,335 @@ def _resolver_numero_curva(configuracion, base, resultado, poligonos,
         ))
 
 
-def _resolver_subcuencas(configuracion, ruta_cuenca, ruta_dem, matriz,
+def leer_tabla_cn(ruta: Path, delimitador: str) -> dict[str, dict[str, float]]:
+    """
+    Tabla del SCS: número de curva de cada clase de cobertura por grupo de suelo.
+
+    Es doctrina y vive en data/referencia. Se lee entera, con su origen, para
+    que el informe pueda citar de dónde sale cada cifra.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si el archivo no está.
+    ErrorFormato
+        Si a una clase le falta el CN de algún grupo.
+    """
+    if not ruta.is_file():
+        raise ErrorRutas(f"no se encuentra la tabla de CN en {ruta}.")
+    tabla: dict[str, dict[str, float]] = {}
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        for fila in csv.DictReader(manejador, delimiter=delimitador):
+            clase = str(fila.get("clase", "")).strip()
+            if not clase or clase.startswith("#"):
+                continue
+            valores: dict[str, float] = {}
+            for grupo in ("A", "B", "C", "D"):
+                try:
+                    valores[grupo] = float(fila[f"cn_{grupo.lower()}"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ErrorFormato(
+                        f"la clase {clase!r} de {ruta.name} no trae un CN "
+                        f"legible para el grupo {grupo}: {exc}.") from exc
+            valores["descripcion"] = str(fila.get("descripcion", "")).strip()
+            valores["origen"] = str(fila.get("origen", "")).strip()
+            tabla[clase] = valores
+    if not tabla:
+        raise ErrorFormato(f"{ruta.name} no contiene ninguna clase.")
+    return tabla
+
+
+def leer_homologacion_cobertura(
+    ruta: Path, delimitador: str,
+) -> dict[str, str]:
+    """
+    Correspondencia entre cada clase de la capa de cobertura y una del SCS.
+
+    La diligencia el consultor. Es el punto donde una decisión de criterio entra
+    en el número de curva, y por eso no se deduce: la misma clase Corine admite
+    valores muy distintos según cómo se interprete su condición hidrológica.
+    Sobre esta cuenca, 'Pastos limpios' cubre el 18% del área y separar buena de
+    mala condición son veinte unidades de CN.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si el archivo no está.
+    ErrorFormato
+        Si no hay ninguna fila diligenciada.
+    """
+    if not ruta.is_file():
+        raise ErrorRutas(f"no se encuentra la homologación en {ruta}.")
+    equivalencias: dict[str, str] = {}
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        lineas = [linea for linea in manejador
+                  if not linea.lstrip().startswith("#")]
+    for fila in csv.DictReader(lineas, delimiter=delimitador):
+        origen = str(fila.get("valor_origen", "")).strip()
+        clase = str(fila.get("clase_cn", "")).strip()
+        if origen and clase:
+            equivalencias[origen] = clase
+    if not equivalencias:
+        raise ErrorFormato(
+            f"{ruta.name} no tiene ninguna fila diligenciada: sin la columna "
+            "clase_cn no hay con qué cruzar la cobertura y el grupo de suelo.")
+    return equivalencias
+
+
+def numero_curva_por_subcuenca(
+    entidades_subcuencas,
+    ruta_cobertura: Path,
+    campo_cobertura: str,
+    homologacion: dict[str, str],
+    tabla_cn: dict[str, dict[str, float]],
+    muestreador_grupo,
+    paso_m: float,
+) -> list[dict[str, Any]]:
+    """
+    Número de curva ponderado de cada subcuenca, por muestreo regular.
+
+    Se recorre una malla de paso 'paso_m' sobre cada subcuenca y en cada punto
+    se resuelven las dos entradas: la clase de cobertura, por índice espacial
+    sobre la capa recortada, y el grupo hidrológico, leyendo el ráster de
+    suelos. El CN de la subcuenca es la media de los CN puntuales.
+
+    SE PONDERA POR ÁREA Y NO POR NÚMERO DE POLÍGONOS. Un mosaico Corine tiene
+    cientos de polígonos diminutos junto a unos pocos grandes, y contar
+    entidades daría el peso al ruido de la digitalización.
+
+    El paso importa: una subcuenca de hectáreas no recibe ninguna muestra con
+    una malla de 250 m. Se devuelve el recuento por subcuenca para que el
+    módulo pueda declarar cuáles quedaron con muestreo insuficiente en vez de
+    publicar un CN apoyado en dos puntos.
+    """
+    indice = geometria.IndiceEtiquetado(
+        shapefile.leer_geometrias(ruta_cobertura))
+    clases = list(shapefile.leer_registros(ruta_cobertura, [campo_cobertura]))
+
+    # Las muestras de todas las subcuencas se resuelven de una vez contra el
+    # raster de suelos: reproyectar y leer punto a punto multiplicaria el coste
+    # por el numero de muestras sin cambiar el resultado.
+    puntos: list[tuple[float, float]] = []
+    tramos: list[tuple[int, int]] = []
+    poligonos: list[Any] = []
+    for anillos in entidades_subcuencas:
+        poligono = [list(anillo) for anillo in anillos]
+        poligonos.append(poligono)
+        aristas = geometria.aristas_de([poligono])
+        _, ymin, _, ymax = geometria.envolvente([poligono])
+        desde = len(puntos)
+        y = ymin + paso_m / 2.0
+        while y < ymax:
+            for x_inicio, x_fin in geometria.tramos_de_barrido(aristas, y):
+                x = x_inicio + paso_m / 2.0
+                while x < x_fin:
+                    puntos.append((x, y))
+                    x += paso_m
+            y += paso_m
+        tramos.append((desde, len(puntos)))
+
+    grupos = muestreador_grupo([p[0] for p in puntos], [p[1] for p in puntos])
+
+    salida: list[dict[str, Any]] = []
+    for (desde, hasta), poligono in zip(tramos, poligonos):
+        valores: list[float] = []
+        sin_clase = sin_grupo = 0
+        reparto: dict[str, int] = {}
+        for posicion in range(desde, hasta):
+            x, y = puntos[posicion]
+            cual = indice.indice_en(x, y)
+            clase = None
+            if cual is not None:
+                codigo = str(clases[cual].get(campo_cobertura, "")).strip()
+                clase = homologacion.get(codigo)
+            if clase is None or clase not in tabla_cn:
+                sin_clase += 1
+                continue
+            grupo = grupos[posicion]
+            if not grupo:
+                sin_grupo += 1
+                continue
+            valores.append(float(tabla_cn[clase][grupo]))
+            reparto[clase] = reparto.get(clase, 0) + 1
+
+        dominante = max(reparto, key=reparto.get) if reparto else ""
+        salida.append({
+            "cn": round(sum(valores) / len(valores), 1) if valores else None,
+            "muestras_cn": len(valores),
+            "muestras_sin_clase": sin_clase,
+            "muestras_sin_grupo": sin_grupo,
+            "cobertura_dominante": dominante,
+            "paso_muestreo_cn_m": paso_m,
+        })
+    return salida
+
+
+def muestreador_de_grupo(ruta_suelos: Path, crs_calculo: str, duales: str):
+    """
+    Devuelve una función que da el grupo hidrológico de una lista de puntos.
+
+    El ráster HYSOGs es geográfico y trae el grupo YA ASIGNADO: 1=A, 2=B, 3=C,
+    4=D, y 11=A/D, 12=B/D, 13=C/D, 14=D/D para los DUALES, cuyo grupo depende de
+    si el suelo está drenado. El criterio con que se resuelven es una decisión
+    con margen y llega declarada desde la configuración.
+
+    Se lee por lotes y ordenando por fila: el lector recorre el ráster de
+    principio a fin, y saltar de una fila a otra en desorden multiplica el coste
+    de lectura sin cambiar nada del resultado.
+    """
+    import struct
+
+    from pyproj import Transformer
+
+    info = raster.leer_info(ruta_suelos)
+    conversor = Transformer.from_crs(crs_calculo, info.crs_epsg or "EPSG:4326",
+                                     always_xy=True)
+    formato = {"<u1": "B", "<i1": "b", "<u2": "H", "<i2": "h",
+               "<u4": "I", "<i4": "i", "<f4": "f", "<f8": "d"}.get(
+        info.descriptor)
+    if formato is None:
+        raise ErrorFormato(
+            f"{ruta_suelos.name}: tipo {info.descriptor} no muestreable como "
+            "grupo hidrologico.")
+
+    simples = {1: "A", 2: "B", 3: "C", 4: "D"}
+    if duales == "drenado":
+        duales_mapa = {11: "A", 12: "B", 13: "C", 14: "D"}
+    else:
+        duales_mapa = {11: "D", 12: "D", 13: "D", 14: "D"}
+
+    def grupo_de(equis: Sequence[float], griegas: Sequence[float]) -> list:
+        if not equis:
+            return []
+        geo_x, geo_y = conversor.transform(list(equis), list(griegas))
+        pedidos = []
+        for posicion, (gx, gy) in enumerate(zip(geo_x, geo_y)):
+            if not info.contiene(gx, gy, gx, gy):
+                continue
+            pedidos.append((info.fila_de(gy), info.columna_de(gx), posicion))
+        pedidos.sort()
+
+        salida: list = [None] * len(equis)
+        with raster.LectorRaster(ruta_suelos) as lector:
+            fila_actual = None
+            contenido = b""
+            for fila, columna, posicion in pedidos:
+                if fila != fila_actual:
+                    contenido = lector.fila(fila)
+                    fila_actual = fila
+                bruto = struct.unpack_from(
+                    "<" + formato, contenido,
+                    columna * info.bytes_por_muestra)[0]
+                valor = int(bruto)
+                if info.nodato is not None and valor == int(info.nodato):
+                    continue
+                salida[posicion] = simples.get(valor) or duales_mapa.get(valor)
+        return salida
+
+    return grupo_de
+
+
+def _resolver_cn_por_subcuenca(configuracion, base, ruta_cuenca, subcuencas,
+                               resultado, logger) -> None:
+    """
+    Número de curva de cada subcuenca, cruzando cobertura y grupo de suelo.
+
+    La raíz llega como argumento y NO se resuelve aquí. 'raiz_proyecto' asciende
+    desde el directorio de trabajo, que al ejecutar con --raiz es el de la
+    herramienta y no el del estudio: las rutas salían del proyecto equivocado y
+    el módulo concluía que faltaban insumos que sí estaban.
+    """
+    delimitador = str(configuracion.obtener("insumos_usuario.delimitador_csv"))
+    ruta_tabla = rutas.resolver(
+        configuracion.obtener("numero_curva.tabla_cn"), base)
+    ruta_homologacion = rutas.resolver(
+        configuracion.obtener("numero_curva.homologacion_cobertura"), base)
+    ruta_cobertura = rutas.resolver(
+        configuracion.obtener("referencia_nacional.salida_recorte_cobertura"),
+        base)
+    ruta_suelos = rutas.resolver(
+        configuracion.obtener("referencia_nacional.salida_recorte_suelos"), base)
+    if not ruta_suelos.is_file():
+        ruta_suelos = Path(
+            configuracion.obtener("referencia_nacional.directorio")) / str(
+            configuracion.obtener("referencia_nacional.suelos_hsg"))
+
+    faltan = [rutas.relativa(r, base) for r in
+              (ruta_tabla, ruta_homologacion, ruta_cobertura, ruta_suelos)
+              if not r.is_file()]
+    if faltan:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "subcuencas.sin_cn",
+            f"el numero de curva por subcuenca NO se calculo, falta: {faltan}. "
+            "Sin CN no hay rezago por la ecuacion del SCS, que es la coherente "
+            "con el metodo de transformacion declarado.",
+        ))
+        return
+
+    try:
+        tabla = leer_tabla_cn(ruta_tabla, delimitador)
+        homologacion = leer_homologacion_cobertura(ruta_homologacion,
+                                                   delimitador)
+        muestreador = muestreador_de_grupo(
+            ruta_suelos, str(configuracion.obtener("crs.calculo")),
+            str(configuracion.obtener("numero_curva.grupos_duales")))
+        valores = numero_curva_por_subcuenca(
+            shapefile.leer_geometrias(ruta_cuenca), ruta_cobertura,
+            str(configuracion.obtener("referencia_nacional.cobertura_clc_campo")),
+            homologacion, tabla, muestreador,
+            float(configuracion.obtener("numero_curva.muestreo_cobertura_m")))
+    except (ErrorFormato, ErrorHidrologia, ErrorRutas) as error:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "subcuencas.sin_cn",
+            f"el numero de curva por subcuenca NO se calculo: {error}"))
+        return
+
+    for subcuenca, cn in zip(subcuencas, valores):
+        subcuenca.update(cn)
+
+    con_cn = [s for s in subcuencas if s.get("cn")]
+    logger.info("%d de %d subcuenca(s) con CN", len(con_cn), len(subcuencas))
+    if not con_cn:
+        return
+
+    ponderado = (sum(s["cn"] * s["area_km2"] for s in con_cn)
+                 / sum(s["area_km2"] for s in con_cn))
+    resultado.suelos["cn_ponderado"] = round(ponderado, 1)
+    extremos = sorted(con_cn, key=lambda s: s["cn"])
+    sin_clase = sum(s.get("muestras_sin_clase", 0) for s in subcuencas)
+    total = sum(s.get("muestras_cn", 0) for s in subcuencas) + sin_clase
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "subcuencas.numero_curva",
+        f"numero de curva de {len(con_cn)} de {len(subcuencas)} subcuenca(s), "
+        f"de {extremos[0]['cn']:.0f} ({extremos[0]['subcuenca']}) a "
+        f"{extremos[-1]['cn']:.0f} ({extremos[-1]['subcuenca']}), ponderado por "
+        f"area {ponderado:.1f}. Cruza la cobertura recortada con el grupo "
+        f"hidrologico sobre {total:,} muestra(s), ponderando por AREA y no por "
+        "numero de poligonos: un mosaico Corine tiene cientos de poligonos "
+        "diminutos junto a unos pocos grandes.",
+    ))
+
+    pobres = [s for s in subcuencas if s.get("muestras_cn", 0) < 5]
+    if pobres:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "subcuencas.cn_poco_muestreado",
+            f"{len(pobres)} subcuenca(s) con menos de 5 muestras de cobertura: "
+            f"{[s['subcuenca'] for s in pobres[:6]]}. Su CN se apoya en unos "
+            "pocos puntos y no representa un reparto de coberturas. Son las "
+            "subcuencas diminutas que el M09 conservo por decision declarada.",
+        ))
+
+    if sin_clase and total:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "subcuencas.cobertura_sin_homologar",
+            f"{100.0 * sin_clase / total:.1f} % de las muestras cayeron en una "
+            "clase de cobertura sin homologar o fuera de la capa recortada, y "
+            "no entraron en el CN. Revisar que la tabla de homologacion cubra "
+            "todas las clases presentes.",
+        ))
+
+
+def _resolver_subcuencas(configuracion, base, ruta_cuenca, ruta_dem, matriz,
                          minimo, resultado, logger) -> None:
     """
     Caracteriza cada subcuenca por separado, que es como entra en HEC-HMS.
@@ -1530,14 +1892,20 @@ def _resolver_subcuencas(configuracion, ruta_cuenca, ruta_dem, matriz,
             subcuenca["cota_media_sobre_salida_m"] = round(
                 cotas["cota_media"] - cotas["cota_min"], 2)
 
+    _resolver_cn_por_subcuenca(configuracion, base, ruta_cuenca, subcuencas,
+                               resultado, logger)
+
     criterio_rezago = str(configuracion.obtener("tiempo_rezago.criterio"))
     intervalo = float(configuracion.obtener("tormenta.intervalo_calculo_min"))
     cv_maximo = float(configuracion.obtener(
         "tiempo_concentracion.cv_maximo_admisible"))
+    formula_adoptada = str(configuracion.obtener(
+        "tiempo_concentracion.formula_adoptada", "") or "").strip()
 
     for subcuenca in subcuencas:
         tiempos = tiempos_de_subcuenca(
-            subcuenca, matriz, minimo, cv_maximo, criterio_rezago, intervalo)
+            subcuenca, matriz, minimo, cv_maximo, criterio_rezago, intervalo,
+            formula_adoptada)
         subcuenca.update({c: v for c, v in tiempos.items() if c != "evaluadas"})
     resultado.subcuencas = subcuencas
 
@@ -2318,8 +2686,8 @@ def ejecutar(
 
     # --- Caracterizacion por subcuenca ---------------------------------------
     with registro.bloque(logger, "Parametros por subcuenca"):
-        _resolver_subcuencas(configuracion, ruta_cuenca, ruta_dem, matriz,
-                             minimo, resultado, logger)
+        _resolver_subcuencas(configuracion, base, ruta_cuenca, ruta_dem,
+                             matriz, minimo, resultado, logger)
 
     if resultado.unidades:
         resultado.unidades[0].update({

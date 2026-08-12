@@ -937,6 +937,10 @@ ESQUEMA: dict[str, Campo] = {
         minimo=0.0,
     ),
 
+    "numero_curva.muestreo_cobertura_m": numero(
+        "paso de la malla con que se cruza cobertura y grupo de suelo",
+        minimo=1.0, maximo=1000.0,
+    ),
     "numero_curva.muestreo_suelos_m": numero(
         "paso de la malla de muestreo del raster de suelos", minimo=1.0,
     ),
@@ -958,6 +962,10 @@ ESQUEMA: dict[str, Campo] = {
     "tiempo_concentracion.min_formulas_aplicables": entero(
         "mínimo de fórmulas aplicables para adoptar el estadístico",
         minimo=1, maximo=30,
+    ),
+    "tiempo_concentracion.formula_adoptada": texto(
+        "fórmula única adoptada por subcuenca; vacío usa la mediana",
+        requerido=False,
     ),
     "tiempo_concentracion.cv_maximo_admisible": numero(
         "coeficiente de variación máximo admisible", minimo=0, maximo=5,

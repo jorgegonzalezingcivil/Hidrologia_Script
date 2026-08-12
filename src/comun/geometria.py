@@ -32,6 +32,7 @@ __all__ = [
     "punto_en_alguno",
     "envolvente",
     "perimetro_exterior",
+    "IndiceEtiquetado",
 ]
 
 # Un anillo es una secuencia de vértices; un polígono, su anillo exterior
@@ -155,6 +156,69 @@ def envolvente(poligonos: Sequence[Poligono]) -> tuple[float, float, float, floa
     if not xs:
         raise ErrorFormato("No hay vértices de los que obtener una envolvente.")
     return (min(xs), min(ys), max(xs), max(ys))
+
+
+class IndiceEtiquetado:
+    """
+    Índice que responde QUÉ polígono contiene un punto, no solo si alguno lo hace.
+
+    'IndicePoligonos' funde todas las aristas en un único conjunto y contesta sí
+    o no. Para cruzar una capa de coberturas con una malla de muestreo eso no
+    basta: hace falta saber cuál de las nueve mil entidades es, para leer su
+    clase.
+
+    Se indexa por REJILLA sobre la envolvente de cada polígono, y no por bandas
+    horizontales. Las coberturas Corine son miles de polígonos pequeños
+    repartidos por el área; con bandas, cada consulta recorrería las aristas de
+    toda una franja del mapa, mientras que con rejilla solo se prueban los pocos
+    cuya envolvente toca la celda del punto.
+    """
+
+    def __init__(self, poligonos: Sequence[Poligono], celdas: int = 256) -> None:
+        self._poligonos = [list(p) for p in poligonos]
+        if not self._poligonos:
+            raise ErrorFormato("no hay polígonos con los que construir el índice.")
+
+        self._cajas: list[tuple[float, float, float, float]] = []
+        for poligono in self._poligonos:
+            self._cajas.append(envolvente([poligono]))
+        self.x_min = min(c[0] for c in self._cajas)
+        self.y_min = min(c[1] for c in self._cajas)
+        self.x_max = max(c[2] for c in self._cajas)
+        self.y_max = max(c[3] for c in self._cajas)
+
+        self._n = max(1, int(celdas))
+        self._ancho = max((self.x_max - self.x_min) / self._n, 1e-9)
+        self._alto = max((self.y_max - self.y_min) / self._n, 1e-9)
+        self._rejilla: dict[tuple[int, int], list[int]] = {}
+        for indice, (xmin, ymin, xmax, ymax) in enumerate(self._cajas):
+            for columna in range(self._columna(xmin), self._columna(xmax) + 1):
+                for fila in range(self._fila(ymin), self._fila(ymax) + 1):
+                    self._rejilla.setdefault((columna, fila), []).append(indice)
+
+    def _columna(self, x: float) -> int:
+        return min(max(int((x - self.x_min) / self._ancho), 0), self._n - 1)
+
+    def _fila(self, y: float) -> int:
+        return min(max(int((y - self.y_min) / self._alto), 0), self._n - 1)
+
+    def indice_en(self, x: float, y: float) -> int | None:
+        """
+        Posición del polígono que contiene el punto, o None si ninguno lo hace.
+
+        Con solapes devuelve el primero en el orden de la capa. Una cobertura
+        bien construida no los tiene, y resolverlos por área exigiría intersecar
+        geometría, que no pertenece a este entorno.
+        """
+        if not (self.x_min <= x <= self.x_max and self.y_min <= y <= self.y_max):
+            return None
+        for indice in self._rejilla.get((self._columna(x), self._fila(y)), ()):
+            xmin, ymin, xmax, ymax = self._cajas[indice]
+            if not (xmin <= x <= xmax and ymin <= y <= ymax):
+                continue
+            if punto_en_poligono(x, y, self._poligonos[indice]):
+                return indice
+        return None
 
 
 def perimetro_exterior(
