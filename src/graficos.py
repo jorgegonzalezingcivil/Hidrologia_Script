@@ -481,6 +481,8 @@ def marco_geografico(
     corrientes: Sequence[Sequence[tuple[float, float]]] = (),
     destacadas: Sequence[Sequence[tuple[float, float]]] = (),
     punto: tuple[float, float] | None = None,
+    cuenca: dict | None = None,
+    etiqueta_cuenca: str = "superficie que drena al punto",
     etiqueta_punto: str = "punto de descarga",
     etiqueta_destacadas: str = "drena al punto",
     etiqueta_corrientes: str = "red de drenaje",
@@ -501,6 +503,18 @@ def marco_geografico(
     Todo llega ya en las coordenadas de la figura. Esta función no reproyecta:
     quien dibuja declara el origen y el destino (CLAUDE.md, sección 5).
     """
+    # La superficie va PRIMERO, debajo de todo: es contexto, no dato.
+    if cuenca is not None and cuenca.get("mascara") is not None:
+        mascara = cuenca["mascara"]
+        alto, ancho = mascara.shape
+        equis = cuenca["x0"] + cuenca["paso_m"] * np.arange(ancho)
+        griegas = cuenca["y0"] + cuenca["paso_m"] * np.arange(alto)
+        ax.contourf(equis, griegas, mascara.astype(float), levels=[0.5, 1.5],
+                    colors=["#e8eef4"], zorder=0)
+        ax.contour(equis, griegas, mascara.astype(float), levels=[0.5],
+                   colors=["#7a97b5"], linewidths=1.4, zorder=3)
+        ax.plot([], [], color="#7a97b5", linewidth=1.4, label=etiqueta_cuenca)
+
     for indice, grupo in enumerate((corrientes, destacadas)):
         if not grupo:
             continue

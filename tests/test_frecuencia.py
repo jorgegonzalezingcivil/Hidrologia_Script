@@ -404,8 +404,6 @@ class PruebaConfiguracion(unittest.TestCase):
         self.assertTrue(1 <= dias <= 31)
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
 
 
 class PruebaCalificadoresDesdeLaDoctrina(unittest.TestCase):
@@ -456,16 +454,48 @@ class PruebaCalificadoresDesdeLaDoctrina(unittest.TestCase):
         marcas, _ = self.m07.calificadores_excluidos(self.cfg, self.raiz)
         self.assertIn("DATO RECHAZADO", marcas)
 
-    def test_sin_perfil_legible_hay_respaldo(self) -> None:
+    def test_un_estudio_sin_perfil_propio_hereda_el_de_la_herramienta(self) -> None:
+        """
+        No cae al respaldo del código: cae a la DOCTRINA.
+
+        'config/' es prefijo de código, de modo que un estudio que no trae su
+        propio perfil usa el de la herramienta. Es lo correcto y es lo que
+        mantiene la doctrina en un solo sitio.
+        """
+        import shutil
         import tempfile
-        from pathlib import Path
 
         vacio = Path(tempfile.mkdtemp())
         try:
             marcas, procedencia = self.m07.calificadores_excluidos(
                 self.cfg, vacio)
-            self.assertEqual(procedencia, "respaldo del código")
+            self.assertIn("perfiles_ideam", procedencia)
             self.assertIn("ACUMULADO", marcas)
         finally:
-            import shutil
             shutil.rmtree(vacio, ignore_errors=True)
+
+    def test_sin_perfil_legible_hay_respaldo(self) -> None:
+        """El respaldo solo entra si el perfil no se puede leer de ningún sitio."""
+        import copy
+
+        datos = self.cfg.como_dict()
+        datos["ideam"]["dhime_zip"]["perfiles"] = "/no/existe/perfiles.yaml"
+        del copy
+
+        class _Falsa:
+            def __init__(self, datos):
+                self._datos = datos
+
+            def obtener(self, clave, defecto=None):
+                actual = self._datos
+                for parte in clave.split("."):
+                    actual = actual[parte]
+                return actual
+
+        marcas, procedencia = self.m07.calificadores_excluidos(
+            _Falsa(datos), self.raiz)
+        self.assertEqual(procedencia, "respaldo del código")
+        self.assertIn("ACUMULADO", marcas)
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

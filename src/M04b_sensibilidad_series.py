@@ -694,7 +694,9 @@ def _figuras(configuracion, base, resultado, acumulado, ventanas, umbrales,
     _figura_completitud(graficos, estilo, directorio, acumulado, minimo,
                         resultado, base)
     _figura_cobertura(graficos, estilo, directorio, resultado, base,
-                      variable_de, umbrales, ventana_ref, crs_figuras)
+                      variable_de, umbrales, ventana_ref, crs_figuras,
+                      float(configuracion.obtener(
+                          "red_topologica.radio_cuenca_preliminar_m", 0.0)))
     _figura_linea_temporal(graficos, estilo, directorio, acumulado, minimo,
                            variable_de, seleccionadas, resultado, base,
                            anio_estudio)
@@ -814,7 +816,8 @@ def _recortar(lineas, caja):
     return dentro
 
 
-def _contexto_geografico(base, crs_figuras, transformador, caja=None):
+def _contexto_geografico(base, crs_figuras, transformador, caja=None,
+                         radio_m: float = 0.0):
     """
     Lee del estudio el punto de descarga y la red de drenaje, ya reproyectados.
 
@@ -879,11 +882,20 @@ def _contexto_geografico(base, crs_figuras, transformador, caja=None):
         except (ErrorFormato, ErrorRutas):
             corrientes, destacadas = [], []
 
-    return _recortar(corrientes, caja), destacadas, punto
+    cuenca = None
+    if destacadas:
+        try:
+            import red_drenaje as red
+
+            cuenca = red.superficie_drenada(destacadas, radio_m)
+        except (ImportError, ErrorFormato, ValueError):
+            cuenca = None
+    return _recortar(corrientes, caja), destacadas, punto, cuenca
 
 
 def _figura_cobertura(graficos, estilo, directorio, resultado, base,
-                      variable_de, umbrales, ventana, crs_figuras) -> None:
+                      variable_de, umbrales, ventana, crs_figuras,
+                      radio_cuenca: float = 0.0) -> None:
     """
     Dónde quedan las estaciones que sobreviven a cada umbral.
 
@@ -992,10 +1004,22 @@ def _figura_cobertura(graficos, estilo, directorio, resultado, base,
             caja = (min(equis) - margen, min(griegas) - margen,
                     max(equis) + margen, max(griegas) + margen)
 
-        corrientes, destacadas, punto = _contexto_geografico(
+        corrientes, destacadas, punto, cuenca = _contexto_geografico(
             base, crs_figuras, graficos.transformador(CRS_CALCULO, crs_figuras),
-            caja)
-        graficos.marco_geografico(ax, estilo, corrientes, destacadas, punto)
+            caja, radio_cuenca)
+        graficos.marco_geografico(ax, estilo, corrientes, destacadas, punto,
+                                  cuenca)
+        if cuenca is not None:
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "cobertura.superficie_drenada",
+                f"la superficie que drena al punto mide "
+                f"{cuenca['area_km2']:.0f} km2 y contiene "
+                f"{cuenca['longitud_red_km']:.0f} km de red, lo que da una "
+                f"densidad de drenaje de {cuenca['densidad_km_km2']:.2f} km/km2 "
+                f"con el radio declarado de {cuenca['radio_m']:.0f} m. NO es "
+                "una divisoria: la definitiva es la delimitacion asistida del "
+                "M09. Se dibuja para representar que zona aporta.",
+            ))
         graficos.dispersion_sobre_area(ax, poligonos, grupos, estilo,
                                        ordinal=True)
         if caja is not None:

@@ -955,6 +955,23 @@ red_topologica:
   longitud_minima_tramo_m: 30.0
   salida_eje: "data/03_SIG/vector/eje_drenaje_doble.shp"
   salida_red: "data/03_SIG/vector/red_topologica.shp"
+  # Radio con el que se envuelve la red que drena al punto para REPRESENTAR la
+  # cuenca en los mapas. NO es una divisoria: la divisoria esta en las cumbres
+  # y sale del terreno o de la delimitacion asistida del M09.
+  #
+  # SE CALIBRA, no se inventa. La superficie resultante y la longitud de la red
+  # determinan una densidad de drenaje, y el radio se elige para que reproduzca
+  # la medida en la region. Sobre este estudio, con 347,1 km de red trazada:
+  #
+  #     400 m -> 205 km2 y 1,69 km/km2      1.400 m -> 304 km2 y 1,14
+  #     800 m -> 251 km2 y 1,38             2.000 m -> 359 km2 y 0,97
+  #
+  # La densidad medida en la subzona es 1,142 km/km2, de donde salen los
+  # 1.400 m. Un radio menor dibuja una cinta pegada a los cauces y deja fuera
+  # laderas que si aportan; uno mayor engorda la mancha hasta tragarse cuencas
+  # vecinas. Cada modulo que la dibuje debe reportar el area y la densidad
+  # resultantes, para que el contraste se pueda hacer.
+  radio_cuenca_preliminar_m: 1400.0
 
 tiempo_concentracion:
   tabla_aplicabilidad: "data/referencia/tc_aplicabilidad.csv"

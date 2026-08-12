@@ -441,8 +441,6 @@ class PruebaCatalogoReal(unittest.TestCase):
         self.assertGreater(con_coordenadas, 150)
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
 
 
 class PruebaDeduplicacionDelCatalogo(unittest.TestCase):
@@ -539,3 +537,6 @@ class PruebaCatalogoReal(unittest.TestCase):
         self.assertGreater(len(conflictos), 0)
         codigos = [f["CODIGO"].strip() for f in filas]
         self.assertEqual(len(codigos), len(set(codigos)))
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

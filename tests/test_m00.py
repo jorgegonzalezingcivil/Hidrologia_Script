@@ -744,5 +744,39 @@ class PruebaModuloM00(unittest.TestCase):
         )
 
 
+
+
+class PruebaIntegridadDeLaSuite(unittest.TestCase):
+    """
+    Una prueba que no se ejecuta es peor que no tenerla: da confianza sin
+    darla.
+
+    Ocurrió tres veces al añadir clases al final de un archivo con 'cat >>':
+    quedaron DESPUÉS de `if __name__ == "__main__"`, que llama a
+    `unittest.main()` y termina el proceso. Python no llega siquiera a
+    definirlas, y el recuento de casos no cambia lo suficiente como para que
+    salte a la vista.
+    """
+
+    def test_ninguna_prueba_queda_tras_el_bloque_de_arranque(self) -> None:
+        import re
+
+        culpables = []
+        for ruta in sorted((_RAIZ_REPO / "tests").glob("test_*.py")):
+            texto = ruta.read_text(encoding="utf-8")
+            marca = texto.find('if __name__ == "__main__"')
+            if marca < 0:
+                continue
+            clases = re.findall(r"^class (\w+)", texto[marca:], re.M)
+            if clases:
+                culpables.append(f"{ruta.name}: {', '.join(clases)}")
+        self.assertEqual(culpables, [])
+
+    def test_todo_archivo_de_pruebas_es_ejecutable(self) -> None:
+        for ruta in sorted((_RAIZ_REPO / "tests").glob("test_*.py")):
+            with self.subTest(archivo=ruta.name):
+                self.assertIn('if __name__ == "__main__"',
+                              ruta.read_text(encoding="utf-8"))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -11,6 +11,7 @@ usa primitivas de QGIS y se prueba desde ese entorno.
 
 from __future__ import annotations
 
+import math
 import sys
 import unittest
 from pathlib import Path
@@ -282,8 +283,6 @@ class PruebaEngancheDelPunto(unittest.TestCase):
         self.assertAlmostEqual(resultado["distancia_m"], 10.0, places=6)
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
 
 
 class PruebaPuenteSobreEmbalses(unittest.TestCase):
@@ -377,3 +376,64 @@ class PruebaPuenteSobreEmbalses(unittest.TestCase):
             red.distancia_a_poligono(-50.0, 0.0, self.EMBALSE), 0.0, places=6)
         self.assertAlmostEqual(
             red.distancia_a_poligono(-70.0, 0.0, self.EMBALSE), 20.0, places=6)
+
+
+class PruebaSuperficieDrenada(unittest.TestCase):
+    """
+    La superficie que envuelve la red NO es una divisoria, y el radio con que
+    se construye se CALIBRA contra la densidad de drenaje en lugar de fijarse
+    a ojo.
+    """
+
+    def _linea_recta(self, largo=10000.0, paso=100.0):
+        return [[(x, 0.0) for x in range(0, int(largo) + 1, int(paso))]]
+
+    def test_una_recta_da_una_banda_de_dos_radios_de_ancho(self) -> None:
+        radio = 500.0
+        r = red.superficie_drenada(self._linea_recta(), radio, paso_m=50.0)
+        # Area aproximada: largo * 2*radio + los dos semicirculos de los topes.
+        esperada = (10000.0 * 2 * radio + math.pi * radio ** 2) / 1e6
+        self.assertAlmostEqual(r["area_km2"], esperada, delta=0.1 * esperada)
+
+    def test_el_area_crece_con_el_radio(self) -> None:
+        lineas = self._linea_recta()
+        areas = [red.superficie_drenada(lineas, r, paso_m=50.0)["area_km2"]
+                 for r in (300.0, 600.0, 1200.0)]
+        self.assertEqual(areas, sorted(areas))
+
+    def test_la_densidad_baja_al_crecer_el_radio(self) -> None:
+        # Es el control que permite calibrar: se elige el radio que reproduce
+        # la densidad medida en la region.
+        lineas = self._linea_recta()
+        densidades = [red.superficie_drenada(lineas, r, paso_m=50.0)["densidad_km_km2"]
+                      for r in (300.0, 600.0, 1200.0)]
+        self.assertEqual(densidades, sorted(densidades, reverse=True))
+
+    def test_reporta_la_longitud_de_la_red(self) -> None:
+        r = red.superficie_drenada(self._linea_recta(), 500.0, paso_m=50.0)
+        self.assertAlmostEqual(r["longitud_red_km"], 10.0, places=1)
+
+    def test_rellena_los_huecos_interiores(self) -> None:
+        # Un anillo de cauces encierra terreno que si aporta: dejarlo como
+        # agujero dibujaria una rosquilla en lugar de una cuenca.
+        lado = 6000.0
+        anillo = [[(0.0, 0.0), (lado, 0.0), (lado, lado), (0.0, lado), (0.0, 0.0)]]
+        r = red.superficie_drenada(anillo, 400.0, paso_m=100.0)
+        self.assertGreater(r["area_km2"], (lado / 1000.0) ** 2 * 0.9)
+
+    def test_sin_lineas_es_error(self) -> None:
+        from comun.errores import ErrorFormato
+
+        with self.assertRaises(ErrorFormato):
+            red.superficie_drenada([], 500.0)
+
+    def test_la_georreferencia_permite_situar_la_mascara(self) -> None:
+        r = red.superficie_drenada(self._linea_recta(), 500.0, paso_m=50.0)
+        self.assertIn("mascara", r)
+        self.assertEqual(r["paso_m"], 50.0)
+        alto, ancho = r["mascara"].shape
+        self.assertGreater(ancho, 0)
+        self.assertGreater(alto, 0)
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

@@ -470,6 +470,82 @@ def razon_bifurcacion(corrientes: dict[int, int]) -> dict[str, Any]:
     }
 
 
+def superficie_drenada(
+    lineas: Sequence[Sequence[tuple[float, float]]],
+    radio_m: float,
+    paso_m: float = 50.0,
+    margen_m: float = 0.0,
+) -> dict[str, Any]:
+    """
+    Superficie que envuelve una red de drenaje, como aproximación de su cuenca.
+
+    NO es una divisoria. La divisoria está en las cumbres y solo se obtiene del
+    terreno o de la delimitación asistida del M09. Esto es el conjunto de
+    puntos a menos de 'radio_m' de algún cauce de la red, con los huecos
+    rellenados: sirve para REPRESENTAR en un mapa qué zona aporta al punto, y
+    debe rotularse como lo que es.
+
+    EL RADIO SE CALIBRA, no se inventa. La superficie resultante y la longitud
+    de la red determinan una densidad de drenaje, y el radio se elige para que
+    esa densidad reproduzca la medida en la región. Medido sobre este estudio,
+    con 347,1 km de red trazada:
+
+        radio      área      densidad
+         400 m   205,0 km2   1,69 km/km2
+         800 m   251,1 km2   1,38
+        1400 m   ~304 km2    ~1,14   <- la medida en la subzona
+        2000 m   358,8 km2   0,97
+
+    Un radio pequeño dibuja una cinta pegada a los cauces y deja fuera las
+    laderas que sí aportan; uno grande engorda la mancha hasta tragarse
+    cuencas vecinas. La densidad es el control que evita las dos cosas.
+
+    Devuelve la máscara, su georreferencia y el área, para que quien dibuje
+    pueda contornearla y quien reporte pueda contrastarla.
+    """
+    import numpy as np
+    from scipy import ndimage
+
+    puntos = [p for linea in lineas for p in linea]
+    if not puntos:
+        raise ErrorFormato("no hay líneas con las que construir la superficie.")
+
+    margen = margen_m or (2.5 * radio_m)
+    equis = [p[0] for p in puntos]
+    griegas = [p[1] for p in puntos]
+    x0, x1 = min(equis) - margen, max(equis) + margen
+    y0, y1 = min(griegas) - margen, max(griegas) + margen
+    ancho = int((x1 - x0) / paso_m) + 1
+    alto = int((y1 - y0) / paso_m) + 1
+
+    malla = np.zeros((alto, ancho), dtype=bool)
+    for linea in lineas:
+        for uno, otro in zip(linea, linea[1:]):
+            pasos = max(2, int(max(abs(otro[0] - uno[0]),
+                                   abs(otro[1] - uno[1])) / paso_m) + 1)
+            for fraccion in np.linspace(0.0, 1.0, pasos):
+                columna = int((uno[0] + fraccion * (otro[0] - uno[0]) - x0) / paso_m)
+                fila = int((uno[1] + fraccion * (otro[1] - uno[1]) - y0) / paso_m)
+                if 0 <= columna < ancho and 0 <= fila < alto:
+                    malla[fila, columna] = True
+
+    distancia = ndimage.distance_transform_edt(~malla) * paso_m
+    mascara = ndimage.binary_fill_holes(distancia <= radio_m)
+    area_km2 = float(mascara.sum()) * paso_m * paso_m / 1e6
+    largo_km = sum(
+        math.hypot(otro[0] - uno[0], otro[1] - uno[1])
+        for linea in lineas for uno, otro in zip(linea, linea[1:])) / 1000.0
+
+    return {
+        "mascara": mascara,
+        "x0": x0, "y0": y0, "paso_m": paso_m,
+        "radio_m": radio_m,
+        "area_km2": round(area_km2, 2),
+        "longitud_red_km": round(largo_km, 2),
+        "densidad_km_km2": round(largo_km / area_km2, 4) if area_km2 else None,
+    }
+
+
 def distancia_a_poligono(x: float, y: float, poligono) -> float:
     """Distancia de un punto al BORDE del polígono. Cero si está sobre él."""
     minima = float("inf")

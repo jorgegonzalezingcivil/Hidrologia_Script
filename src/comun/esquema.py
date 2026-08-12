@@ -925,6 +925,10 @@ ESQUEMA: dict[str, Campo] = {
     "red_topologica.salida_red": texto(
         "capa de la red con topología y orden resueltos", no_vacio=True,
     ),
+    "red_topologica.radio_cuenca_preliminar_m": numero(
+        "radio con que se envuelve la red para representar la cuenca",
+        minimo=0.0,
+    ),
     "red_topologica.longitud_minima_tramo_m": numero(
         "longitud por debajo de la cual un tramo del eje se descarta",
         minimo=0.0,
