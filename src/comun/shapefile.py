@@ -753,6 +753,37 @@ def area_poligonos(ruta: str | Path) -> float:
     if base.suffix.lower() != ".shp":
         base = base.with_suffix(".shp")
 
+    return abs(sum(_areas_con_signo(base)))
+
+
+def areas_poligonos(ruta: str | Path) -> list[float]:
+    """
+    Área de CADA polígono de la capa, en el orden de los registros.
+
+    Existe porque el área por entidad no se puede dar por leída de un atributo.
+    La exportación de HEC-HMS trae los parámetros que el programa calculó
+    (`long_len`, `basin_slo`, `drain_den`) y NO trae el área: buscarla entre los
+    campos devuelve una lista vacía y el módulo que la use concluiría que no hay
+    ninguna subcuenca diminuta. Medido sobre una exportación real de 125
+    subcuencas: por atributo, ninguna por debajo de 0,5 km²; por geometría, 24,
+    la menor de 0,006 km².
+
+    El signo se descarta por entidad, no en la suma total: así un anillo interior
+    resta a su propio polígono y no al del vecino.
+
+    Excepciones
+    -----------
+    ErrorFormato
+        Si la geometría del shapefile no es poligonal o el archivo está roto.
+    """
+    base = Path(ruta)
+    if base.suffix.lower() != ".shp":
+        base = base.with_suffix(".shp")
+    return [abs(area) for area in _areas_con_signo(base)]
+
+
+def _areas_con_signo(base: Path) -> list[float]:
+    """Área con signo de cada registro poligonal del .shp."""
     codigo_geometria, _ = _leer_cabecera_shp(base)
     if codigo_geometria not in _TIPOS_POLIGONO:
         raise ErrorFormato(
@@ -761,7 +792,7 @@ def area_poligonos(ruta: str | Path) -> float:
             f"área solo se calcula sobre polígonos."
         )
 
-    total = 0.0
+    areas: list[float] = []
     with base.open("rb") as manejador:
         manejador.seek(100)  # tras la cabecera del archivo
         while True:
@@ -774,9 +805,8 @@ def area_poligonos(ruta: str | Path) -> float:
                 raise ErrorFormato(
                     f"{base.name} está truncado dentro de un registro de geometría."
                 )
-            total += _area_registro(contenido)
-
-    return abs(total)
+            areas.append(_area_registro(contenido))
+    return areas
 
 
 # =============================================================================

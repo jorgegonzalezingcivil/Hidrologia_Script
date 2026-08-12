@@ -1049,10 +1049,22 @@ hec_hms:
     # Nombres que el consultor debe dar a lo que exporte desde HEC-HMS.
     subcuencas: "subcuencas.shp"
     corrientes: "corrientes.shp"
-    # Fraccion MINIMA que la cuenca delimitada debe representar de la
-    # preliminar. No es una tolerancia de igualdad: para el escenario 1 la
-    # preliminar es la subzona entera, que sobredimensiona el area varias veces
-    # y solo sirve de COTA SUPERIOR.
+    # DE DONDE SALEN LAS CORRIENTES DEL MODELO. Se declara, no se detecta: si el
+    # modulo mirase el disco, la misma orden daria resultados distintos segun lo
+    # que hubiera alli y el log no podria explicar cual se uso.
+    #
+    #   hec_hms         las exportadas del paso manual, junto a las subcuencas
+    #   red_topologica  la red que el M02b ya construyo
+    #
+    # 'red_topologica' es el predeterminado porque esa red es estrictamente mas
+    # rica: trae orden de Strahler, adyacencia y el puente sobre los embalses,
+    # que la exportacion de HEC-HMS no tiene. Con esta opcion el M09 no exige
+    # 'corrientes.shp' y el consultor solo exporta las subcuencas.
+    origen_corrientes: "red_topologica"   # hec_hms | red_topologica
+    # Fraccion MINIMA que la cuenca delimitada debe representar del area de
+    # influencia. No es una tolerancia de igualdad: el area de influencia es una
+    # envolvente con holgura, que sobredimensiona varias veces y solo sirve de
+    # COTA SUPERIOR.
     #
     # El control por abajo es el que atrapa el fallo conocido: con el DEM de
     # radar sin reacondicionar, el analisis de terreno del M02 llego a producir
@@ -1061,8 +1073,18 @@ hec_hms:
     # es una cuenca verosimil y equivocada. Ese riesgo alcanza igual a HEC-HMS,
     # porque el DEM se entrega sin reacondicionar por decision declarada.
     fraccion_minima_pct: 5.0
+    # Desviacion admitida frente a la SUPERFICIE DRENADA, que es la referencia
+    # con significado hidrologico: la envuelve la red que drena al punto, con el
+    # radio calibrado contra la densidad de drenaje medida en la subzona.
+    #
+    # No es una divisoria y por eso la banda es ancha y el hallazgo es
+    # ADVERTENCIA, no bloqueante. La divisoria esta en las cumbres; esto es una
+    # mancha alrededor de los cauces. Sirve para detectar el orden de magnitud
+    # equivocado, no para arbitrar una diferencia del 20%.
+    banda_area_pct: 50.0
     # Area minima de subcuenca. Por debajo suele tratarse de un artefacto del
-    # trazado y no de una unidad hidrologica.
+    # trazado y no de una unidad hidrologica. Se mide sobre la GEOMETRIA: la
+    # exportacion de HEC-HMS no trae campo de area.
     area_minima_subcuenca_km2: 0.5
 
 calibracion:

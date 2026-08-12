@@ -46,8 +46,23 @@ Productos (--preparar):
 
 Productos (--importar):
     data/03_SIG/vector/subcuencas.shp
-    data/03_SIG/vector/corrientes.shp
+    data/03_SIG/vector/corrientes.shp        solo si origen_corrientes = hec_hms
+    data/02_procesado/M09_subcuencas_pequenas.csv    si las hay
     data/02_procesado/M09_hec_hms.json
+
+LAS CORRIENTES NO SIEMPRE VIENEN DE HEC-HMS. La clave
+hec_hms.intercambio.origen_corrientes declara de dónde salen los tramos del
+modelo. Con 'red_topologica' se usa la red que el M02b ya construyó, que trae
+orden de Strahler, adyacencia y el puente sobre los embalses, y el consultor
+solo exporta las subcuencas. Se declara y no se deduce del disco, porque la
+misma orden daría resultados distintos según lo que hubiera allí.
+
+LAS DOS REFERENCIAS DE ÁREA NO VALEN LO MISMO. El área de influencia es una
+COTA SUPERIOR: contiene la cuenca por definición, pero admite una delimitación
+tres veces mayor de lo debido sin emitir señal. La superficie drenada por la red
+que llega al punto, con el radio calibrado contra la densidad de drenaje de la
+subzona, es la referencia con significado hidrológico, y contra ella se contrasta
+con una banda ancha porque no es una divisoria.
 
 Uso:
     python src/M09_hec_hms.py --preparar
@@ -145,16 +160,18 @@ def verificar_area(
     fraccion_minima_pct: float,
 ) -> dict[str, Any]:
     """
-    Comprueba que el área delimitada quepa dentro de la preliminar.
+    Comprueba que el área delimitada quepa dentro del área de influencia.
 
-    La preliminar es COTA SUPERIOR, no objetivo de igualdad. Para el escenario 1
-    el M02 adopta la subzona hidrográfica entera, que es una unidad cerrada y
-    por definición CONTIENE la cuenca aportante al punto: si HEC-HMS delimitara
-    más, estaría tomando agua de otra vertiente.
+    El área de influencia es COTA SUPERIOR, no objetivo de igualdad: es la
+    envolvente del trazado aguas arriba más el buffer, o la subzona entera si no
+    se acotó. En ambos casos CONTIENE la cuenca aportante al punto, de modo que
+    si HEC-HMS delimitara más estaría tomando agua de otra vertiente.
 
-    Que sea cota y no igualdad importa: la subzona sobredimensiona el área
-    varias veces, y exigir que coincidan rechazaría cualquier delimitación
-    correcta.
+    Que sea cota y no igualdad importa: sobredimensiona el área varias veces, y
+    exigir que coincidan rechazaría cualquier delimitación correcta. Por eso NO
+    basta como control: una delimitación tres veces mayor de lo debido pasa esta
+    prueba sin una sola señal. El contraste con significado hidrológico es el de
+    'contrastar_con_la_drenada'.
 
     El control por abajo es el que atrapa el fallo conocido. Con el DEM de radar
     sin reacondicionar, el análisis de terreno del M02 llegó a producir 6,59 km²
@@ -175,6 +192,104 @@ def verificar_area(
     }
 
 
+def contrastar_con_la_drenada(
+    area_delimitada_km2: float,
+    area_drenada_km2: float,
+    banda_pct: float,
+) -> dict[str, Any]:
+    """
+    Contrasta la delimitación con la superficie drenada por la red.
+
+    La superficie drenada NO es una divisoria: es el conjunto de puntos a menos
+    de un radio de algún cauce que llega al punto de cierre, con el radio
+    calibrado para que la densidad de drenaje resultante reproduzca la medida en
+    la subzona. La divisoria está en las cumbres y solo sale del terreno o de la
+    delimitación asistida.
+
+    Por eso la banda es ancha y el resultado no bloquea. Sirve para detectar el
+    orden de magnitud equivocado, que es el fallo que importa, y no para
+    arbitrar una diferencia del veinte por ciento entre dos cosas que no son la
+    misma. Medido en este estudio: 220,60 km² delimitados frente a 305,45 km²
+    drenados, un 27,8% por debajo, que está dentro de lo esperable entre una
+    divisoria real y una mancha alrededor de los cauces.
+    """
+    if area_drenada_km2 <= 0:
+        return {"error": "superficie drenada no utilizable"}
+    desviacion = diferencia_relativa(area_delimitada_km2, area_drenada_km2)
+    return {
+        "area_delimitada_km2": round(area_delimitada_km2, 3),
+        "area_drenada_km2": round(area_drenada_km2, 3),
+        "desviacion_pct": round(desviacion, 2) if desviacion is not None else None,
+        "banda_pct": banda_pct,
+        "fuera_de_banda": bool(desviacion is not None
+                               and abs(desviacion) > banda_pct),
+    }
+
+
+def superficie_drenada_de_referencia(
+    ruta_red: Path,
+    ruta_reporte_m02: Path,
+    radio_m: float,
+) -> dict[str, Any] | None:
+    """
+    Área de la superficie que drena al punto, para contrastar la delimitación.
+
+    Se reconstruye a partir de dos productos ya escritos, no de estado en
+    memoria: la red topológica del M02b y la lista de tramos aguas arriba que el
+    M02 dejó en su reporte. Si el estudio no acotó por la red (escenario sin
+    trazado aguas arriba), no hay lista y esta referencia no existe: se devuelve
+    None y el módulo se queda con la cota superior, declarándolo.
+
+    Devuelve el área en km², la longitud de red y la densidad de drenaje, que
+    es lo que permite juzgar si el radio sigue siendo el calibrado.
+    """
+    if not ruta_red.is_file() or not ruta_reporte_m02.is_file() or radio_m <= 0:
+        return None
+
+    try:
+        reporte = json.loads(ruta_reporte_m02.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    aguas_arriba = set(reporte.get("acotado", {}).get("aguas_arriba") or [])
+    if not aguas_arriba:
+        return None
+
+    try:
+        registros = list(shapefile.leer_registros(ruta_red, ["id_tramo"]))
+        geometrias = shapefile.leer_geometrias(ruta_red)
+    except (ErrorFormato, ErrorRutas):
+        return None
+
+    lineas: list[list[tuple[float, float]]] = []
+    for registro, entidad in zip(registros, geometrias):
+        try:
+            identificador = int(registro["id_tramo"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if identificador not in aguas_arriba:
+            continue
+        for parte in entidad:
+            if len(parte) >= 2:
+                lineas.append([(x, y) for x, y in parte])
+    if not lineas:
+        return None
+
+    try:
+        import red_drenaje
+
+        superficie = red_drenaje.superficie_drenada(lineas, radio_m)
+    except (ImportError, ErrorFormato, ValueError):
+        return None
+
+    return {
+        "area_km2": float(superficie["area_km2"]),
+        "longitud_red_km": float(superficie["longitud_red_km"]),
+        "densidad_km_km2": float(superficie["densidad_km_km2"]),
+        "radio_m": radio_m,
+        "tramos": len(lineas),
+    }
+
+
 def resumir_capa(ruta: Path) -> dict[str, Any]:
     """Metadatos de una capa: entidades, sistema de referencia y campos."""
     info = shapefile.leer_shapefile(ruta)
@@ -188,6 +303,10 @@ def resumir_capa(ruta: Path) -> dict[str, Any]:
     }
 
 
+CAMPOS_NOMBRE = ("name", "Name", "NAME", "nombre", "Nombre", "NOMBRE",
+                 "subcuenca", "SUBCUENCA", "id", "ID")
+
+
 def subcuencas_pequenas(
     ruta: Path, minimo_km2: float,
 ) -> list[dict[str, Any]]:
@@ -199,27 +318,58 @@ def subcuencas_pequenas(
     arrastrarla al modelo produce un hidrograma sin sentido físico y un tiempo
     de concentración absurdo.
 
+    EL ÁREA SE MIDE SOBRE LA GEOMETRÍA, no se lee de un atributo. La exportación
+    de HEC-HMS trae los parámetros que el programa calculó (`long_len`,
+    `long_slo`, `basin_slo`, `drain_den`) y ninguno es el área. Buscarla entre
+    los campos devolvía una lista vacía, y el módulo concluía que no había
+    ninguna subcuenca diminuta. Medido sobre la exportación de este estudio:
+    por atributo ninguna, por geometría 24 por debajo de 0,5 km², la menor de
+    0,006 km², es decir seis mil metros cuadrados.
+
     Se reporta sin eliminar: fusionarla con su vecina es decisión del consultor
     y se hace en HEC-HMS, no aquí.
     """
-    pequenas: list[dict[str, Any]] = []
+    try:
+        areas = shapefile.areas_poligonos(ruta)
+    except (ErrorFormato, ErrorRutas, OSError):
+        return []
+
     try:
         registros = list(shapefile.leer_registros(ruta))
-    except (ErrorFormato, ErrorRutas):
-        return pequenas
-    for indice, fila in enumerate(registros):
-        area = None
-        for clave in ("area_km2", "AREA_KM2", "Area_km2", "area", "AREA"):
-            if clave in fila:
-                try:
-                    area = float(fila[clave])
-                except (TypeError, ValueError):
-                    area = None
+    except (ErrorFormato, ErrorRutas, OSError):
+        registros = []
+
+    pequenas: list[dict[str, Any]] = []
+    for indice, area_m2 in enumerate(areas):
+        area = area_m2 / 1e6
+        if area >= minimo_km2:
+            continue
+        fila = registros[indice] if indice < len(registros) else {}
+        nombre = ""
+        for clave in CAMPOS_NOMBRE:
+            if clave in fila and str(fila[clave]).strip():
+                nombre = str(fila[clave]).strip()
                 break
-        if area is not None and area < minimo_km2:
-            pequenas.append({"indice": indice, "area_km2": round(area, 4),
-                             **{k: v for k, v in list(fila.items())[:3]}})
+        pequenas.append({"indice": indice, "nombre": nombre,
+                         "area_km2": round(area, 4)})
     return pequenas
+
+
+def escribir_pequenas(destino: Path, pequenas: Sequence[dict[str, Any]]) -> Path:
+    """
+    Deja la lista de subcuencas diminutas en un CSV.
+
+    El hallazgo dice cuántas son; el consultor necesita saber CUÁLES para
+    fusionarlas en HEC-HMS. Un aviso que obliga a buscarlas a mano en una capa
+    de ciento veinticinco entidades no es accionable.
+    """
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    with destino.open("w", encoding="utf-8", newline="") as manejador:
+        escritor = csv.writer(manejador, delimiter=";")
+        escritor.writerow(["indice", "nombre", "area_km2"])
+        for fila in pequenas:
+            escritor.writerow([fila["indice"], fila["nombre"], fila["area_km2"]])
+    return destino
 
 
 # =============================================================================
@@ -239,7 +389,7 @@ cuyo eslabón manual no está escrito no se puede repetir ni auditar.
 |---|---|
 | `dem_recortado.tif` | Terreno del que HEC-HMS deriva direcciones de flujo |
 | `punto_descarga.shp` | Punto de cierre de la cuenca |
-| `area_influencia.shp` | Cuenca preliminar del M02, sirve de cota superior |
+| `area_influencia.shp` | Cota superior del M02. **No es una cuenca**: es una envolvente con holgura |
 | `drenaje_sencillo_area.shp` | Red del IGAC, para verificar y reacondicionar |
 | `drenaje_doble_area.shp` | Cauces anchos del IGAC |
 
@@ -259,19 +409,14 @@ Todo está en {crs}.
 6. `GIS > Break Points` en el punto de `punto_descarga.shp`, y en los sitios
    donde se quiera separar subcuencas.
 7. `GIS > Delineate Elements` para generar subcuencas y tramos.
-8. Comparar el área total obtenida con la de `area_influencia.shp`
-   ({area_preliminar:.2f} km²), que es la **cuenca preliminar**.
+8. Comparar el área total obtenida con las dos referencias:
 
-   Esa cifra es una **cota superior**, no un objetivo. Para este escenario el
-   M02 adopta la subzona hidrográfica entera, que es una unidad cerrada y
-   contiene la cuenca aportante por definición. La delimitación debe quedar por
-   debajo de ella y por encima del {tolerancia:.0f}% de ella.
+{referencia}
 9. Exportar la delimitación a shapefile y depositarla en:
 
        {salida}
 
-   con los nombres `{subcuencas}` y `{corrientes}`.
-
+{exportar}
 10. Volver a la línea de órdenes y ejecutar:
 
         python src/M09_hec_hms.py --importar
@@ -295,10 +440,49 @@ delimitar. Los shapefiles de drenaje están en esta carpeta para eso.
 ## Qué queda sin verificar
 
 El M09 corre en el venv y comprueba número de entidades, sistema de referencia,
-campos y **área total**. NO comprueba la topología (que cada tramo conecte con
-su subcuenca y que la red drene al punto de cierre), porque eso exige leer
-geometría vértice a vértice y pertenece al entorno SIG. Revisar la conectividad
-en HEC-HMS o en QGIS antes de continuar.
+campos, **área total** y **área de cada subcuenca**. NO comprueba la topología
+(que cada tramo conecte con su subcuenca y que la red drene al punto de cierre),
+porque eso exige leer geometría vértice a vértice y pertenece al entorno SIG.
+Revisar la conectividad en HEC-HMS o en QGIS antes de continuar.
+"""
+
+REFERENCIA_DRENADA = """   **Superficie drenada: {area_drenada:.2f} km²**, que es la referencia con
+   significado hidrológico. La envuelve la red que drena al punto ({red:.1f} km
+   de cauces), con un radio de {radio:.0f} m calibrado para que la densidad de
+   drenaje resultante ({densidad:.2f} km/km²) reproduzca la medida en la
+   subzona.
+
+   No es una divisoria, y por eso la comparación es de orden de magnitud: se
+   admite una desviación de hasta el {banda:.0f}%. La divisoria está en las
+   cumbres, esto es una mancha alrededor de los cauces.
+
+   **Cota superior: {area_preliminar:.2f} km²** (`area_influencia.shp`). La
+   delimitación no puede excederla, porque esa envolvente contiene la cuenca
+   aportante por definición: si la supera, está tomando agua de otra vertiente.
+   Tampoco puede quedar por debajo del {tolerancia:.0f}% de ella, que es el
+   control que atrapa el fallo del DEM descrito más abajo.
+"""
+
+REFERENCIA_SIN_DRENADA = """   **Cota superior: {area_preliminar:.2f} km²** (`area_influencia.shp`).
+
+   Es la ÚNICA referencia disponible en este estudio, porque no se acotó el área
+   trazando aguas arriba y no hay superficie drenada con la que contrastar. Y es
+   una cota débil: una envolvente con holgura admite delimitaciones varias veces
+   mayores de lo debido sin emitir señal. La delimitación debe quedar por debajo
+   de ella y por encima del {tolerancia:.0f}% de ella, pero cumplir eso no
+   confirma que sea correcta. Verificarla contra la cartografía.
+"""
+
+EXPORTAR_AMBAS = """   con los nombres `{subcuencas}` y `{corrientes}`.
+"""
+
+EXPORTAR_SOLO_SUBCUENCAS = """   con el nombre `{subcuencas}`.
+
+   **Las corrientes no se exportan.** Por configuración
+   (`hec_hms.intercambio.origen_corrientes`), los tramos del modelo salen de
+   `red_topologica.shp`, que el M02b ya construyó y que trae orden de Strahler,
+   adyacencia y el puente sobre los embalses. La exportación de HEC-HMS no tiene
+   nada de eso.
 """
 
 
@@ -356,17 +540,50 @@ def _preparar(configuracion, base, resultado, logger) -> None:
         except (ErrorFormato, ErrorRutas, TypeError, ValueError):
             area_preliminar = 0.0
 
+    tolerancia = float(configuracion.obtener(
+        "hec_hms.intercambio.fraccion_minima_pct"))
+    drenada = _referencia_drenada(configuracion, base)
+    if drenada:
+        referencia = REFERENCIA_DRENADA.format(
+            area_drenada=drenada["area_km2"],
+            red=drenada["longitud_red_km"],
+            radio=drenada["radio_m"],
+            densidad=drenada["densidad_km_km2"],
+            banda=float(configuracion.obtener(
+                "hec_hms.intercambio.banda_area_pct")),
+            area_preliminar=area_preliminar,
+            tolerancia=tolerancia,
+        )
+    else:
+        referencia = REFERENCIA_SIN_DRENADA.format(
+            area_preliminar=area_preliminar, tolerancia=tolerancia)
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "preparar.sin_referencia",
+            "no hay superficie drenada con la que contrastar la delimitacion: "
+            "el estudio no acoto el area trazando aguas arriba, o falta "
+            "red_topologica.shp. Queda solo el area de influencia como cota "
+            "superior, y una envolvente con holgura admite delimitaciones "
+            "varias veces mayores de lo debido sin emitir ninguna senal.",
+        ))
+
+    origen = str(configuracion.obtener(
+        "hec_hms.intercambio.origen_corrientes")).strip().lower()
+    plantilla_exportar = (EXPORTAR_AMBAS if origen == "hec_hms"
+                          else EXPORTAR_SOLO_SUBCUENCAS)
+
     instructivo = destino / "INSTRUCTIVO.md"
     instructivo.write_text(
         INSTRUCTIVO.format(
             crs=configuracion.obtener("crs.calculo"),
             version=configuracion.obtener("software.hec_hms.version"),
-            area_preliminar=area_preliminar,
-            tolerancia=float(configuracion.obtener(
-                "hec_hms.intercambio.fraccion_minima_pct")),
+            referencia=referencia,
+            exportar=plantilla_exportar.format(
+                subcuencas=configuracion.obtener(
+                    "hec_hms.intercambio.subcuencas"),
+                corrientes=configuracion.obtener(
+                    "hec_hms.intercambio.corrientes"),
+            ),
             salida=rutas.relativa(salida, base),
-            subcuencas=configuracion.obtener("hec_hms.intercambio.subcuencas"),
-            corrientes=configuracion.obtener("hec_hms.intercambio.corrientes"),
         ),
         encoding="utf-8")
     resultado.productos.append(rutas.relativa(instructivo, base))
@@ -374,12 +591,34 @@ def _preparar(configuracion, base, resultado, logger) -> None:
 
     logger.info("%d insumo(s) en %s", len(resultado.insumos),
                 rutas.relativa(destino, base))
+    if drenada:
+        resultado.verificaciones.append({"prueba": "superficie_drenada",
+                                         **drenada})
+    referencia_texto = (
+        f"superficie drenada de referencia {drenada['area_km2']:.2f} km2 "
+        f"(densidad {drenada['densidad_km_km2']:.2f} km/km2) y cota superior "
+        f"{area_preliminar:.2f} km2" if drenada else
+        f"cota superior {area_preliminar:.2f} km2, sin superficie drenada")
     resultado.hallazgos.append(Hallazgo(
         INFORMATIVO, "preparar.listo",
-        f"insumos listos en {rutas.relativa(destino, base)} y area preliminar "
-        f"de referencia {area_preliminar:.2f} km2. El siguiente paso es MANUAL: "
-        "seguir INSTRUCTIVO.md y despues ejecutar este modulo con --importar.",
+        f"insumos listos en {rutas.relativa(destino, base)}, {referencia_texto}. "
+        f"Corrientes del modelo: {origen}. El siguiente paso es MANUAL: seguir "
+        "INSTRUCTIVO.md y despues ejecutar este modulo con --importar.",
     ))
+
+
+def _referencia_drenada(configuracion, base) -> dict[str, Any] | None:
+    """Superficie drenada de referencia, o None si el estudio no la sostiene."""
+    try:
+        radio = float(configuracion.obtener(
+            "red_topologica.radio_cuenca_preliminar_m", 0.0))
+    except (ErrorConfiguracion, TypeError, ValueError):
+        radio = 0.0
+    return superficie_drenada_de_referencia(
+        rutas.directorio("sig_vector", base) / "red_topologica.shp",
+        rutas.directorio("procesado", base) / "M02_delimitacion.json",
+        radio,
+    )
 
 
 # =============================================================================
@@ -394,8 +633,18 @@ def _importar(configuracion, base, resultado, logger) -> None:
     ruta_sub = salida / nombre_sub
     ruta_cor = salida / nombre_cor
 
-    ausentes = [n for n, r in ((nombre_sub, ruta_sub), (nombre_cor, ruta_cor))
-                if not r.is_file()]
+    # --- De donde salen las corrientes ---------------------------------------
+    # Se declara en la configuracion, no se deduce del disco: la misma orden
+    # daria resultados distintos segun lo que hubiera alli, y el log no podria
+    # explicar cual se uso.
+    origen = str(configuracion.obtener(
+        "hec_hms.intercambio.origen_corrientes")).strip().lower()
+    ruta_red = rutas.directorio("sig_vector", base) / "red_topologica.shp"
+
+    exigidas = [(nombre_sub, ruta_sub)]
+    if origen == "hec_hms":
+        exigidas.append((nombre_cor, ruta_cor))
+    ausentes = [n for n, r in exigidas if not r.is_file()]
     if ausentes:
         resultado.hallazgos.append(Hallazgo(
             BLOQUEANTE, "importar.ausente",
@@ -406,15 +655,57 @@ def _importar(configuracion, base, resultado, logger) -> None:
         return
 
     resultado.subcuencas = resumir_capa(ruta_sub)
-    resultado.corrientes = resumir_capa(ruta_cor)
-    logger.info("subcuencas: %d entidad(es) | corrientes: %d entidad(es)",
-                resultado.subcuencas["entidades"],
-                resultado.corrientes["entidades"])
+    capas_a_verificar = [("subcuencas", resultado.subcuencas)]
+
+    if origen == "hec_hms":
+        resultado.corrientes = resumir_capa(ruta_cor)
+        resultado.corrientes["origen"] = "hec_hms"
+        capas_a_verificar.append(("corrientes", resultado.corrientes))
+        logger.info("subcuencas: %d entidad(es) | corrientes: %d entidad(es)",
+                    resultado.subcuencas["entidades"],
+                    resultado.corrientes["entidades"])
+    elif ruta_red.is_file():
+        resultado.corrientes = resumir_capa(ruta_red)
+        resultado.corrientes["origen"] = "red_topologica"
+        # La ruta viaja en el reporte para que el M10 y el M13 no tengan que
+        # adivinar de que capa salen los tramos: la comunicacion entre modulos
+        # es por archivos, no por convencion de nombres.
+        resultado.corrientes["ruta"] = rutas.relativa(ruta_red, base)
+        capas_a_verificar.append(("corrientes", resultado.corrientes))
+        heredada = rutas.directorio("sig_vector", base) / "corrientes.shp"
+        if heredada.is_file():
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "importar.corrientes_heredadas",
+                f"existe {rutas.relativa(heredada, base)} de una ejecucion "
+                "anterior con origen_corrientes 'hec_hms', y ya no se "
+                "actualiza. Un modulo que la busque por su nombre usaria una "
+                "capa vieja sin ninguna senal. Borrarla o volver a 'hec_hms'.",
+            ))
+        logger.info("subcuencas: %d entidad(es) | corrientes: %d tramo(s) "
+                    "de red_topologica.shp",
+                    resultado.subcuencas["entidades"],
+                    resultado.corrientes["entidades"])
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "importar.corrientes",
+            f"las corrientes del modelo salen de {ruta_red.name} "
+            f"({resultado.corrientes['entidades']} tramos), no de la "
+            "exportacion de HEC-HMS. Esa red trae orden de Strahler, adyacencia "
+            "y el puente sobre los embalses, que la exportacion no tiene. "
+            "Declarado en hec_hms.intercambio.origen_corrientes.",
+        ))
+    else:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "importar.corrientes",
+            f"origen_corrientes es 'red_topologica' pero no existe "
+            f"{rutas.relativa(ruta_red, base)}. Ejecutar antes el M02b, o "
+            "cambiar la clave a 'hec_hms' y exportar las corrientes del paso "
+            "manual.",
+        ))
+        return
 
     # --- Sistema de referencia ----------------------------------------------
     esperado = str(configuracion.obtener("crs.calculo")).upper()
-    for nombre, resumen in (("subcuencas", resultado.subcuencas),
-                            ("corrientes", resultado.corrientes)):
+    for nombre, resumen in capas_a_verificar:
         declarado = (resumen.get("crs_epsg") or "").upper()
         if not declarado:
             resultado.hallazgos.append(Hallazgo(
@@ -431,16 +722,27 @@ def _importar(configuracion, base, resultado, logger) -> None:
                 "produce areas y longitudes equivocadas.",
             ))
 
-    # --- Area frente a la delimitacion cartografica --------------------------
-    # La cuenca preliminar del escenario 1 es el area de influencia: la subzona
-    # entera, que CONTIENE la cuenca aportante por definicion.
+    try:
+        delimitada = float(shapefile.area_poligonos(ruta_sub)) / 1e6
+    except (ErrorFormato, ErrorRutas, TypeError, ValueError) as exc:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "importar.area",
+            f"no se pudo medir el area de la delimitacion: {exc}.",
+        ))
+        return
+
+    # --- Cota superior: el area de influencia --------------------------------
+    # NO es una cuenca. Es la envolvente del trazado aguas arriba mas el buffer,
+    # o la subzona entera si no se acoto. Contiene la cuenca aportante por
+    # definicion, y por eso sirve de tope; pero admite delimitaciones varias
+    # veces mayores de lo debido sin emitir senal. El contraste con significado
+    # hidrologico es el siguiente.
     cuenca = rutas.directorio("sig_vector", base) / "area_influencia.shp"
     fraccion_minima = float(configuracion.obtener(
         "hec_hms.intercambio.fraccion_minima_pct"))
     if cuenca.is_file():
         try:
             preliminar = float(shapefile.area_poligonos(cuenca)) / 1e6
-            delimitada = float(shapefile.area_poligonos(ruta_sub)) / 1e6
         except (ErrorFormato, ErrorRutas, TypeError, ValueError) as exc:
             resultado.hallazgos.append(Hallazgo(
                 ADVERTENCIA, "importar.area",
@@ -454,51 +756,103 @@ def _importar(configuracion, base, resultado, logger) -> None:
             problemas = []
             if verificacion.get("excede_la_preliminar"):
                 problemas.append(
-                    "EXCEDE la cuenca preliminar, que es una subzona cerrada y "
-                    "la contiene por definicion: la delimitacion esta tomando "
-                    "agua de otra vertiente")
+                    "EXCEDE el area de influencia, que la contiene por "
+                    "definicion: la delimitacion esta tomando agua de otra "
+                    "vertiente")
             if verificacion.get("demasiado_pequena"):
                 problemas.append(
-                    f"queda por debajo del {fraccion_minima:.0f}% de la "
-                    "preliminar. Es el fallo conocido: con el DEM de radar sin "
-                    "reacondicionar, el M02 llego a delimitar 6,59 km2 sobre "
-                    "una subzona de 5.926, porque en terreno plano el ruido "
-                    "vertical gobierna las direcciones de flujo. Reacondicionar "
-                    "el DEM con el drenaje del IGAC y repetir la delimitacion")
+                    f"queda por debajo del {fraccion_minima:.0f}% de ella. Es "
+                    "el fallo conocido: con el DEM de radar sin reacondicionar, "
+                    "el M02 llego a delimitar 6,59 km2 sobre una subzona de "
+                    "5.926, porque en terreno plano el ruido vertical gobierna "
+                    "las direcciones de flujo. Reacondicionar el DEM con el "
+                    "drenaje del IGAC y repetir la delimitacion")
             resultado.hallazgos.append(Hallazgo(
                 BLOQUEANTE if problemas else INFORMATIVO, "importar.area",
                 f"area delimitada {delimitada:.2f} km2, el "
-                f"{verificacion['fraccion_pct']:.1f}% de la cuenca preliminar "
-                f"({preliminar:.2f} km2)."
+                f"{verificacion['fraccion_pct']:.1f}% del area de influencia "
+                f"({preliminar:.2f} km2), que es COTA SUPERIOR y no objetivo."
                 + ("" if not problemas else " " + ". ".join(problemas) + "."),
             ))
+
+    # --- Contraste con la superficie drenada ---------------------------------
+    drenada = _referencia_drenada(configuracion, base)
+    if drenada is None:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "importar.sin_referencia",
+            "no hay superficie drenada con la que contrastar: el estudio no "
+            "acoto el area trazando aguas arriba, o falta red_topologica.shp. "
+            "El area delimitada queda verificada solo contra una envolvente con "
+            "holgura, que no distingue una cuenca correcta de una tres veces "
+            "mayor. Contrastarla contra la cartografia antes del M10.",
+        ))
+    else:
+        banda = float(configuracion.obtener(
+            "hec_hms.intercambio.banda_area_pct"))
+        contraste = contrastar_con_la_drenada(
+            delimitada, drenada["area_km2"], banda)
+        contraste["prueba"] = "superficie_drenada"
+        contraste["densidad_km_km2"] = drenada["densidad_km_km2"]
+        contraste["radio_m"] = drenada["radio_m"]
+        resultado.verificaciones.append(contraste)
+        fuera = contraste.get("fuera_de_banda")
+        desviacion = contraste.get("desviacion_pct")
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA if fuera else INFORMATIVO, "importar.area_drenada",
+            f"area delimitada {delimitada:.2f} km2 frente a "
+            f"{drenada['area_km2']:.2f} km2 de superficie drenada por la red "
+            f"({drenada['longitud_red_km']:.1f} km, densidad "
+            f"{drenada['densidad_km_km2']:.2f} km/km2): "
+            f"{desviacion:+.1f}% de desviacion."
+            + (f" Fuera de la banda del {banda:.0f}%. La superficie drenada no "
+               "es una divisoria, de modo que una diferencia moderada es "
+               "esperable, pero esta no lo es: revisar si la delimitacion dejo "
+               "fuera afluentes que si drenan al punto, o si tomo area de otra "
+               "vertiente." if fuera else
+               f" Dentro de la banda del {banda:.0f}%. La superficie drenada no "
+               "es una divisoria sino una mancha alrededor de los cauces: la "
+               "coincidencia confirma el orden de magnitud, no la traza."),
+        ))
 
     # --- Subcuencas diminutas ------------------------------------------------
     minimo = float(configuracion.obtener(
         "hec_hms.intercambio.area_minima_subcuenca_km2"))
     pequenas = subcuencas_pequenas(ruta_sub, minimo)
     if pequenas:
+        listado = escribir_pequenas(
+            rutas.directorio("procesado", base, crear=True)
+            / "M09_subcuencas_pequenas.csv", pequenas)
+        resultado.productos.append(rutas.relativa(listado, base))
+        menor = min(fila["area_km2"] for fila in pequenas)
+        suma = sum(fila["area_km2"] for fila in pequenas)
         resultado.hallazgos.append(Hallazgo(
             ADVERTENCIA, "importar.subcuencas_pequenas",
-            f"{len(pequenas)} subcuenca(s) por debajo de {minimo} km2. Suelen ser "
-            "artefactos del trazado y no unidades hidrologicas: arrastrarlas "
-            "produce un hidrograma sin sentido fisico y un tiempo de "
-            "concentracion absurdo. Fusionarlas es decision del consultor y se "
-            "hace en HEC-HMS.",
+            f"{len(pequenas)} de {resultado.subcuencas['entidades']} subcuenca(s) "
+            f"por debajo de {minimo} km2, la menor de {menor:.4f} km2, "
+            f"{suma:.2f} km2 en total. Suelen ser artefactos del trazado y no "
+            "unidades hidrologicas: arrastrarlas produce un hidrograma sin "
+            "sentido fisico y un tiempo de concentracion absurdo. La lista esta "
+            f"en {rutas.relativa(listado, base)}. Fusionarlas es decision del "
+            "consultor y se hace en HEC-HMS.",
         ))
 
     # --- Publicacion ---------------------------------------------------------
     destino = rutas.directorio("sig_vector", base, crear=True)
-    for ruta, nombre in ((ruta_sub, "subcuencas"), (ruta_cor, "corrientes")):
+    publicar = [(ruta_sub, "subcuencas")]
+    if origen == "hec_hms":
+        publicar.append((ruta_cor, "corrientes"))
+    for ruta, nombre in publicar:
         for copiado in copiar_capa(ruta, destino):
             if copiado.suffix == ".shp":
                 final = destino / f"{nombre}.shp"
                 if copiado != final:
                     for extension in ACOMPANANTES:
-                        origen_ext = copiado.with_suffix(extension)
-                        if origen_ext.is_file():
-                            origen_ext.replace(final.with_suffix(extension))
+                        acompanante = copiado.with_suffix(extension)
+                        if acompanante.is_file():
+                            acompanante.replace(final.with_suffix(extension))
                 resultado.productos.append(rutas.relativa(final, base))
+                if nombre == "subcuencas":
+                    resultado.subcuencas["ruta"] = rutas.relativa(final, base)
 
     resultado.hallazgos.append(Hallazgo(
         ADVERTENCIA, "importar.topologia",

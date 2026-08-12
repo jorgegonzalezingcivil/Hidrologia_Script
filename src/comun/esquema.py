@@ -1024,9 +1024,17 @@ ESQUEMA: dict[str, Campo] = {
         "nombre del shapefile de subcuencas", no_vacio=True),
     "hec_hms.intercambio.corrientes": texto(
         "nombre del shapefile de corrientes", no_vacio=True),
+    "hec_hms.intercambio.origen_corrientes": texto(
+        "de dónde salen las corrientes del modelo",
+        opciones=("hec_hms", "red_topologica"),
+    ),
     "hec_hms.intercambio.fraccion_minima_pct": numero(
         "fracción mínima de la preliminar que debe representar la delimitada",
         minimo=0.01, maximo=100.0,
+    ),
+    "hec_hms.intercambio.banda_area_pct": numero(
+        "desviación admitida frente a la superficie drenada de referencia",
+        minimo=1.0, maximo=200.0,
     ),
     "hec_hms.intercambio.area_minima_subcuenca_km2": numero(
         "área mínima admitida de subcuenca", minimo=0.0, maximo=1000.0,
