@@ -470,6 +470,112 @@ def razon_bifurcacion(corrientes: dict[int, int]) -> dict[str, Any]:
     }
 
 
+def distancia_a_poligono(x: float, y: float, poligono) -> float:
+    """Distancia de un punto al BORDE del polígono. Cero si está sobre él."""
+    minima = float("inf")
+    for anillo in poligono:
+        for uno, otro in zip(anillo, list(anillo[1:]) + [anillo[0]]):
+            minima = min(minima, _distancia_a_segmento(
+                x, y, uno[0], uno[1], otro[0], otro[1]))
+    return minima
+
+
+def puentear_embalses(
+    tramos: Sequence[tuple[int, tuple[float, float], tuple[float, float]]],
+    afluentes: dict[int, list[int]],
+    embalses: Sequence[tuple[str, Any]],
+    tolerancia_m: float,
+    cota: "Callable[[float, float], float] | None" = None,
+) -> tuple[dict[int, list[int]], list[dict[str, Any]]]:
+    """
+    Conecta la red a través de los embalses, tratándolos como NODOS.
+
+    El IGAC dibuja los embalses como polígono aparte, y ni las líneas del
+    drenaje sencillo ni el eje del drenaje doble los atraviesan: la red queda
+    cortada en cada uno. Medido sobre el Embalse San Rafael, en el Río
+    Teusacá, la traza aguas arriba del punto se detenía en su orilla norte y
+    dejaba fuera 12,7 km de río y 47 km de cauce con nombre.
+
+    NO se le deriva un eje. Se intentó rasterizarlos junto con los cauces
+    dobles y el resultado lo desmiente: un embalse tiene lámina plana y su
+    esqueleto recorre los brazos laterales del polígono. Sobre San Rafael, la
+    cadena derivada subía de 2.789 a 3.097 m, imposible en un curso de agua.
+    La dirección de flujo dentro de un embalse no existe, de modo que no hay
+    criterio con el que orientar ese esqueleto.
+
+    Un embalse es un NODO: entra agua por varios afluentes y sale por uno. Se
+    identifica cada tramo que TERMINA en su orilla (entrada) y cada uno que
+    ARRANCA de ella (salida), y se declara que las entradas desembocan en la
+    salida. Eso restituye la continuidad sin inventar geometría.
+
+    Con varias salidas se adopta la de menor cota, si se puede muestrear, y se
+    declara: un embalse con dos desagües es posible (trasvases), pero también
+    es la señal de que la cartografía tiene un brazo mal cerrado.
+
+    Devuelve (afluentes actualizados, informe por embalse).
+    """
+    actualizados = {receptor: list(tributarios)
+                    for receptor, tributarios in afluentes.items()}
+    informe: list[dict[str, Any]] = []
+
+    for nombre, poligono in embalses:
+        entradas: list[int] = []
+        salidas: list[int] = []
+        for identificador, inicio, fin in tramos:
+            toca_inicio = distancia_a_poligono(
+                inicio[0], inicio[1], poligono) <= tolerancia_m
+            toca_fin = distancia_a_poligono(
+                fin[0], fin[1], poligono) <= tolerancia_m
+            if toca_fin and not toca_inicio:
+                entradas.append(identificador)
+            elif toca_inicio and not toca_fin:
+                salidas.append(identificador)
+
+        registro_embalse: dict[str, Any] = {
+            "embalse": nombre,
+            "entradas": len(entradas),
+            "salidas": len(salidas),
+            "puenteados": 0,
+            "motivo": "",
+        }
+
+        if not entradas or not salidas:
+            registro_embalse["motivo"] = (
+                "sin entradas identificadas" if not entradas
+                else "sin salida identificada: el embalse queda como sumidero "
+                     "de la red")
+            informe.append(registro_embalse)
+            continue
+
+        elegida = salidas[0]
+        if len(salidas) > 1:
+            if cota is not None:
+                def _cota_de(identificador: int) -> float:
+                    inicio = next(i for c, i, _ in tramos if c == identificador)
+                    valor = cota(inicio[0], inicio[1])
+                    return valor if valor == valor else float("inf")
+                elegida = min(salidas, key=_cota_de)
+                registro_embalse["motivo"] = (
+                    f"{len(salidas)} salidas; se adopta la de menor cota")
+            else:
+                registro_embalse["motivo"] = (
+                    f"{len(salidas)} salidas; se adopta la primera, sin cota "
+                    "con la que decidir")
+
+        # Una entrada que ya desemboca en algo no se toca: la red podría estar
+        # conectada por otra vía y duplicar la arista crearía un ciclo.
+        con_receptor = {t for tributarios in actualizados.values()
+                        for t in tributarios}
+        nuevas = [e for e in entradas if e != elegida and e not in con_receptor]
+        if nuevas:
+            actualizados.setdefault(elegida, []).extend(nuevas)
+        registro_embalse["puenteados"] = len(nuevas)
+        registro_embalse["salida_adoptada"] = elegida
+        informe.append(registro_embalse)
+
+    return actualizados, informe
+
+
 def enganchar_punto(
     afluentes: dict[int, list[int]],
     longitudes: dict[int, float],

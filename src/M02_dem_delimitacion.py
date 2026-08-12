@@ -1226,6 +1226,11 @@ def _escribir_area(configuracion, base, area, escenario, ruta_dem, crs_calculo,
     # área aún menor: una realimentación que encoge el estudio en cada pasada
     # sin que nada lo señale.
     if solo_area:
+        # El recorte no se rehace, pero la EXPORTACIÓN GEOGRÁFICA sí: el M03
+        # lee de ella el área de selección, y si no se reescribiera seguiría
+        # trabajando sobre el área anterior sin que nada lo señalara.
+        _exportar_geografico(configuracion, base, area, ruta_dem, crs_calculo,
+                             resultado, logger)
         return
     # Las capas del IGAC pesan 645 MB y viven fuera del repositorio. El recorte
     # a la envolvente pesa unos cientos de kilobytes y es lo que se versiona.
@@ -1271,15 +1276,33 @@ def _escribir_area(configuracion, base, area, escenario, ruta_dem, crs_calculo,
         resultado.capas.append(rutas.relativa(destino_capa, base))
         logger.info("Drenaje recortado: %s", destino_capa.name)
 
+    _exportar_geografico(configuracion, base, area, ruta_dem, crs_calculo,
+                         resultado, logger, cotas)
+
+
+def _exportar_geografico(configuracion, base, area, ruta_dem, crs_calculo,
+                         resultado, logger, cotas=None) -> None:
+    """
+    Exporta el área, su envolvente y el área de estaciones en EPSG:4326.
+
+    El M03 corre en el venv, donde no hay con qué reproyectar, y necesita el
+    área en las mismas coordenadas geográficas en que el catálogo publica la
+    ubicación de las estaciones.
+    """
+    from qgis.core import QgsGeometry
+
+    envolvente = QgsGeometry.fromRect(area.boundingBox())
     buffer_est = float(configuracion.obtener("estaciones.buffer_adicional_km"))
-    seleccion = area.buffer(buffer_est * 1000.0, 12) if buffer_est > 0         else QgsGeometry(area)
+    seleccion = (area.buffer(buffer_est * 1000.0, 12) if buffer_est > 0
+                 else QgsGeometry(area))
 
     x, y = _punto_de_descarga(configuracion, base)
     resultado.cota_punto = _cota_en(ruta_dem, x, y)
     logger.info("Cota del punto de descarga: %s m",
                 f"{resultado.cota_punto:.0f}" if resultado.cota_punto else "no disponible")
-    logger.info("Área de influencia %.1f km2 | cotas %.0f a %.0f m",
-                resultado.area_cuenca_km2, cotas["minimo"], cotas["maximo"])
+    if cotas:
+        logger.info("Área de influencia %.1f km2 | cotas %.0f a %.0f m",
+                    resultado.area_cuenca_km2, cotas["minimo"], cotas["maximo"])
 
     resultado.wkt_geografico = _a_geografico(
         {"area_influencia": area, "envolvente": envolvente,

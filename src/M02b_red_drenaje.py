@@ -121,6 +121,7 @@ class ResultadoM02b:
     ciclos: list[int] = field(default_factory=list)
     desembocaduras: int = 0
     espolones: int = 0
+    embalses: list = field(default_factory=list)
     capas: list[str] = field(default_factory=list)
     diccionarios: list[str] = field(default_factory=list)
     productos: list[str] = field(default_factory=list)
@@ -452,6 +453,62 @@ def ejecutar(
         logger.info("Empalme del eje con el drenaje sencillo: %s",
                     resultado.empalme)
 
+        # --- Puente sobre los embalses --------------------------------------
+        # Se hace DESPUES del empalme y ANTES de podar y ordenar: el puente
+        # necesita la adyacencia ya resuelta para no duplicar aristas, y el
+        # orden de Strahler necesita la red ya continua.
+        ruta_embalses = rutas.resolver(
+            configuracion.obtener(
+                "referencia_nacional.salida_recorte_embalses"), base)
+        if ruta_embalses.is_file():
+            from comun import shapefile as shp
+
+            nombres_emb = list(shp.leer_registros(ruta_embalses, [campo_nombre]))
+            geoms_emb = shp.leer_geometrias(ruta_embalses)
+            embalses = [(str(r.get(campo_nombre, "")).strip() or "sin nombre", g)
+                        for r, g in zip(nombres_emb, geoms_emb)]
+            extremos = [(t.identificador, t.inicio, t.fin) for t in tramos]
+            cota_emb = muestreador_de_cota(ruta_dem)
+            try:
+                afluentes, resultado.embalses = red.puentear_embalses(
+                    extremos, afluentes, embalses, tolerancia_empalme,
+                    cota_emb)
+            finally:
+                cota_emb.cerrar()
+            puenteados = sum(e["puenteados"] for e in resultado.embalses)
+            con_puente = [e for e in resultado.embalses if e["puenteados"]]
+            logger.info("Embalses: %d evaluados, %d puenteados, %d tramo(s) "
+                        "reconectados", len(embalses), len(con_puente),
+                        puenteados)
+            sumideros = [e["embalse"] for e in resultado.embalses
+                         if "sumidero" in e["motivo"]]
+            if sumideros:
+                resultado.hallazgos.append(Hallazgo(
+                    ADVERTENCIA, "red.embalses_sin_salida",
+                    f"{len(sumideros)} embalse(s) sin salida identificada: la "
+                    "red termina en ellos y lo que drena aguas arriba no "
+                    f"alcanza el punto. {', '.join(sumideros[:6])}. Suele ser "
+                    "un brazo mal cerrado en la cartografia, o un embalse cuyo "
+                    "desague no esta digitalizado.",
+                ))
+            varias = [e for e in resultado.embalses if e["salidas"] > 1]
+            if varias:
+                resultado.hallazgos.append(Hallazgo(
+                    INFORMATIVO, "red.embalses_varias_salidas",
+                    f"{len(varias)} embalse(s) con mas de una salida. Se adopto "
+                    "la de menor cota. Es posible (trasvases), pero tambien es "
+                    "la senal de una cartografia con un brazo mal cerrado: "
+                    + "; ".join(f"{e['embalse']} ({e['salidas']})"
+                                for e in varias[:5]),
+                ))
+        else:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "red.embalses",
+                f"no se encuentra {rutas.relativa(ruta_embalses, base)}: la red "
+                "queda CORTADA en cada embalse y lo que drena aguas arriba de "
+                "ellos no alcanza el punto. Ejecutar el M02 --fase preliminar.",
+            ))
+
         tramos, afluentes, sueltos = descartar_espolones(
             tramos, afluentes,
             float(configuracion.obtener("red_topologica.longitud_minima_tramo_m")))
@@ -661,6 +718,7 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "orden_maximo": resultado.orden_maximo,
         "desembocaduras": resultado.desembocaduras,
         "fragmentos_sueltos_descartados": resultado.espolones,
+        "embalses": resultado.embalses,
         "corrientes_por_orden": resultado.corrientes,
         "razon_bifurcacion": resultado.bifurcacion,
         "sentido": resultado.sentido,

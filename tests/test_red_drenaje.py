@@ -284,3 +284,96 @@ class PruebaEngancheDelPunto(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class PruebaPuenteSobreEmbalses(unittest.TestCase):
+    """
+    El IGAC dibuja los embalses como polígono aparte y la red queda cortada en
+    cada uno. Se tratan como NODO y no como tramo: entra agua por varios
+    afluentes y sale por uno.
+
+    No se les deriva eje. Se intentó rasterizarlos junto con los cauces dobles
+    y la cadena resultante subía de 2.789 a 3.097 m sobre el Embalse San
+    Rafael: el esqueleto recorre los brazos laterales del polígono, no un
+    cauce, y la dirección de flujo dentro de un embalse no existe.
+    """
+
+    # Embalse cuadrado de 100 m de lado, centrado en el origen.
+    EMBALSE = [[(-50.0, -50.0), (-50.0, 50.0), (50.0, 50.0), (50.0, -50.0)]]
+
+    def _tramos(self):
+        # Dos entradas que mueren en la orilla norte y este, y una salida que
+        # arranca de la orilla sur.
+        return [
+            (1, (-200.0, 300.0), (-20.0, 50.0)),    # entra por el norte
+            (2, (300.0, 200.0), (50.0, 20.0)),      # entra por el este
+            (3, (0.0, -50.0), (0.0, -400.0)),       # sale por el sur
+            (9, (900.0, 900.0), (950.0, 950.0)),    # lejos, no toca
+        ]
+
+    def test_las_entradas_desembocan_en_la_salida(self) -> None:
+        afluentes, informe = red.puentear_embalses(
+            self._tramos(), {}, [("San Rafael", self.EMBALSE)], 5.0)
+        self.assertEqual(sorted(afluentes[3]), [1, 2])
+        self.assertEqual(informe[0]["puenteados"], 2)
+        self.assertEqual(informe[0]["salida_adoptada"], 3)
+
+    def test_lo_que_no_toca_el_embalse_no_se_conecta(self) -> None:
+        afluentes, _ = red.puentear_embalses(
+            self._tramos(), {}, [("San Rafael", self.EMBALSE)], 5.0)
+        self.assertNotIn(9, afluentes.get(3, []))
+
+    def test_no_se_duplica_una_arista_ya_existente(self) -> None:
+        # Si la red ya estaba conectada por otra via, repetir la arista
+        # crearia un ciclo y el orden de Strahler quedaria indefinido.
+        afluentes, informe = red.puentear_embalses(
+            self._tramos(), {3: [1]}, [("San Rafael", self.EMBALSE)], 5.0)
+        self.assertEqual(sorted(afluentes[3]), [1, 2])
+        self.assertEqual(informe[0]["puenteados"], 1)
+
+    def test_sin_salida_se_declara_sumidero(self) -> None:
+        tramos = [(1, (-200.0, 300.0), (-20.0, 50.0))]
+        afluentes, informe = red.puentear_embalses(
+            tramos, {}, [("Sin desague", self.EMBALSE)], 5.0)
+        self.assertEqual(afluentes, {})
+        self.assertIn("sumidero", informe[0]["motivo"])
+
+    def test_sin_entradas_no_hace_nada(self) -> None:
+        tramos = [(3, (0.0, -50.0), (0.0, -400.0))]
+        _, informe = red.puentear_embalses(
+            tramos, {}, [("Solo salida", self.EMBALSE)], 5.0)
+        self.assertEqual(informe[0]["puenteados"], 0)
+        self.assertIn("sin entradas", informe[0]["motivo"])
+
+    def test_con_dos_salidas_manda_la_cota(self) -> None:
+        # Un embalse con dos desagues es posible, pero tambien es la senal de
+        # una cartografia con un brazo mal cerrado. Se adopta la de menor cota
+        # y se declara.
+        tramos = self._tramos() + [(4, (-50.0, 0.0), (-400.0, 0.0))]
+        cotas = {(0.0, -50.0): 2900.0, (-50.0, 0.0): 2850.0}
+        afluentes, informe = red.puentear_embalses(
+            tramos, {}, [("Dos desagues", self.EMBALSE)], 5.0,
+            cota=lambda x, y: cotas.get((x, y), float("nan")))
+        self.assertEqual(informe[0]["salidas"], 2)
+        self.assertEqual(informe[0]["salida_adoptada"], 4)
+        self.assertIn("menor cota", informe[0]["motivo"])
+
+    def test_la_tolerancia_decide_que_toca(self) -> None:
+        # Un tramo que muere a 30 m de la orilla no toca con tolerancia de 5.
+        tramos = [(1, (-200.0, 300.0), (-20.0, 80.0)),
+                  (3, (0.0, -50.0), (0.0, -400.0))]
+        _, estrecha = red.puentear_embalses(
+            tramos, {}, [("E", self.EMBALSE)], 5.0)
+        _, amplia = red.puentear_embalses(
+            tramos, {}, [("E", self.EMBALSE)], 40.0)
+        self.assertEqual(estrecha[0]["puenteados"], 0)
+        self.assertEqual(amplia[0]["puenteados"], 1)
+
+    def test_la_distancia_al_poligono_es_al_borde(self) -> None:
+        # Dentro del polígono la distancia al BORDE no es cero.
+        self.assertAlmostEqual(
+            red.distancia_a_poligono(0.0, 0.0, self.EMBALSE), 50.0, places=6)
+        self.assertAlmostEqual(
+            red.distancia_a_poligono(-50.0, 0.0, self.EMBALSE), 0.0, places=6)
+        self.assertAlmostEqual(
+            red.distancia_a_poligono(-70.0, 0.0, self.EMBALSE), 20.0, places=6)
