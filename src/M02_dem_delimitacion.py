@@ -1243,15 +1243,26 @@ def _escribir_area(configuracion, base, area, escenario, ruta_dem, crs_calculo,
         configuracion.obtener("referencia_nacional.directorio"))
     campo_nombre = configuracion.obtener("referencia_nacional.campos.nombre")
     extension_recorte = envolvente.boundingBox()
-    for clave_origen, clave_destino in (
+    for clave_origen, clave_destino, para_que in (
         ("referencia_nacional.drenaje_sencillo",
-         "referencia_nacional.salida_recorte_sencillo"),
+         "referencia_nacional.salida_recorte_sencillo",
+         "el M09 lo entrega a HEC-HMS como capa de verificacion del paso "
+         "manual"),
         ("referencia_nacional.drenaje_doble",
-         "referencia_nacional.salida_recorte_doble"),
+         "referencia_nacional.salida_recorte_doble",
+         "el M02b deriva de el el eje de los cauces anchos"),
         # Los embalses cortan la red: el IGAC los dibuja como poligono aparte y
         # ni las lineas ni el eje del drenaje doble los atraviesan.
         ("referencia_nacional.embalses",
-         "referencia_nacional.salida_recorte_embalses"),
+         "referencia_nacional.salida_recorte_embalses",
+         "el M02b lo usa para puentear la red donde el embalse la corta"),
+        # La cobertura es una de las dos entradas del numero de curva. Sin este
+        # recorte el M10 resuelve el grupo hidrologico pero no llega al CN, y
+        # sin CN no hay rezago por la ecuacion del SCS, que es la coherente con
+        # el metodo de transformacion declarado.
+        ("referencia_nacional.cobertura_clc",
+         "referencia_nacional.salida_recorte_cobertura",
+         "el M10 la cruza con el grupo hidrologico para el numero de curva"),
     ):
         origen_capa = directorio_nacional / configuracion.obtener(clave_origen)
         destino_capa = rutas.resolver(
@@ -1259,9 +1270,8 @@ def _escribir_area(configuracion, base, area, escenario, ruta_dem, crs_calculo,
         if not origen_capa.is_file():
             resultado.hallazgos.append(Hallazgo(
                 ADVERTENCIA, clave_destino,
-                f"no se encuentra {origen_capa}: el recorte del drenaje no se "
-                "escribio. El M09 lo necesita como capa de verificacion del "
-                "paso manual de HEC-HMS.",
+                f"no se encuentra {origen_capa}: el recorte no se escribio, y "
+                f"{para_que}.",
             ))
             continue
         try:
@@ -1274,7 +1284,7 @@ def _escribir_area(configuracion, base, area, escenario, ruta_dem, crs_calculo,
             ))
             continue
         resultado.capas.append(rutas.relativa(destino_capa, base))
-        logger.info("Drenaje recortado: %s", destino_capa.name)
+        logger.info("Capa nacional recortada: %s", destino_capa.name)
 
     _exportar_geografico(configuracion, base, area, ruta_dem, crs_calculo,
                          resultado, logger, cotas)

@@ -111,19 +111,47 @@ def recortar_capa(
     kilobytes en lugar de los 645 MB de las capas nacionales, que viven fuera
     del árbol del proyecto.
 
+    LA EXTENSIÓN LLEGA EN EL CRS DE CÁLCULO Y LA CAPA PUEDE ESTAR EN OTRO. No
+    todas las capas nacionales comparten sistema: las del IGAC vienen
+    proyectadas en Origen Nacional, y la cobertura Corine del IDEAM es
+    GEOGRÁFICA, en EPSG:4686. Filtrar con un rectángulo en metros sobre una capa
+    en grados no da error: devuelve CERO entidades y escribe una capa vacía con
+    todos sus campos, que aguas abajo se lee como "aquí no hay cobertura" en vez
+    de como "el recorte falló". Por eso el rectángulo se transforma al sistema
+    de la capa antes de filtrar, y la geometría al de cálculo antes de escribir.
+
+    Un recorte vacío se rechaza. Una capa nacional que no cubre el área de
+    trabajo es un insumo equivocado, no un resultado.
+
     Excepciones
     -----------
     ErrorFormato
-        Si la capa de origen no se puede abrir o el recorte no se puede escribir.
+        Si la capa de origen no se puede abrir, si el recorte queda vacío o si
+        no se puede escribir.
     """
     from qgis.core import (
+        QgsCoordinateReferenceSystem, QgsCoordinateTransform,
         QgsCoordinateTransformContext, QgsFeature, QgsFeatureRequest,
-        QgsVectorFileWriter, QgsVectorLayer, QgsWkbTypes,
+        QgsGeometry, QgsProject, QgsVectorFileWriter, QgsVectorLayer,
+        QgsWkbTypes,
     )
 
     capa = QgsVectorLayer(str(ruta_origen), ruta_origen.stem, "ogr")
     if not capa.isValid():
         raise ErrorFormato(f"QGIS no pudo abrir {ruta_origen}")
+
+    destino_crs = QgsCoordinateReferenceSystem(crs_id)
+    origen_crs = capa.crs()
+    hay_que_reproyectar = (origen_crs.isValid() and destino_crs.isValid()
+                           and origen_crs != destino_crs)
+
+    rectangulo = extension
+    conversor = None
+    if hay_que_reproyectar:
+        contexto = QgsProject.instance().transformContext()
+        al_origen = QgsCoordinateTransform(destino_crs, origen_crs, contexto)
+        rectangulo = al_origen.transformBoundingBox(extension)
+        conversor = QgsCoordinateTransform(origen_crs, destino_crs, contexto)
 
     tipo = QgsWkbTypes.displayString(capa.wkbType())
     memoria = QgsVectorLayer(f"{tipo}?crs={crs_id}", "recorte", "memory")
@@ -131,14 +159,26 @@ def recortar_capa(
     memoria.updateFields()
 
     entidades = []
-    for entidad in capa.getFeatures(QgsFeatureRequest().setFilterRect(extension)):
+    for entidad in capa.getFeatures(QgsFeatureRequest().setFilterRect(rectangulo)):
         geometria = entidad.geometry()
         if geometria is None or geometria.isEmpty():
             continue
+        if conversor is not None:
+            geometria = QgsGeometry(geometria)
+            if geometria.transform(conversor) != 0:
+                continue
         copia = QgsFeature(memoria.fields())
         copia.setGeometry(geometria)
         copia.setAttributes(entidad.attributes())
         entidades.append(copia)
+
+    if not entidades:
+        raise ErrorFormato(
+            f"el recorte de {ruta_origen.name} quedó vacío sobre el área de "
+            f"trabajo. La capa declara {origen_crs.authid() or 'sin CRS'} y el "
+            f"cálculo ocurre en {crs_id}. Una capa nacional que no cubre el "
+            "área es un insumo equivocado, y una capa vacía se leería aguas "
+            "abajo como ausencia de dato.")
 
     memoria.dataProvider().addFeatures(entidades)
     memoria.updateExtents()
