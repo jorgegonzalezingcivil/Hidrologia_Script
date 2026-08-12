@@ -20,6 +20,7 @@ if str(_DIRECTORIO_SRC) not in sys.path:
 
 import M10_morfometria as m10  # noqa: E402
 from comun import geometria, shapefile  # noqa: E402
+from comun.campos import CampoSalida  # noqa: E402
 from comun.config import cargar  # noqa: E402
 from comun.errores import ErrorHidrologia, ErrorRutas  # noqa: E402
 
@@ -648,6 +649,99 @@ class PruebaPerimetroExterior(unittest.TestCase):
         resultado = geometria.perimetro_exterior(lejos)
         self.assertAlmostEqual(resultado["perimetro_m"], 800.0, places=3)
         self.assertEqual(resultado["aristas_compartidas"], 0)
+
+
+_SUBCUENCAS = (Path("C:/Estudios/refugio_del_valle") / "data" / "03_SIG"
+               / "vector" / "subcuencas.shp")
+
+
+class PruebaTiemposDeSubcuenca(unittest.TestCase):
+    """
+    HEC-HMS transforma la lluvia en CADA subcuenca con su propio rezago.
+
+    El Tc de la cuenca completa no entra en el modelo: sin un valor por unidad,
+    el M13 no puede escribirlo.
+    """
+
+    MATRIZ = [
+        {"formula": "a", "area_min_km2": "0.01", "area_max_km2": "50",
+         "origen": "x"},
+        {"formula": "b", "area_min_km2": "0.01", "area_max_km2": "50",
+         "origen": "x"},
+    ]
+    SUB = {"subcuenca": "SB1", "area_km2": 1.5, "long_flujo_km": 2.0,
+           "pendiente_flujo": 0.12, "desnivel_flujo_m": 240.0,
+           "cota_media_sobre_salida_m": 150.0}
+
+    def test_sin_formulas_suficientes_no_adopta(self) -> None:
+        salida = m10.tiempos_de_subcuenca(
+            self.SUB, self.MATRIZ, 5, 0.6, "scs", 5.0)
+        self.assertFalse(salida["procede_adoptar"])
+        self.assertIsNone(salida["tc_horas"])
+        self.assertEqual(salida["motivo_sin_tc"],
+                         "menos formulas aplicables que el minimo")
+
+    def test_el_motivo_distingue_dispersion_de_escasez(self) -> None:
+        # Con el mínimo en 1 hay fórmulas de sobra; lo que falla es otra cosa.
+        salida = m10.tiempos_de_subcuenca(
+            self.SUB, self.MATRIZ, 1, 0.6, "scs", 5.0)
+        self.assertNotEqual(salida["motivo_sin_tc"],
+                            "menos formulas aplicables que el minimo")
+
+    def test_un_rezago_por_debajo_del_intervalo_se_marca(self) -> None:
+        # Es lo que ocurre en las subcuencas de hectáreas: HEC-HMS no puede
+        # resolver un hidrograma cuyo rezago es menor que su paso de tiempo.
+        minuscula = dict(self.SUB, area_km2=0.006, long_flujo_km=0.19,
+                         pendiente_flujo=0.085, desnivel_flujo_m=16.0)
+        matriz = [{"formula": f, "area_min_km2": "0.001",
+                   "area_max_km2": "50", "origen": "x"}
+                  for f in ("kirpich", "temez", "ventura", "passini",
+                            "bransby", "clark")]
+        salida = m10.tiempos_de_subcuenca(
+            minuscula, matriz, 5, 10.0, "scs", 5.0)
+        self.assertTrue(salida["procede_adoptar"])
+        self.assertLess(salida["tlag_minutos"], 5.0)
+        self.assertTrue(salida["tlag_bajo_el_intervalo"])
+
+
+@unittest.skipUnless(_SUBCUENCAS.is_file(), "no hay capa de subcuencas")
+class PruebaParametrosPorSubcuencaReal(unittest.TestCase):
+    def test_una_fila_por_subcuenca_con_su_trayectoria(self) -> None:
+        subcuencas = m10.parametros_por_subcuenca(_SUBCUENCAS)
+        self.assertGreater(len(subcuencas), 1)
+        for subcuenca in subcuencas:
+            self.assertGreater(subcuenca["area_km2"], 0.0)
+            self.assertGreater(subcuenca["perimetro_km"], 0.0)
+
+    def test_el_area_por_partes_suma_la_del_conjunto(self) -> None:
+        subcuencas = m10.parametros_por_subcuenca(_SUBCUENCAS)
+        total = m10.parametros_geometricos(_SUBCUENCAS)["area_km2"]
+        self.assertAlmostEqual(sum(s["area_km2"] for s in subcuencas),
+                               total, places=1)
+
+    def test_el_perimetro_sumado_excede_al_del_contorno(self) -> None:
+        # Justamente la razón por la que el perímetro de la cuenca no se
+        # obtiene sumando: cada linde interior se contaría dos veces.
+        subcuencas = m10.parametros_por_subcuenca(_SUBCUENCAS)
+        contorno = m10.parametros_geometricos(_SUBCUENCAS)["perimetro_km"]
+        self.assertGreater(sum(s["perimetro_km"] for s in subcuencas),
+                           contorno * 2)
+
+
+class PruebaUnidadesDeLaCapa(unittest.TestCase):
+    def test_unas_unidades_ajenas_se_rechazan(self) -> None:
+        # Una capa en pies no da error en ninguna parte y multiplica la
+        # longitud por 3,28, que en Kirpich se traduce en un Tc 2,4 veces mayor.
+        with tempfile.TemporaryDirectory() as temporal:
+            ruta = shapefile.escribir_poligonos(
+                Path(temporal) / "subcuencas.shp",
+                [[[(0.0, 0.0), (0.0, 100.0), (100.0, 100.0), (100.0, 0.0),
+                   (0.0, 0.0)]]],
+                [CampoSalida(corto="len_units", descriptivo="Unidades",
+                             tipo="texto", longitud=20)],
+                [{"len_units": "Feet"}], 'PROJCS["p"]')
+            with self.assertRaises(ErrorHidrologia):
+                m10.parametros_por_subcuenca(ruta)
 
 
 class PruebaModoDeAnalisis(unittest.TestCase):

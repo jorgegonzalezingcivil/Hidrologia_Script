@@ -108,6 +108,7 @@ class ResultadoM10:
     magnitudes: dict[str, Any] = field(default_factory=dict)
     rezago: dict[str, Any] = field(default_factory=dict)
     suelos: dict[str, Any] = field(default_factory=dict)
+    subcuencas: list[dict[str, Any]] = field(default_factory=list)
     tiempos: list[dict[str, Any]] = field(default_factory=list)
     adoptados: dict[str, Any] = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
@@ -1082,6 +1083,239 @@ def tiempo_de_rezago(
     }
 
 
+# =============================================================================
+# Caracterización por subcuenca
+# =============================================================================
+# Campos que HEC-HMS escribe en la exportación de subcuencas. Son los que su
+# propio análisis de terreno derivó del mismo DEM, y aquí se usan como fuente de
+# la trayectoria de flujo. No es un atajo: la longitud que piden las fórmulas de
+# Tc es la del RECORRIDO DEL AGUA, que sale de las direcciones de flujo. La red
+# del IGAC no sirve para eso a esta escala, porque no entra en las subcuencas
+# pequeñas: de las 125, la mediana tiene 1,35 km2 y la menor 0,006 km2, y en
+# ellas no hay ningún cauce cartografiado. Medirlas contra esa red daría
+# longitud cero y ninguna fórmula aplicable.
+#
+# El contraste independiente existe y sale bien: la pendiente media ponderada
+# por área que declara HEC-HMS es 23,1 % y la que este módulo calcula con Horn
+# sobre el DEM es 24,2 %, un 4,7 % de diferencia entre dos cálculos que no
+# comparten una sola línea de código.
+CAMPO_LONGITUD = "long_len"      # recorrido de flujo más largo, en metros
+CAMPO_PENDIENTE = "long_slo"     # su pendiente, en m/m
+CAMPO_PENDIENTE_CUENCA = "basin_slo"
+CAMPO_RELIEVE = "basin_rel"
+CAMPO_UNIDADES = "len_units"
+CAMPO_NOMBRE_SUB = "name"
+
+
+def _numero(fila: dict, campo: str) -> float | None:
+    """Lee un campo numérico del .dbf sin suponer que existe ni que es legible."""
+    try:
+        valor = float(str(fila.get(campo, "")).strip())
+    except (TypeError, ValueError):
+        return None
+    return valor if math.isfinite(valor) else None
+
+
+def parametros_por_subcuenca(ruta: Path) -> list[dict[str, Any]]:
+    """
+    Geometría y trayectoria de flujo de cada subcuenca.
+
+    El área y el perímetro salen de la geometría; la longitud y la pendiente del
+    recorrido de flujo, de los atributos que HEC-HMS calculó sobre el terreno.
+
+    Se comprueba que las unidades declaradas sean metros. Un shapefile en pies
+    no da error en ninguna parte y multiplica la longitud por 3,28, que en
+    Kirpich (L elevado a 0,77) se traduce en un Tc 2,4 veces mayor.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si la capa declara unidades distintas de metros.
+    """
+    areas = shapefile.areas_poligonos(ruta)
+    entidades = shapefile.leer_geometrias(ruta)
+    registros = list(shapefile.leer_registros(ruta))
+
+    unidades = {str(f.get(CAMPO_UNIDADES, "")).strip().lower()
+                for f in registros} - {""}
+    if unidades and not unidades <= {"metre", "meter", "metros", "m"}:
+        raise ErrorHidrologia(
+            f"la capa de subcuencas declara unidades {sorted(unidades)} y se "
+            "esperan metros. Una longitud en pies no da error en ninguna parte "
+            "y multiplica el tiempo de concentración por más de dos.")
+
+    subcuencas: list[dict[str, Any]] = []
+    for indice, (area_m2, anillos) in enumerate(zip(areas, entidades)):
+        fila = registros[indice] if indice < len(registros) else {}
+        nombre = str(fila.get(CAMPO_NOMBRE_SUB, "")).strip() or f"S{indice + 1}"
+        perimetro_m = sum(
+            math.hypot(otro[0] - uno[0], otro[1] - uno[1])
+            for anillo in anillos for uno, otro in zip(anillo, anillo[1:]))
+        area_km2 = area_m2 / 1e6
+        longitud_m = _numero(fila, CAMPO_LONGITUD)
+        pendiente = _numero(fila, CAMPO_PENDIENTE)
+        subcuencas.append({
+            "subcuenca": nombre,
+            "area_km2": round(area_km2, 4),
+            "perimetro_km": round(perimetro_m / 1000.0, 3),
+            "long_flujo_km": round(longitud_m / 1000.0, 4)
+            if longitud_m else None,
+            "pendiente_flujo": round(pendiente, 5) if pendiente else None,
+            "desnivel_flujo_m": round(longitud_m * pendiente, 2)
+            if longitud_m and pendiente else None,
+            "pendiente_cuenca": _numero(fila, CAMPO_PENDIENTE_CUENCA),
+            "relieve_m": _numero(fila, CAMPO_RELIEVE),
+            "origen_trayectoria": "hec_hms",
+        })
+    return subcuencas
+
+
+def relieve_por_subcuenca(ruta_dem: Path, entidades) -> list[dict[str, Any]]:
+    """
+    Cotas de cada subcuenca, en un solo recorrido del DEM.
+
+    Giandotti necesita la cota media SOBRE la salida, y sin ella se pierde una
+    fórmula de las pocas que aplican a subcuencas de este tamaño.
+
+    Se recorre el ráster una vez y en cada fila solo se evalúan las subcuencas
+    cuya envolvente vertical la alcanza. Sin ese filtro, ciento veinticinco
+    barridos por fila sobre un DEM de miles de filas multiplican el coste por
+    dos órdenes de magnitud sin cambiar el resultado.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    info = raster.leer_info(ruta_dem)
+    nodato = info.nodato
+
+    preparadas = []
+    for anillos in entidades:
+        poligono = [list(anillo) for anillo in anillos]
+        aristas = geometria.aristas_de([poligono])
+        if not aristas:
+            preparadas.append(None)
+            continue
+        _, ymin, _, ymax = geometria.envolvente([poligono])
+        preparadas.append({
+            "aristas": aristas,
+            "fila_ini": max(0, info.fila_de(ymax)),
+            "fila_fin": min(info.alto - 1, info.fila_de(ymin)),
+        })
+
+    acumulado = [{"celdas": 0, "suma": 0.0,
+                  "minimo": float("inf"), "maximo": float("-inf")}
+                 for _ in preparadas]
+
+    filas_activas = [p for p in preparadas if p]
+    if not filas_activas:
+        return [dict(cota_min=None, cota_max=None, cota_media=None,
+                     celdas_dem=0) for _ in preparadas]
+    fila_ini = min(p["fila_ini"] for p in filas_activas)
+    fila_fin = max(p["fila_fin"] for p in filas_activas)
+
+    with raster.LectorRaster(ruta_dem) as lector:
+        for fila in range(fila_ini, fila_fin + 1):
+            candidatas = [i for i, p in enumerate(preparadas)
+                          if p and p["fila_ini"] <= fila <= p["fila_fin"]]
+            if not candidatas:
+                continue
+            z = np.frombuffer(lector.fila(fila), dtype=info.descriptor)
+            for indice in candidatas:
+                mascara = _mascara_de_fila(
+                    info, preparadas[indice]["aristas"], fila, np)
+                if not mascara.any():
+                    continue
+                if nodato is not None:
+                    mascara &= z != nodato
+                valores = z[mascara]
+                if not valores.size:
+                    continue
+                registro = acumulado[indice]
+                registro["celdas"] += int(valores.size)
+                registro["suma"] += float(valores.sum(dtype=np.float64))
+                registro["minimo"] = min(registro["minimo"],
+                                         float(valores.min()))
+                registro["maximo"] = max(registro["maximo"],
+                                         float(valores.max()))
+
+    salida = []
+    for registro in acumulado:
+        if not registro["celdas"]:
+            salida.append({"cota_min": None, "cota_max": None,
+                           "cota_media": None, "celdas_dem": 0})
+            continue
+        salida.append({
+            "cota_min": round(registro["minimo"], 2),
+            "cota_max": round(registro["maximo"], 2),
+            "cota_media": round(registro["suma"] / registro["celdas"], 2),
+            "celdas_dem": registro["celdas"],
+        })
+    return salida
+
+
+def tiempos_de_subcuenca(
+    subcuenca: dict[str, Any],
+    filas_matriz,
+    minimo_formulas: int,
+    cv_maximo: float,
+    criterio_rezago: str,
+    intervalo_min: float,
+) -> dict[str, Any]:
+    """
+    Tiempo de concentración y de rezago de UNA subcuenca.
+
+    Se aplica la misma regla que a la cuenca completa (CLAUDE.md, sección 7):
+    matriz de aplicabilidad, mínimo de fórmulas y control de dispersión, y la
+    mediana del subconjunto aplicable. La diferencia es que aquí la regla suele
+    poder cumplirse: las fórmulas de Tc se calibraron en cuencas pequeñas, que
+    es justo lo que son las subcuencas, mientras que la cuenca completa de 220
+    km2 queda fuera del rango de casi todas.
+
+    El rezago se compara con el intervalo de cálculo. Un rezago por debajo del
+    paso de tiempo no produce un pico pequeño: produce un pico que el modelo no
+    puede representar, y esa subcuenca aporta un hidrograma sin sentido.
+    """
+    magnitudes = {
+        "area_km2": subcuenca.get("area_km2"),
+        "longitud_km": subcuenca.get("long_flujo_km"),
+        "pendiente": subcuenca.get("pendiente_flujo"),
+        "desnivel_m": subcuenca.get("desnivel_flujo_m"),
+        "cota_media_m": subcuenca.get("cota_media_sobre_salida_m"),
+        "cn": subcuenca.get("cn"),
+    }
+    evaluadas = evaluar_aplicabilidad(
+        filas_matriz, subcuenca.get("area_km2"),
+        subcuenca.get("pendiente_flujo"), magnitudes)
+    resumen = resumir_adopcion(evaluadas, minimo_formulas, cv_maximo)
+
+    tc_horas = resumen.get("tc_horas")
+    rezago = tiempo_de_rezago(tc_horas, criterio_rezago, intervalo_min)
+    tlag_min = rezago.get("tlag_minutos")
+
+    if resumen["procede_adoptar"]:
+        motivo = ""
+    elif resumen["formulas_aplicables"] < minimo_formulas:
+        motivo = "menos formulas aplicables que el minimo"
+    elif resumen["dispersion_excesiva"]:
+        motivo = "dispersion excesiva"
+    else:
+        motivo = "ninguna formula aplicable se pudo calcular"
+
+    return {
+        "formulas_aplicables": resumen["formulas_aplicables"],
+        "formulas_adoptables": resumen["formulas_adoptables"],
+        "cv": resumen.get("estadisticos", {}).get("cv"),
+        "tc_horas": tc_horas,
+        "tc_minutos": round(tc_horas * 60.0, 2) if tc_horas else None,
+        "procede_adoptar": resumen["procede_adoptar"],
+        "motivo_sin_tc": motivo,
+        "tlag_horas": rezago.get("tlag_horas"),
+        "tlag_minutos": tlag_min,
+        "tlag_bajo_el_intervalo": bool(
+            tlag_min is not None and tlag_min < intervalo_min),
+        "evaluadas": evaluadas,
+    }
+
+
 def _magnitudes_de_la_cuenca(parametros, resultado) -> dict[str, Any]:
     """
     Reúne lo que las fórmulas de Tc necesitan, con las unidades que esperan.
@@ -1250,6 +1484,110 @@ def _resolver_numero_curva(configuracion, base, resultado, poligonos,
             "una decision del consultor y no puede derivarse sin criterio: la "
             "misma clase Corine admite numeros de curva distintos segun como se "
             "interprete su condicion hidrologica.",
+        ))
+
+
+def _resolver_subcuencas(configuracion, ruta_cuenca, ruta_dem, matriz,
+                         minimo, resultado, logger) -> None:
+    """
+    Caracteriza cada subcuenca por separado, que es como entra en HEC-HMS.
+
+    La cuenca completa da un Tc que el modelo no usa: HEC-HMS transforma la
+    lluvia en cada subcuenca con SU rezago y transita el resultado por los
+    tramos. Sin estos valores el modelo no se puede escribir.
+
+    La curva hipsométrica, el orden de Strahler y la razón de bifurcación
+    siguen siendo de la cuenca completa, porque describen la red y no la
+    respuesta de cada unidad.
+    """
+    subcuencas = parametros_por_subcuenca(ruta_cuenca)
+    if not subcuencas:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "subcuencas.sin_unidades",
+            "no se leyo ninguna subcuenca de la capa: la caracterizacion "
+            "individual queda sin hacer y el M13 no podra escribir el modelo.",
+        ))
+        return
+
+    sin_trayectoria = [s["subcuenca"] for s in subcuencas
+                       if not s.get("long_flujo_km")]
+    if sin_trayectoria:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "subcuencas.sin_trayectoria",
+            f"{len(sin_trayectoria)} subcuenca(s) sin longitud de flujo en los "
+            f"atributos ({CAMPO_LONGITUD}): {sin_trayectoria[:5]}. Sin ella no "
+            "hay tiempo de concentracion, porque la red del IGAC no entra en "
+            "las subcuencas pequenas y medirlas contra ella daria longitud "
+            "cero. Reexportar de HEC-HMS con los parametros de subcuenca.",
+        ))
+
+    relieve = relieve_por_subcuenca(ruta_dem, shapefile.leer_geometrias(ruta_cuenca))
+    for subcuenca, cotas in zip(subcuencas, relieve):
+        subcuenca.update(cotas)
+        # Giandotti pide la cota media SOBRE la salida. Se toma la minima de la
+        # propia subcuenca como cota de salida: es donde entrega su caudal.
+        if cotas["cota_media"] is not None and cotas["cota_min"] is not None:
+            subcuenca["cota_media_sobre_salida_m"] = round(
+                cotas["cota_media"] - cotas["cota_min"], 2)
+
+    criterio_rezago = str(configuracion.obtener("tiempo_rezago.criterio"))
+    intervalo = float(configuracion.obtener("tormenta.intervalo_calculo_min"))
+    cv_maximo = float(configuracion.obtener(
+        "tiempo_concentracion.cv_maximo_admisible"))
+
+    for subcuenca in subcuencas:
+        tiempos = tiempos_de_subcuenca(
+            subcuenca, matriz, minimo, cv_maximo, criterio_rezago, intervalo)
+        subcuenca.update({c: v for c, v in tiempos.items() if c != "evaluadas"})
+    resultado.subcuencas = subcuencas
+
+    con_tc = [s for s in subcuencas if s.get("tc_horas")]
+    logger.info("%d subcuenca(s) | %d con Tc adoptado | %d sin adoptar",
+                len(subcuencas), len(con_tc), len(subcuencas) - len(con_tc))
+
+    if con_tc:
+        valores = sorted(s["tc_horas"] for s in con_tc)
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "subcuencas.tiempos",
+            f"{len(con_tc)} de {len(subcuencas)} subcuenca(s) con tiempo de "
+            f"concentracion adoptado, de {valores[0] * 60:.1f} a "
+            f"{valores[-1] * 60:.1f} minutos. La longitud y la pendiente del "
+            f"recorrido de flujo proceden de los atributos que HEC-HMS derivo "
+            "del terreno; el area y las cotas se midieron aqui. A esta escala "
+            "la matriz de aplicabilidad si se cumple, porque las formulas de "
+            "Tc se calibraron en cuencas de este tamano y no en una de 220 km2.",
+        ))
+
+    sin_tc = [s for s in subcuencas if not s.get("tc_horas")]
+    if sin_tc:
+        motivos: dict[str, int] = {}
+        for subcuenca in sin_tc:
+            motivo = subcuenca.get("motivo_sin_tc") or "sin motivo registrado"
+            motivos[motivo] = motivos.get(motivo, 0) + 1
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "subcuencas.sin_tiempo",
+            f"{len(sin_tc)} de {len(subcuencas)} subcuenca(s) sin tiempo de "
+            f"concentracion adoptado. Motivos: "
+            + "; ".join(f"{m} ({n})" for m, n in sorted(motivos.items()))
+            + f". Ejemplos: {[s['subcuenca'] for s in sin_tc[:5]]}. Sin Tc no "
+            "hay rezago, y sin rezago esa subcuenca no se puede transformar en "
+            "HEC-HMS: la decision es del consultor y debe quedar escrita.",
+        ))
+
+    cortas = [s for s in subcuencas if s.get("tlag_bajo_el_intervalo")]
+    if cortas:
+        menor = min(s["tlag_minutos"] for s in cortas)
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "subcuencas.rezago_bajo_el_intervalo",
+            f"{len(cortas)} subcuenca(s) con tiempo de rezago por debajo del "
+            f"intervalo de calculo de {intervalo:.0f} min, la menor de "
+            f"{menor:.2f} min: {[s['subcuenca'] for s in cortas[:6]]}. HEC-HMS "
+            "no puede resolver un hidrograma cuyo rezago es menor que su paso "
+            "de tiempo, y lo que produce no es un pico pequeno sino un pico que "
+            "el modelo no representa. Caben dos salidas, y ambas se declaran: "
+            "bajar el intervalo de calculo, o fusionar esas subcuencas en "
+            "HEC-HMS. Es la consecuencia de conservarlas, que ya advirtio el "
+            "M09.",
         ))
 
 
@@ -1978,6 +2316,11 @@ def ejecutar(
     with registro.bloque(logger, "Tiempo de viaje"):
         _resolver_tiempo_viaje(resultado, modo, parametros, logger)
 
+    # --- Caracterizacion por subcuenca ---------------------------------------
+    with registro.bloque(logger, "Parametros por subcuenca"):
+        _resolver_subcuencas(configuracion, ruta_cuenca, ruta_dem, matriz,
+                             minimo, resultado, logger)
+
     if resultado.unidades:
         resultado.unidades[0].update({
             "tc_horas": resultado.adoptados.get("tc_horas"),
@@ -2025,6 +2368,10 @@ def _escribir_productos(configuracion, base, resultado, delimitador,
 
     contenidos = [("parametros.csv", resultado.unidades),
                   ("tiempo_concentracion.csv", resultado.tiempos)]
+    if resultado.subcuencas:
+        # La tabla que el M13 necesita: una fila por subcuenca, que es la
+        # unidad con la que HEC-HMS transforma la lluvia.
+        contenidos.append(("subcuencas.csv", resultado.subcuencas))
     if resultado.relieve:
         contenidos += [
             ("curva_hipsometrica.csv", resultado.relieve["curva_hipsometrica"]),
