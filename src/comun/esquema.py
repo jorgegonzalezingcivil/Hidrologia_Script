@@ -830,15 +830,18 @@ ESQUEMA: dict[str, Campo] = {
         entero("duración", minimo=1, maximo=10080), creciente=True,
     ),
     "cambio_climatico.aplicar": booleano("aplicar factores de cambio climático"),
-    "cambio_climatico.fuente": ruta("tabla de factores de cambio climático"),
-    "cambio_climatico.comunicacion": texto(
-        "comunicación nacional de cambio climático",
-        opciones=("tercera", "cuarta"),
-    ),
-    "cambio_climatico.escenarios": lista(
-        "escenarios evaluados", texto("escenario", opciones=ESCENARIOS_CC),
-    ),
-    "cambio_climatico.horizontes": lista("horizontes temporales", texto("horizonte")),
+    "cambio_climatico.directorio": texto(
+        "subdirectorio de los rásteres departamentales", no_vacio=True),
+    "cambio_climatico.patron": texto(
+        "patrón de ruta del ráster por escenario y horizonte", no_vacio=True),
+    "cambio_climatico.departamento": texto(
+        "departamento del estudio", no_vacio=True),
+    "cambio_climatico.variable": texto(
+        "carpeta de la variable", no_vacio=True),
+    "cambio_climatico.magnitud": texto(
+        "nombre de la magnitud en el archivo", no_vacio=True),
+    "cambio_climatico.unidad": texto(
+        "unidad del ráster", opciones=("porcentaje", "milimetros")),
     "cambio_climatico.solo_si_incremento": booleano(
         "aplicar el factor solo cuando represente incremento",
     ),

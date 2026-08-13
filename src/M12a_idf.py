@@ -63,7 +63,7 @@ _DIRECTORIO_SRC = Path(__file__).resolve().parent
 if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
-from comun import esquema, registro, rutas  # noqa: E402
+from comun import esquema, geometria, raster, registro, rutas, shapefile  # noqa: E402
 from comun.config import Config, cargar  # noqa: E402
 from comun.errores import (  # noqa: E402
     ErrorConfiguracion,
@@ -331,6 +331,113 @@ def desagregar(
         if valor is not None and pmax24_mm > 0:
             hipotesis[f"{clave}_sobre_p24"] = round(valor / pmax24_mm, 4)
     return hipotesis
+
+
+def ruta_de_escenario(
+    directorio: Path, patron: str, departamento: str, variable: str,
+    magnitud: str, escenario: str, horizonte: str,
+) -> Path:
+    """
+    Arma la ruta del ráster de un escenario y horizonte.
+
+    EL PATRÓN SE DECLARA, no se codifica. La Cuarta Comunicación reparte los
+    rásteres en carpetas por departamento, variable y escenario, y el nombre del
+    archivo repite escenario, horizonte y departamento. Además la carpeta de la
+    variable lleva tilde ('PRECIPITACIÓN') y el archivo no ('Precipitacion'),
+    de modo que hacen falta las dos formas. Si el IDEAM cambia la nomenclatura
+    en una entrega futura se ajusta una línea de configuración.
+    """
+    relativa = patron.format(
+        departamento=departamento, variable=variable, magnitud=magnitud,
+        escenario=escenario.upper(), horizonte=horizonte)
+    return directorio / relativa
+
+
+def cambio_medio_en_la_cuenca(
+    ruta_raster: Path, subcuencas, areas_km2, crs_calculo: str,
+) -> dict[str, Any]:
+    """
+    Cambio proyectado medio sobre la cuenca, ponderado por área.
+
+    Se muestrea el ráster en el CENTROIDE de cada subcuenca y se pondera por su
+    área. La malla del IDEAM tiene celda de 0,1 grados, unos once kilómetros,
+    y una cuenca de doscientos veinte kilómetros cuadrados cabe en unas pocas
+    celdas: promediar por centroides sobre las ciento veinticinco subcuencas
+    describe ese reparto sin fingir un detalle que la malla no tiene.
+
+    SE DEVUELVE TAMBIÉN EL RANGO. Si el mínimo y el máximo entre subcuencas se
+    separan, la cuenca cae sobre celdas distintas y el promedio esconde esa
+    diferencia; si coinciden, la cuenca entera está en una sola celda y hay que
+    decirlo, porque entonces el factor no distingue una parte de la cuenca de
+    otra.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si no está el ráster.
+    ErrorHidrologia
+        Si ninguna subcuenca cae dentro de su extensión.
+    """
+    import struct
+
+    from pyproj import Transformer
+
+    info = raster.leer_info(ruta_raster)
+    # El raster viene sin .prj legible y en grados: se declara el geografico.
+    conversor = Transformer.from_crs(crs_calculo, info.crs_epsg or "EPSG:4326",
+                                     always_xy=True)
+    formato = {"<f4": "f", "<f8": "d", "<i2": "h", "<u2": "H"}.get(
+        info.descriptor)
+    if formato is None:
+        raise ErrorFormato(
+            f"{ruta_raster.name}: tipo {info.descriptor} no muestreable.")
+
+    valores: list[float] = []
+    pesos: list[float] = []
+    fuera = 0
+    with raster.LectorRaster(ruta_raster) as lector:
+        for anillos, area in zip(subcuencas, areas_km2):
+            try:
+                x, y = geometria.centroide([list(a) for a in anillos])
+            except ErrorFormato:
+                continue
+            gx, gy = conversor.transform(x, y)
+            if not info.contiene(gx, gy, gx, gy):
+                fuera += 1
+                continue
+            fila, columna = info.fila_de(gy), info.columna_de(gx)
+            if not (0 <= fila < info.alto and 0 <= columna < info.ancho):
+                fuera += 1
+                continue
+            bruto = struct.unpack_from(
+                "<" + formato, lector.fila(fila),
+                columna * info.bytes_por_muestra)[0]
+            valor = float(bruto)
+            if info.nodato is not None and valor == float(info.nodato):
+                fuera += 1
+                continue
+            if not math.isfinite(valor):
+                fuera += 1
+                continue
+            valores.append(valor)
+            pesos.append(float(area))
+
+    if not valores:
+        raise ErrorHidrologia(
+            f"ninguna subcuenca cae sobre {ruta_raster.name}: revisar el "
+            "departamento declarado.")
+
+    total = sum(pesos) or float(len(valores))
+    medio = sum(v * p for v, p in zip(valores, pesos)) / total
+    return {
+        "cambio_pct": round(medio, 3),
+        "minimo_pct": round(min(valores), 3),
+        "maximo_pct": round(max(valores), 3),
+        "subcuencas_muestreadas": len(valores),
+        "subcuencas_fuera": fuera,
+        "celda_grados": round(info.tamano_x, 4),
+        "una_sola_celda": bool(max(valores) == min(valores)),
+    }
 
 
 def factor_de_cambio_climatico(
@@ -737,7 +844,7 @@ def _resolver_desagregacion(configuracion, resultado, cuantiles,
 
 def _resolver_cambio_climatico(configuracion, base, resultado, delimitador,
                                logger) -> None:
-    """Lee las proyecciones y aplica la regla condicional de la sección 6."""
+    """Lee los rásteres departamentales y aplica la regla condicional."""
     with registro.bloque(logger, "Cambio climatico"):
         if not bool(configuracion.obtener("cambio_climatico.aplicar")):
             resultado.hallazgos.append(Hallazgo(
@@ -747,68 +854,106 @@ def _resolver_cambio_climatico(configuracion, base, resultado, delimitador,
             ))
             return
 
-        ruta = rutas.resolver(configuracion.obtener("cambio_climatico.fuente"),
-                              base)
-        if not ruta.is_file():
-            resultado.hallazgos.append(Hallazgo(
-                ADVERTENCIA, "cambio_climatico.sin_fuente",
-                f"no se encuentra {rutas.relativa(ruta, base)}: no se calculo "
-                "ningun factor de cambio climatico. La tabla debe traer, por "
-                "comunicacion nacional, escenario y horizonte, el cambio "
-                "proyectado en precipitacion para la zona del estudio.",
-            ))
-            return
-
-        comunicacion = str(configuracion.obtener(
-            "cambio_climatico.comunicacion")).strip().lower()
-        escenarios = [str(e).strip().lower()
+        directorio = (Path(configuracion.obtener("referencia_nacional.directorio"))
+                      / str(configuracion.obtener("cambio_climatico.directorio")))
+        patron = str(configuracion.obtener("cambio_climatico.patron"))
+        departamento = str(configuracion.obtener(
+            "cambio_climatico.departamento"))
+        variable = str(configuracion.obtener("cambio_climatico.variable"))
+        magnitud = str(configuracion.obtener("cambio_climatico.magnitud"))
+        escenarios = [str(e).strip()
                       for e in configuracion.obtener("cambio_climatico.escenarios")]
         horizontes = [str(h).strip()
                       for h in configuracion.obtener("cambio_climatico.horizontes")]
         solo_incremento = bool(
             configuracion.obtener("cambio_climatico.solo_si_incremento"))
+        crs_calculo = str(configuracion.obtener("crs.calculo"))
 
-        with ruta.open(encoding="utf-8-sig", newline="") as manejador:
-            filas = list(csv.DictReader(manejador, delimiter=delimitador))
-        for fila in filas:
-            if str(fila.get("comunicacion", "")).strip().lower() != comunicacion:
-                continue
-            escenario = str(fila.get("escenario", "")).strip().lower()
-            horizonte = str(fila.get("horizonte", "")).strip()
-            if escenario not in escenarios or horizonte not in horizontes:
-                continue
-            try:
-                cambio = float(fila["cambio_precipitacion_pct"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            registro_cc = factor_de_cambio_climatico(cambio, solo_incremento)
-            registro_cc.update({"comunicacion": comunicacion,
-                                "escenario": escenario, "horizonte": horizonte,
-                                "origen": str(fila.get("origen", "")).strip()})
-            resultado.cambio_climatico.append(registro_cc)
+        ruta_subcuencas = rutas.directorio("sig_vector", base) / "subcuencas.shp"
+        if not ruta_subcuencas.is_file():
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "cambio_climatico.sin_cuenca",
+                "no se encuentra subcuencas.shp: sin geometria no se puede "
+                "promediar el cambio sobre la cuenca.",
+            ))
+            return
+        entidades = shapefile.leer_geometrias(ruta_subcuencas)
+        areas = [a / 1e6 for a in shapefile.areas_poligonos(ruta_subcuencas)]
+
+        faltan = []
+        for escenario in escenarios:
+            for horizonte in horizontes:
+                ruta = ruta_de_escenario(directorio, patron, departamento,
+                                         variable, magnitud, escenario,
+                                         horizonte)
+                if not ruta.is_file():
+                    faltan.append(f"{escenario} {horizonte}")
+                    continue
+                try:
+                    medida = cambio_medio_en_la_cuenca(
+                        ruta, entidades, areas, crs_calculo)
+                except (ErrorFormato, ErrorHidrologia, ErrorRutas) as error:
+                    resultado.hallazgos.append(Hallazgo(
+                        ADVERTENCIA, "cambio_climatico.lectura",
+                        f"no se pudo leer {ruta.name}: {error}"))
+                    continue
+                registro_cc = factor_de_cambio_climatico(
+                    medida["cambio_pct"], solo_incremento)
+                registro_cc.update({
+                    "escenario": escenario, "horizonte": horizonte,
+                    "variable": magnitud, "departamento": departamento,
+                    "raster": ruta.name,
+                    "minimo_pct": medida["minimo_pct"],
+                    "maximo_pct": medida["maximo_pct"],
+                    "subcuencas_muestreadas": medida["subcuencas_muestreadas"],
+                    "celda_grados": medida["celda_grados"],
+                    "una_sola_celda": medida["una_sola_celda"],
+                })
+                resultado.cambio_climatico.append(registro_cc)
+                logger.info("%-8s %-10s cambio %+6.2f %% -> factor %.4f%s",
+                            escenario, horizonte, medida["cambio_pct"],
+                            registro_cc["factor_aplicado"],
+                            "" if registro_cc["aplicado"] else " (no se aplica)")
+
+        if faltan:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "cambio_climatico.faltan_rasteres",
+                f"no se encontraron los rasteres de: {faltan}. Se buscan bajo "
+                f"{directorio} con el patron declarado. Descargarlos del "
+                "portal del IDEAM y dejarlos ahi, o quitar de la configuracion "
+                "los escenarios y horizontes que no se vayan a usar.",
+            ))
 
         if not resultado.cambio_climatico:
-            resultado.hallazgos.append(Hallazgo(
-                ADVERTENCIA, "cambio_climatico.sin_coincidencias",
-                f"la tabla no trae ninguna fila para la comunicacion "
-                f"{comunicacion!r} con los escenarios {escenarios} y los "
-                f"horizontes {horizontes}. No se calculo ningun factor.",
-            ))
             return
 
         aplicados = [c for c in resultado.cambio_climatico if c["aplicado"]]
-        descartados = [c for c in resultado.cambio_climatico if not c["aplicado"]]
-        logger.info("%d factor(es) de cambio climatico, %d aplicable(s)",
-                    len(resultado.cambio_climatico), len(aplicados))
+        descartados = [c for c in resultado.cambio_climatico
+                       if not c["aplicado"]]
+
+        en_una_celda = [c for c in resultado.cambio_climatico
+                        if c.get("una_sola_celda")]
+        if en_una_celda:
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "cambio_climatico.resolucion",
+                f"en {len(en_una_celda)} de {len(resultado.cambio_climatico)} "
+                "combinacion(es) la cuenca entera cae en una sola celda de la "
+                f"malla, que tiene {resultado.cambio_climatico[0]['celda_grados']} "
+                "grados de lado, unos once kilometros. El factor no distingue "
+                "una parte de la cuenca de otra, y eso es del dato y no del "
+                "metodo.",
+            ))
 
         if aplicados:
             mayor = max(aplicados, key=lambda c: c["factor_aplicado"])
             resultado.hallazgos.append(Hallazgo(
                 INFORMATIVO, "cambio_climatico.factores",
                 f"{len(aplicados)} de {len(resultado.cambio_climatico)} "
-                f"proyeccion(es) son de incremento y dan factor aplicable. El "
+                "proyeccion(es) son de incremento y dan factor aplicable, "
+                f"leidas de los rasteres departamentales de {departamento}. El "
                 f"mayor: {mayor['escenario']} en {mayor['horizonte']}, "
-                f"{mayor['cambio_pct']:+.1f} %, factor "
+                f"{mayor['cambio_pct']:+.1f} % (entre {mayor['minimo_pct']:+.1f} "
+                f"y {mayor['maximo_pct']:+.1f} % dentro de la cuenca), factor "
                 f"{mayor['factor_aplicado']:.3f}. El M12b decide cual usa; el "
                 "informe debe declarar escenario y horizonte junto al caudal, "
                 "porque un caudal de diseno sin ellos no es comparable.",
@@ -825,6 +970,16 @@ def _resolver_cambio_climatico(configuracion, base, resultado, delimitador,
                 "la reduccion que anuncian. Queda documentado como margen de "
                 "seguridad, no como omision.",
             ))
+
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "cambio_climatico.variable",
+            "el factor sale del cambio proyectado en la precipitacion MEDIA "
+            "ANUAL, y el hietograma de diseno es un evento extremo de tres "
+            "horas. No son la misma variable, y la literatura es consistente en "
+            "que los extremos cambian mas que las medias. Es la aproximacion de "
+            "uso corriente, pero el informe debe declarar con que variable se "
+            "calculo el factor y no solo que escenario y horizonte se uso.",
+        ))
 
 
 # Periodos que lleva la figura de COMPARACION. Con ocho curvas por metodologia

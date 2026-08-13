@@ -877,12 +877,27 @@ idf:
 
 cambio_climatico:
   aplicar: true
-  fuente: "data/referencia/cc_comunicaciones.csv"
-  comunicacion: "cuarta"         # tercera | cuarta
-  escenarios: [rcp45, rcp85]
-  horizontes: ["2011-2040", "2041-2070", "2071-2100"]
-  # Regla condicional: si el factor proyecta disminución, NO se afecta el
-  # hietograma y se documenta la decisión como margen de seguridad.
+  # ADAPTADOR DE LA CUARTA COMUNICACION NACIONAL. El IDEAM publica un raster por
+  # departamento, variable, escenario y horizonte, en una carpeta que exige
+  # sesion institucional: se descarga a mano UNA vez y vive fuera del
+  # repositorio, junto a las demas capas nacionales. El patron se declara aqui
+  # porque la nomenclatura puede cambiar entre entregas, y porque la carpeta de
+  # la variable lleva tilde y el nombre del archivo no.
+  directorio: "cambio_climatico"
+  patron: "{departamento}/{variable}/{escenario}/Cambio_{magnitud}_Anual_{escenario}_{horizonte}_{departamento}.tif"
+  departamento: "CUNDINAMARCA"
+  # La carpeta del IDEAM lleva tilde y el nombre del archivo no: hacen falta
+  # las dos formas, y por eso son dos claves.
+  variable: "PRECIPITACIÓN"
+  magnitud: "Precipitacion"
+  # La Cuarta Comunicacion usa trayectorias SSP, no los RCP de la Tercera.
+  escenarios: [ssp245, ssp585]
+  horizontes: ["2021-2040", "2041-2060"]
+  # El raster trae el cambio YA EN PORCENTAJE respecto al periodo de
+  # referencia. Verificado sobre Cundinamarca: valores entre -0,3 y 17,3.
+  unidad: "porcentaje"
+  # Regla condicional: si el factor proyecta disminucion, NO se afecta el
+  # hietograma y se documenta la decision como margen de seguridad.
   solo_si_incremento: true
 
 # -----------------------------------------------------------------------------
