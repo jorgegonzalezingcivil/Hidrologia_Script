@@ -1076,6 +1076,17 @@ ESQUEMA: dict[str, Campo] = {
         minimo=1, maximo=1440,
     ),
     # --- M09: intercambio con HEC-HMS ----------------------------------------
+    "hec_hms.proyecto.directorio": texto(
+        "ruta absoluta del proyecto de HEC-HMS ya construido", requerido=False),
+    "hec_hms.proyecto.archivo": texto(
+        "nombre del archivo .hms", requerido=False),
+    "hec_hms.proyecto.modelo_cuenca": texto(
+        "nombre del modelo de cuenca .basin", no_vacio=True),
+    "hec_hms.proyecto.copia_de_seguridad": booleano(
+        "guardar copia fechada antes de modificar el modelo"),
+    "hec_hms.transito.muskingum_cunge.n_manning": numero(
+        "rugosidad de Manning de los cauces", minimo=0.01, maximo=0.2,
+    ),
     "hec_hms.intercambio.insumos": texto(
         "directorio de los insumos para el paso manual", no_vacio=True),
     "hec_hms.intercambio.salida": texto(

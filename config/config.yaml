@@ -1114,6 +1114,19 @@ hec_hms:
   transform: "scs_uh"            # scs_uh | clark | snyder | modclark
   loss: "scs_cn"
   baseflow: "recession"
+  # --- M13: proyecto de HEC-HMS ya construido --------------------------------
+  # EL CONSULTOR ENTREGA EL MODELO ARMADO y la cadena lo ACTUALIZA: carga los
+  # parametros calculados, escribe la meteorologia y genera los escenarios. La
+  # ruta se declara aqui y nunca se deduce: el proyecto vive fuera del
+  # repositorio, como las capas nacionales, y cada estudio tiene el suyo.
+  proyecto:
+    directorio: ""                # ruta absoluta del proyecto, por estudio
+    archivo: ""
+    modelo_cuenca: "Basin_1.basin"
+    # Se modifica EN SU SITIO. Con esto en true se guarda antes una copia
+    # fechada del .basin, porque una escritura equivocada sobre un modelo que
+    # costo horas de delimitacion asistida no se deshace.
+    copia_de_seguridad: true
   transito:
     metodos: [muskingum, muskingum_cunge]
     metodo_adoptado: "muskingum_cunge"
@@ -1121,7 +1134,7 @@ hec_hms:
       celeridad_ms: null
     muskingum_cunge:
       forma_seccion: "trapezoidal"
-      n_manning: null
+      n_manning: 0.04           # cauce natural; lo declara el consultor
   control:
     intervalo_min: 5             # debe coincidir con tormenta.intervalo_calculo_min
 
