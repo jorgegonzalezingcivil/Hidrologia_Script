@@ -2872,8 +2872,190 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
                     fig, directorio / "M10_pendiente_por_resolucion", estilo):
                 resultado.productos.append(rutas.relativa(ruta, base))
 
+    if resultado.subcuencas:
+        _figuras_de_subcuenca(graficos, configuracion, base, resultado, estilo,
+                              directorio, logger)
+
     logger.info("Figuras de relieve escritas en %s",
                 rutas.relativa(directorio, base))
+
+
+def _geometrias_de_subcuencas(base):
+    """Poligonos de las subcuencas, en el orden en que se caracterizaron."""
+    ruta = rutas.directorio("sig_vector", base) / "subcuencas.shp"
+    if not ruta.is_file():
+        return []
+    try:
+        return shapefile.leer_geometrias(ruta)
+    except (ErrorFormato, ErrorRutas):
+        return []
+
+
+def _mapa_de_subcuencas(graficos, estilo, entidades, resultado, columna,
+                        titulo, etiqueta_barra, destino, base, rampa=""):
+    """
+    Coropleta de una magnitud por subcuenca, con su barra de color.
+
+    LA TABLA NO CONTESTA LA PRIMERA PREGUNTA que hace quien revisa: si los
+    valores altos se agrupan en la cabecera o se reparten. Ciento veinticinco
+    filas ordenadas por nombre no lo dicen; el mapa si. Asi lo presenta el
+    informe de referencia con el numero de curva (Ilustracion 48) y con las
+    pendientes de terreno (Ilustracion 46).
+    """
+    valores = [s.get(columna) for s in resultado.subcuencas]
+    if not any(v is not None for v in valores):
+        return None
+    with graficos.figura(estilo, titulo=titulo, etiqueta_x="Este (m)",
+                         etiqueta_y="Norte (m)") as (fig, ax):
+        mapeador = graficos.coropleta(ax, entidades, valores, estilo,
+                                      rampa_color=rampa)
+        graficos.barra_de_color(fig, ax, mapeador, estilo, etiqueta_barra)
+        # Pocas marcas y giradas: las coordenadas de CTM12 tienen siete cifras
+        # y con el paso automatico se solapan entre si.
+        graficos.rotular_en_miles(ax, maximo_marcas=4)
+        for etiqueta in ax.get_xticklabels():
+            etiqueta.set_rotation(30)
+            etiqueta.set_horizontalalignment("right")
+        if any(v is None for v in valores):
+            ax.legend(loc="lower left", frameon=False,
+                      fontsize=estilo.tamano_fuente - 1)
+        return graficos.guardar(fig, destino, estilo)
+
+
+def _figuras_de_subcuenca(graficos, configuracion, base, resultado, estilo,
+                          directorio, logger) -> None:
+    """
+    Las figuras del bloque por subcuenca: cada magnitud en grafica y en mapa.
+
+    Se emiten en pares. La grafica dice CUANTO varia una magnitud y el mapa dice
+    DONDE, y en una caracterizacion hidrologica las dos preguntas cuentan: un
+    numero de curva alto disperso por la cuenca y otro concentrado aguas arriba
+    del cierre producen hidrogramas distintos.
+    """
+    subcuencas = resultado.subcuencas
+    entidades = _geometrias_de_subcuencas(base)
+    intervalo = float(configuracion.obtener("tormenta.intervalo_calculo_min"))
+    minimo_area = float(configuracion.obtener(
+        "hec_hms.intercambio.area_minima_subcuenca_km2"))
+
+    def registrar(escritas):
+        for ruta in escritas or ():
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+    con_cn = [s for s in subcuencas if s.get("cn") is not None]
+    if con_cn:
+        ponderado = resultado.suelos.get("cn_ponderado")
+        with graficos.figura(
+                estilo, titulo="Numero de curva por subcuenca",
+                etiqueta_x="Subcuenca, ordenada por CN",
+                etiqueta_y="CN (condicion II)") as (fig, ax):
+            ordenadas = sorted(con_cn, key=lambda s: s["cn"])
+            ax.bar(range(len(ordenadas)), [s["cn"] for s in ordenadas],
+                   color=estilo.color(0), width=1.0, linewidth=0)
+            if ponderado:
+                ax.axhline(ponderado, color="#b03a2e", linewidth=1.2,
+                           linestyle="--",
+                           label=f"ponderado por area: {ponderado:.1f}")
+                ax.legend(loc="upper left", frameon=False,
+                          fontsize=estilo.tamano_fuente - 1)
+            ax.set_xlim(-0.5, len(ordenadas) - 0.5)
+            registrar(graficos.guardar(fig, directorio / "M10_cn_subcuencas",
+                                       estilo))
+        if entidades:
+            registrar(_mapa_de_subcuencas(
+                graficos, estilo, entidades, resultado, "cn",
+                "Numero de curva por subcuenca", "CN (condicion II)",
+                directorio / "M10_mapa_cn", base, rampa="YlOrBr"))
+
+    con_tc = [s for s in subcuencas if s.get("tc_minutos") is not None]
+    if con_tc:
+        with graficos.figura(
+                estilo, titulo="Tiempo de concentracion y rezago por subcuenca",
+                etiqueta_x="Area de la subcuenca (km2)",
+                etiqueta_y="Tiempo (min)") as (fig, ax):
+            ax.scatter([s["area_km2"] for s in con_tc],
+                       [s["tc_minutos"] for s in con_tc],
+                       s=18, color=estilo.color(0), label="Tc", zorder=3)
+            con_rezago = [s for s in con_tc if s.get("tlag_minutos")]
+            if con_rezago:
+                ax.scatter([s["area_km2"] for s in con_rezago],
+                           [s["tlag_minutos"] for s in con_rezago],
+                           s=18, marker="^", color="#7a97b5", label="rezago",
+                           zorder=3)
+            sin_tc = [s for s in subcuencas if s.get("tc_minutos") is None]
+            if sin_tc:
+                ax.scatter([s["area_km2"] for s in sin_tc],
+                           [0.0] * len(sin_tc), s=30, marker="x",
+                           color="#b03a2e", zorder=4,
+                           label=f"fuera del rango de la formula ({len(sin_tc)})")
+            ax.axhline(intervalo, color="#b03a2e", linewidth=1.0,
+                       linestyle=":",
+                       label=f"intervalo de calculo, {intervalo:.0f} min")
+            ax.set_xscale("log")
+            ax.legend(loc="upper left", frameon=False,
+                      fontsize=estilo.tamano_fuente - 1)
+            registrar(graficos.guardar(
+                fig, directorio / "M10_tiempos_subcuencas", estilo))
+        if entidades:
+            registrar(_mapa_de_subcuencas(
+                graficos, estilo, entidades, resultado, "tlag_minutos",
+                "Tiempo de rezago por subcuenca", "Rezago (min)",
+                directorio / "M10_mapa_rezago", base))
+
+    areas = sorted(s["area_km2"] for s in subcuencas if s.get("area_km2"))
+    if areas:
+        pequenas = [a for a in areas if a < minimo_area]
+        with graficos.figura(
+                estilo, titulo="Distribucion de areas de subcuenca",
+                etiqueta_x="Area (km2)",
+                etiqueta_y="Subcuencas acumuladas") as (fig, ax):
+            ax.step(areas, range(1, len(areas) + 1), where="post",
+                    color=estilo.color(0), linewidth=1.4)
+            ax.axvline(minimo_area, color="#b03a2e", linewidth=1.0,
+                       linestyle="--",
+                       label=f"{minimo_area:g} km2: {len(pequenas)} por debajo")
+            ax.set_xscale("log")
+            ax.legend(loc="lower right", frameon=False,
+                      fontsize=estilo.tamano_fuente - 1)
+            registrar(graficos.guardar(
+                fig, directorio / "M10_areas_subcuencas", estilo))
+        if entidades:
+            registrar(_mapa_de_subcuencas(
+                graficos, estilo, entidades, resultado, "area_km2",
+                "Area de las subcuencas", "Area (km2)",
+                directorio / "M10_mapa_areas", base, rampa="Greens"))
+
+    # Dos calculos que no comparten una linea de codigo sobre el mismo DEM. En
+    # el agregado dan 23,1 % y 24,2 %; la figura dice si alguna subcuenca se
+    # aparta de esa coincidencia.
+    con_pendiente = [s for s in subcuencas
+                     if s.get("pendiente_cuenca") is not None]
+    nativa = resultado.relieve.get("pendiente_media_cuenca")
+    if con_pendiente and nativa:
+        with graficos.figura(
+                estilo,
+                titulo="Pendiente por subcuenca frente al valor de la cuenca",
+                etiqueta_x="Area de la subcuenca (km2)",
+                etiqueta_y="Pendiente media (%)") as (fig, ax):
+            ax.scatter([s["area_km2"] for s in con_pendiente],
+                       [100.0 * s["pendiente_cuenca"] for s in con_pendiente],
+                       s=16, color=estilo.color(0), alpha=0.7,
+                       label="HEC-HMS, por subcuenca")
+            ax.axhline(100.0 * nativa, color="#b03a2e", linewidth=1.2,
+                       linestyle="--",
+                       label=f"Horn sobre el DEM, cuenca: {100 * nativa:.1f} %")
+            ax.set_xscale("log")
+            ax.legend(loc="upper right", frameon=False,
+                      fontsize=estilo.tamano_fuente - 1)
+            registrar(graficos.guardar(
+                fig, directorio / "M10_pendiente_contraste", estilo))
+        if entidades:
+            registrar(_mapa_de_subcuencas(
+                graficos, estilo, entidades, resultado, "pendiente_cuenca",
+                "Pendiente media por subcuenca", "Pendiente (m/m)",
+                directorio / "M10_mapa_pendiente", base, rampa="PuBuGn"))
+
+    logger.info("Figuras por subcuenca escritas")
 
 
 def _tabla_markdown(filas, columnas) -> list[str]:

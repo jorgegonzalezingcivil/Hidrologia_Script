@@ -574,6 +574,10 @@ def ejecutar(
                 "zonificacion_pluviometrica.diferencia_maxima_pct")))
         _resolver_zonas(resultado, clave, logger)
 
+    with registro.bloque(logger, "Figuras"):
+        _escribir_figuras(configuracion, base, resultado, ruta_subcuencas,
+                          logger)
+
     _escribir_productos(configuracion, base, resultado, logger)
     return _cerrar(logger, resultado, base, ruta_json, inicio, SALIDA_CORRECTA)
 
@@ -726,6 +730,111 @@ def _resolver_zonas(resultado, clave, logger) -> None:
         "construccion: agrupan regimen de lluvia, no vecindad, y el mapa debe "
         "dibujarlas como tal.",
     ))
+
+
+def _escribir_figuras(configuracion, base, resultado, ruta_subcuencas,
+                     logger) -> None:
+    """
+    Cuatro figuras: la precipitacion y las zonas, cada una en grafica y en mapa.
+
+    La grafica dice CUANTO varia la lluvia dentro de la cuenca y el mapa dice
+    DONDE. Sobre una cuenca alargada como esta la segunda pregunta pesa: no es
+    lo mismo que la lluvia alta caiga en la cabecera, lejos del cierre, que
+    junto a el.
+    """
+    if not resultado.subcuencas:
+        return
+    try:
+        import graficos
+    except ImportError as error:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "graficos.ausente",
+            f"no se pudieron dibujar las figuras: {error}"))
+        return
+
+    estilo = graficos.Estilo.desde_config(configuracion)
+    directorio = rutas.resolver(
+        configuracion.obtener("graficos.directorio"), base)
+    referencia = str(configuracion.obtener(
+        "zonificacion_pluviometrica.periodo_referencia"))
+    try:
+        entidades = shapefile.leer_geometrias(ruta_subcuencas)
+    except (ErrorFormato, ErrorRutas):
+        entidades = []
+
+    def registrar(escritas):
+        for ruta in escritas or ():
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+    def mapa(columna, titulo, etiqueta_barra, nombre, rampa=""):
+        valores = [s.get(columna) for s in resultado.subcuencas]
+        if not entidades or not any(v is not None for v in valores):
+            return
+        with graficos.figura(estilo, titulo=titulo, etiqueta_x="Este (m)",
+                             etiqueta_y="Norte (m)") as (fig, ax):
+            mapeador = graficos.coropleta(ax, entidades, valores, estilo,
+                                          rampa_color=rampa)
+            graficos.barra_de_color(fig, ax, mapeador, estilo, etiqueta_barra)
+            graficos.rotular_en_miles(ax, maximo_marcas=4)
+            for etiqueta in ax.get_xticklabels():
+                etiqueta.set_rotation(30)
+                etiqueta.set_horizontalalignment("right")
+            registrar(graficos.guardar(fig, directorio / nombre, estilo))
+
+    # --- Precipitacion por subcuenca y periodo -------------------------------
+    if resultado.campos:
+        with graficos.figura(
+                estilo,
+                titulo="Precipitacion media areal por subcuenca",
+                etiqueta_x="Periodo de retorno (anos)",
+                etiqueta_y="Precipitacion (mm)") as (fig, ax):
+            equis = [float(c["periodo_retorno"]) for c in resultado.campos]
+            ax.fill_between(
+                equis, [c["minimo_mm"] for c in resultado.campos],
+                [c["maximo_mm"] for c in resultado.campos],
+                color=estilo.color(0), alpha=0.25,
+                label="rango entre las 125 subcuencas")
+            ax.plot(equis, [c["media_ponderada_mm"] for c in resultado.campos],
+                    color=estilo.color(0), linewidth=1.6, marker="o",
+                    markersize=4, label="media ponderada por area")
+            ax.set_xscale("log")
+            ax.set_xticks(equis)
+            ax.set_xticklabels([f"{e:g}" for e in equis])
+            ax.legend(loc="upper left", frameon=False,
+                      fontsize=estilo.tamano_fuente - 1)
+            registrar(graficos.guardar(
+                fig, directorio / "M11_precipitacion_subcuencas", estilo))
+
+    mapa(f"p_T{referencia}_mm",
+         f"Precipitacion media areal, T {referencia} anos",
+         "Precipitacion (mm)", "M11_mapa_precipitacion")
+
+    # --- Zonas ---------------------------------------------------------------
+    if resultado.zonas:
+        with graficos.figura(
+                estilo, titulo="Zonas pluviometricas",
+                etiqueta_x="Zona",
+                etiqueta_y="Precipitacion media (mm)") as (fig, ax):
+            numeros = [z["zona"] for z in resultado.zonas]
+            colores = graficos.rampa(len(resultado.zonas), estilo)
+            barras = ax.bar(numeros,
+                            [z["precipitacion_media_mm"] for z in resultado.zonas],
+                            color=colores, width=0.7)
+            for barra, zona in zip(barras, resultado.zonas):
+                ax.annotate(f"{zona['subcuencas']} subc.\n{zona['area_km2']:.0f} km2",
+                            xy=(barra.get_x() + barra.get_width() / 2,
+                                barra.get_height()),
+                            xytext=(0, 3), textcoords="offset points",
+                            ha="center", va="bottom",
+                            fontsize=estilo.tamano_fuente - 2)
+            ax.set_xticks(numeros)
+            ax.set_ylim(0, max(z["maximo_mm"] for z in resultado.zonas) * 1.18)
+            registrar(graficos.guardar(fig, directorio / "M11_zonas", estilo))
+
+    mapa("zona", "Zonificacion pluviometrica", "Zona", "M11_mapa_zonas",
+         rampa="Spectral")
+
+    logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
 
 
 def _escribir_csv(destino: Path, filas, delimitador: str) -> None:

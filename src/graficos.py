@@ -69,6 +69,8 @@ __all__ = [
     "rampa",
     "dispersion_sobre_area",
     "marco_geografico",
+    "coropleta",
+    "barra_de_color",
     "barras_de_rango",
     "mapa_calor",
     "matriz_faltantes",
@@ -535,6 +537,88 @@ def marco_geografico(
         ax.plot([punto[0]], [punto[1]], marker="v", markersize=9,
                 color="#c00000", markeredgecolor="white", markeredgewidth=0.8,
                 linestyle="none", zorder=6, label=etiqueta_punto)
+
+
+def coropleta(
+    ax: Any,
+    poligonos: Sequence[Sequence[Sequence[tuple[float, float]]]],
+    valores: Sequence[float | None],
+    estilo: Estilo,
+    etiqueta: str = "",
+    rampa_color: str = "",
+    borde: str = "#ffffff",
+) -> Any:
+    """
+    Rellena cada polígono según su valor y devuelve el mapeador para la barra.
+
+    Es la representación que el informe de referencia usa para el número de
+    curva y las pendientes: una tabla de ciento veinticinco filas no deja ver
+    si los valores altos se agrupan en la cabecera o se reparten, y esa es
+    justamente la pregunta que un revisor hace primero.
+
+    Los polígonos SIN VALOR se dibujan en gris y no en el extremo de la rampa.
+    Pintarlos como si fueran el mínimo los haría indistinguibles de un valor
+    bajo real, que es la clase de confusión que este repositorio evita.
+
+    Todo llega en las coordenadas de la figura: esta función no reproyecta.
+    """
+    from matplotlib.collections import PolyCollection
+
+    numericos = [v for v in valores if v is not None]
+    if not numericos:
+        raise ErrorGraficos("ningún polígono trae valor con el que colorear.")
+    minimo, maximo = min(numericos), max(numericos)
+    if maximo == minimo:
+        maximo = minimo + 1e-9
+
+    caras, alturas, sin_valor = [], [], []
+    for anillos, valor in zip(poligonos, valores):
+        for anillo in anillos:
+            if len(anillo) < 3:
+                continue
+            # SE RELLENA POR SENTIDO DE GIRO, no por posición. Una entidad de
+            # varias piezas trae varios anillos EXTERIORES, y quedarse con el
+            # primero deja las demás sin pintar: sobre esta capa son 26 de 151
+            # anillos, que salían como huecos blancos en el mapa. El formato
+            # distingue el contorno del hueco solo por el sentido, exterior
+            # horario, y esa es la regla que hay que leer.
+            area = sum(uno[0] * otro[1] - otro[0] * uno[1]
+                       for uno, otro in zip(anillo, list(anillo[1:])
+                                            + [anillo[0]])) / 2.0
+            if area > 0:  # antihorario: es un hueco
+                continue
+            if valor is None:
+                sin_valor.append([(x, y) for x, y in anillo])
+            else:
+                caras.append([(x, y) for x, y in anillo])
+                alturas.append(float(valor))
+
+    if sin_valor:
+        ax.add_collection(PolyCollection(
+            sin_valor, facecolors="#d9d9d9", edgecolors=borde,
+            linewidths=0.2, zorder=1))
+        ax.plot([], [], marker="s", linestyle="none", color="#d9d9d9",
+                markersize=7, label="sin valor")
+
+    coleccion = PolyCollection(caras, array=np.asarray(alturas),
+                               cmap=rampa_color or estilo.rampa,
+                               edgecolors=borde, linewidths=0.2, zorder=2)
+    coleccion.set_clim(minimo, maximo)
+    ax.add_collection(coleccion)
+    ax.autoscale_view()
+    ax.set_aspect("equal")
+    if etiqueta:
+        coleccion.set_label(etiqueta)
+    return coleccion
+
+
+def barra_de_color(fig: Any, ax: Any, mapeador: Any, estilo: Estilo,
+                   etiqueta: str) -> Any:
+    """Barra de color junto al mapa, con su magnitud rotulada."""
+    barra = fig.colorbar(mapeador, ax=ax, fraction=0.035, pad=0.02)
+    barra.set_label(etiqueta, fontsize=estilo.tamano_fuente)
+    barra.ax.tick_params(labelsize=estilo.tamano_fuente - 1)
+    return barra
 
 
 def dispersion_sobre_area(
