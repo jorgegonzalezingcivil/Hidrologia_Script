@@ -925,7 +925,11 @@ tormenta:
     - h1_directa                 # P3h = P24h
     - h2_idf                     # integrando la IDF sobre la duración
     - h3_factor                  # P3h = P24h * coeficiente documentado
-  hipotesis_adoptada: null       # lo define el consultor tras comparar
+  # DECISION DE CADA ESTUDIO, no de la herramienta: se declara en el
+  # config.yaml del estudio tras comparar las tres hipotesis, y el motivo es
+  # obligatorio (seccion 7). Aqui queda en null a proposito.
+  hipotesis_adoptada: null       # h1_directa | h2_idf | h3_factor
+  motivo_hipotesis: ""
   coeficiente_desagregacion:
     valor: null
     fuente: ""                   # obligatorio si se usa h3_factor

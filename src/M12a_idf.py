@@ -769,7 +769,21 @@ def _resolver_desagregacion(configuracion, resultado, cuantiles,
             hipotesis["periodo_retorno"] = periodo
             resultado.desagregacion.append(hipotesis)
 
-        if not adoptada:
+        hipotesis = str(configuracion.obtener(
+            "tormenta.hipotesis_adoptada", "") or "").strip().lower()
+        # La eleccion de metodologia solo gobierna si la hipotesis adoptada es
+        # la que integra la curva. Con h1 o h3 no entra en el resultado, y
+        # advertir por ella seria ruido que tapa lo que si importa.
+        if not adoptada and hipotesis in ("h1_directa", "h3_factor"):
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "desagregacion.metodologia_no_gobierna",
+                f"idf.metodologia_adoptada esta sin declarar, pero la hipotesis "
+                f"adoptada es {hipotesis!r} y no integra la curva IDF: la "
+                "eleccion entre INVIAS y Silva no afecta a la lamina de diseno. "
+                "Las dos curvas siguen calculadas y en las figuras, que es lo "
+                "que el informe necesita para justificar por que no se usaron.",
+            ))
+        elif not adoptada:
             muestra = resultado.desagregacion[0] if resultado.desagregacion else {}
             por_metodo = "; ".join(
                 f"{m}: {muestra[f'h2_idf_{m}_mm']:.1f} mm "
@@ -799,7 +813,6 @@ def _resolver_desagregacion(configuracion, resultado, cuantiles,
                 "esa hipotesis.",
             ))
 
-        adoptada = configuracion.obtener("tormenta.hipotesis_adoptada", None)
         if resultado.desagregacion:
             muestra = resultado.desagregacion[0]
             cocientes = {c: muestra.get(f"{c}_sobre_p24")
@@ -825,7 +838,10 @@ def _resolver_desagregacion(configuracion, resultado, cuantiles,
                 "puede sostener de donde sale.",
             ))
 
-        if not adoptada:
+        if hipotesis:
+            _declarar_hipotesis(configuracion, resultado, hipotesis, logger)
+
+        if not hipotesis:
             muestra = resultado.desagregacion[0] if resultado.desagregacion else {}
             detalle = "; ".join(
                 f"{c}: {muestra[f'{c}_mm']:.1f} mm "
@@ -842,6 +858,68 @@ def _resolver_desagregacion(configuracion, resultado, cuantiles,
                 "peso que queda abierta en la cadena de lluvia. La toma el "
                 "consultor y debe quedar escrita.",
             ))
+
+
+def _declarar_hipotesis(configuracion, resultado, hipotesis, logger) -> None:
+    """
+    Registra la hipótesis adoptada y CUÁNTO se aparta de las otras.
+
+    Declararla no basta: el informe tiene que poder decir qué margen introduce.
+    'h1_directa' asume que toda la lámina de 24 horas cae en la duración de
+    diseño, de modo que la intensidad implícita queda por encima de la que dan
+    las curvas IDF a esa misma duración, y esa distancia es exactamente el
+    margen de seguridad adoptado. Medirlo es lo que permite defenderlo como
+    criterio y no como descuido.
+    """
+    clave = f"{hipotesis}_mm"
+    con_valor = [d for d in resultado.desagregacion if d.get(clave) is not None]
+    if not con_valor:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "desagregacion.adoptada_sin_valor",
+            f"se adopto la hipotesis {hipotesis!r} pero no se calculo para "
+            "ningun periodo de retorno: revisar la configuracion que la "
+            "sostiene.",
+        ))
+        return
+
+    motivo = str(configuracion.obtener(
+        "tormenta.motivo_hipotesis", "") or "").strip()
+    duracion_h = float(configuracion.obtener("tormenta.duracion_h"))
+    for fila in resultado.desagregacion:
+        fila["hipotesis_adoptada"] = hipotesis
+        fila["lamina_adoptada_mm"] = fila.get(clave)
+
+    razones = []
+    for metodo in ("invias", "silva"):
+        pares = [(d[clave], d[f"h2_idf_{metodo}_mm"])
+                 for d in con_valor if d.get(f"h2_idf_{metodo}_mm")]
+        if pares:
+            razones.append(
+                f"{metodo.upper()} {statistics.fmean(a / b for a, b in pares):.2f}")
+
+    muestra = max(con_valor, key=lambda d: d["periodo_retorno"])
+    intensidad = muestra[clave] / duracion_h
+    logger.info("Hipotesis adoptada %s | T %s: %.1f mm en %.0f h (%.1f mm/h)",
+                hipotesis, muestra["periodo_retorno"], muestra[clave],
+                duracion_h, intensidad)
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "desagregacion.adoptada",
+        f"hipotesis adoptada: {hipotesis}. En T "
+        f"{muestra['periodo_retorno']} anios da {muestra[clave]:.1f} mm en "
+        f"{duracion_h:.0f} h, es decir {intensidad:.1f} mm/h sostenidos."
+        + (f" Frente a integrar la curva IDF, la razon media es {', '.join(razones)}."
+           if razones else "")
+        + (f" Motivo declarado: {motivo}" if motivo else
+           " SIN MOTIVO DECLARADO: la seccion 7 exige que el criterio adoptado "
+           "quede registrado, y tormenta.motivo_hipotesis esta vacio."),
+    ))
+    if not motivo:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "desagregacion.sin_motivo",
+            "la hipotesis esta adoptada pero tormenta.motivo_hipotesis esta "
+            "vacio. Un estudio que no explica por que eligio una de tres "
+            "hipotesis no puede defenderla ante interventoria.",
+        ))
 
 
 def _resolver_cambio_climatico(configuracion, base, resultado, delimitador,

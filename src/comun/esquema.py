@@ -878,6 +878,9 @@ ESQUEMA: dict[str, Campo] = {
         "hipótesis de desagregación evaluadas",
         texto("hipótesis", opciones=HIPOTESIS_DESAGREGACION),
     ),
+    "tormenta.motivo_hipotesis": texto(
+        "justificación de la hipótesis adoptada", requerido=False,
+    ),
     "tormenta.hipotesis_adoptada": texto(
         "hipótesis adoptada por el consultor",
         permite_nulo=True, opciones=HIPOTESIS_DESAGREGACION,
