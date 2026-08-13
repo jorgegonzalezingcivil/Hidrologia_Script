@@ -192,7 +192,7 @@ pasos:
     nombre: "Hietogramas de diseño (Huff)"
     script: "src/M12b_hietogramas.py"
     entorno: venv
-    estado: pendiente
+    estado: disponible
 
   # --- Modelo ---------------------------------------------------------------
   - modulo: M13

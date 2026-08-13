@@ -1,0 +1,181 @@
+# -*- coding: utf-8 -*-
+"""
+Pruebas del M12b: hietogramas de diseño por el método de Huff.
+
+    python tests/test_m12b.py
+"""
+
+from __future__ import annotations
+
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+_RAIZ_REPO = Path(__file__).resolve().parents[1]
+_DIRECTORIO_SRC = _RAIZ_REPO / "src"
+if str(_DIRECTORIO_SRC) not in sys.path:
+    sys.path.insert(0, str(_DIRECTORIO_SRC))
+
+import M12b_hietogramas as m12b  # noqa: E402
+from comun.config import cargar  # noqa: E402
+from comun.errores import ErrorFormato, ErrorHidrologia, ErrorRutas  # noqa: E402
+
+_CFG = cargar(raiz=_RAIZ_REPO)
+
+CURVA = [
+    {"tiempo_pct": 0.0, "precipitacion_pct": 0.0},
+    {"tiempo_pct": 50.0, "precipitacion_pct": 74.0},
+    {"tiempo_pct": 100.0, "precipitacion_pct": 100.0},
+]
+
+
+class PruebaCurva(unittest.TestCase):
+    """
+    La curva se valida al leerla: una mal transcrita no da error en ninguna
+    parte, reparte la misma lámina de otra manera y produce un hidrograma
+    verosímil y equivocado.
+    """
+
+    CABECERA = ("cuartil;probabilidad_pct;tiempo_pct;precipitacion_pct;"
+                "origen;validado\n")
+
+    def _escribir(self, filas: str) -> Path:
+        ruta = Path(tempfile.mkdtemp()) / "huff.csv"
+        ruta.write_text(self.CABECERA + filas, encoding="utf-8")
+        return ruta
+
+    def test_una_curva_que_no_empieza_en_cero_se_rechaza(self) -> None:
+        ruta = self._escribir("2;50;10;5;x;no\n2;50;100;100;x;no\n")
+        with self.assertRaises(ErrorFormato):
+            m12b.leer_curva_huff(ruta, ";", 2, 50.0)
+
+    def test_una_curva_que_no_termina_en_cien_se_rechaza(self) -> None:
+        ruta = self._escribir("2;50;0;0;x;no\n2;50;100;95;x;no\n")
+        with self.assertRaises(ErrorFormato):
+            m12b.leer_curva_huff(ruta, ";", 2, 50.0)
+
+    def test_una_acumulada_decreciente_se_rechaza(self) -> None:
+        # Una lluvia acumulada no puede disminuir.
+        ruta = self._escribir(
+            "2;50;0;0;x;no\n2;50;50;60;x;no\n2;50;60;40;x;no\n"
+            "2;50;100;100;x;no\n")
+        with self.assertRaises(ErrorFormato):
+            m12b.leer_curva_huff(ruta, ";", 2, 50.0)
+
+    def test_un_cuartil_ausente_es_error_explicito(self) -> None:
+        ruta = self._escribir("2;50;0;0;x;no\n2;50;100;100;x;no\n")
+        with self.assertRaises(ErrorFormato):
+            m12b.leer_curva_huff(ruta, ";", 3, 50.0)
+
+    def test_archivo_ausente(self) -> None:
+        with self.assertRaises(ErrorRutas):
+            m12b.leer_curva_huff(Path("no_existe.csv"), ";", 2, 50.0)
+
+
+class PruebaInterpolacion(unittest.TestCase):
+    def test_en_un_nodo_devuelve_su_valor(self) -> None:
+        self.assertAlmostEqual(m12b.acumulada_en(CURVA, 50.0), 74.0)
+
+    def test_interpola_entre_nodos(self) -> None:
+        self.assertAlmostEqual(m12b.acumulada_en(CURVA, 25.0), 37.0)
+
+    def test_fuera_de_rango_se_satura(self) -> None:
+        self.assertAlmostEqual(m12b.acumulada_en(CURVA, -5.0), 0.0)
+        self.assertAlmostEqual(m12b.acumulada_en(CURVA, 150.0), 100.0)
+
+
+class PruebaReparto(unittest.TestCase):
+    """
+    Cada intervalo es una DIFERENCIA de acumuladas: así la suma es exactamente
+    la lámina de partida, y cualquier otra forma deja un residuo que se arrastra
+    al volumen de escorrentía.
+    """
+
+    def test_la_suma_es_la_lamina(self) -> None:
+        intervalos = m12b.repartir(100.0, 180.0, 5.0, CURVA)
+        self.assertEqual(len(intervalos), 36)
+        self.assertAlmostEqual(sum(i["lamina_mm"] for i in intervalos), 100.0,
+                               delta=36 * 0.5e-4)
+
+    def test_el_acumulado_final_es_la_lamina(self) -> None:
+        intervalos = m12b.repartir(57.3, 180.0, 5.0, CURVA)
+        self.assertAlmostEqual(intervalos[-1]["acumulado_mm"], 57.3, places=3)
+
+    def test_el_acumulado_nunca_decrece(self) -> None:
+        intervalos = m12b.repartir(80.0, 180.0, 10.0, CURVA)
+        acumulados = [i["acumulado_mm"] for i in intervalos]
+        self.assertEqual(acumulados, sorted(acumulados))
+
+    def test_la_intensidad_es_coherente_con_la_lamina(self) -> None:
+        intervalos = m12b.repartir(60.0, 120.0, 10.0, CURVA)
+        for paso in intervalos:
+            self.assertAlmostEqual(paso["intensidad_mm_h"],
+                                   paso["lamina_mm"] * 6.0, places=2)
+
+    def test_una_duracion_no_multiplo_del_intervalo_es_error(self) -> None:
+        # Un intervalo truncado repartiría menos lámina sin decirlo.
+        with self.assertRaises(ErrorHidrologia):
+            m12b.repartir(100.0, 180.0, 7.0, CURVA)
+
+    def test_magnitudes_no_positivas(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m12b.repartir(100.0, 0.0, 5.0, CURVA)
+
+
+class PruebaResumen(unittest.TestCase):
+    def test_el_pico_cae_en_el_segundo_cuartil(self) -> None:
+        # Es lo que distingue una curva de Huff del segundo cuartil de otra: si
+        # el pico no cae donde debe, la curva leída no es la que se cree.
+        ruta = _RAIZ_REPO / _CFG.obtener("tormenta.huff.tabla")
+        curva = m12b.leer_curva_huff(ruta, ";", 2, 50.0)
+        intervalos = m12b.repartir(100.0, 180.0, 5.0, curva)
+        resumen = m12b.resumir_hietograma(intervalos, 100.0)
+        self.assertEqual(resumen["cuartil_del_pico"], 2)
+
+    def test_el_residuo_se_reporta(self) -> None:
+        intervalos = m12b.repartir(100.0, 180.0, 5.0, CURVA)
+        resumen = m12b.resumir_hietograma(intervalos, 100.0)
+        self.assertLess(abs(resumen["residuo_mm"]), 36 * 0.5e-4)
+
+    def test_sin_intervalos_no_inventa_resumen(self) -> None:
+        self.assertIn("error", m12b.resumir_hietograma([], 100.0))
+
+
+class PruebaFactorArf(unittest.TestCase):
+    FILAS = [{"duracion_h": "24.0", "arf": "0.9372"},
+             {"duracion_h": "3.0", "arf": "0.8558"}]
+
+    def test_toma_el_de_la_duracion_de_diseno(self) -> None:
+        # No se recalcula: si dos partes del estudio interpolasen la misma
+        # tabla, una discrepancia entre ellas no tendría dónde detectarse.
+        self.assertAlmostEqual(m12b.factor_arf(self.FILAS, 3.0), 0.8558)
+
+    def test_una_duracion_ausente_es_error_explicito(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m12b.factor_arf(self.FILAS, 6.0)
+
+
+class PruebaTablaReal(unittest.TestCase):
+    """La curva es doctrina y vive en data/referencia."""
+
+    def setUp(self) -> None:
+        self.curva = m12b.leer_curva_huff(
+            _RAIZ_REPO / _CFG.obtener("tormenta.huff.tabla"), ";",
+            int(_CFG.obtener("tormenta.huff.cuartil")),
+            float(_CFG.obtener("tormenta.huff.probabilidad_excedencia")))
+
+    def test_la_curva_existe_y_declara_su_origen(self) -> None:
+        self.assertGreaterEqual(len(self.curva), 5)
+        self.assertTrue(self.curva[0]["origen"])
+
+    def test_la_duracion_es_multiplo_del_intervalo(self) -> None:
+        # Con un intervalo que no divide la duración, el último quedaría
+        # truncado y el módulo se detiene.
+        duracion = float(_CFG.obtener("tormenta.duracion_h")) * 60.0
+        intervalo = float(_CFG.obtener("tormenta.intervalo_calculo_min"))
+        self.assertAlmostEqual(duracion % intervalo, 0.0, places=6)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
