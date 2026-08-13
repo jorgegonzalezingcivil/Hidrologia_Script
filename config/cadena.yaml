@@ -196,10 +196,13 @@ pasos:
 
   # --- Modelo ---------------------------------------------------------------
   - modulo: M13
-    nombre: "Escritura del proyecto HEC-HMS"
-    script: "src/M13_hec_hms_proyecto.py"
+    # No ESCRIBE el proyecto: el consultor lo entrega construido con la
+    # delimitacion asistida y la cadena lo ACTUALIZA con los parametros
+    # calculados, la meteorologia y los escenarios.
+    nombre: "Actualización del proyecto HEC-HMS y escenarios"
+    script: "src/M13_hec_hms.py"
     entorno: venv
-    estado: pendiente
+    estado: disponible
     modos: [detallado]
 
   - modulo: M14

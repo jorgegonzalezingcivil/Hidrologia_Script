@@ -1135,6 +1135,12 @@ hec_hms:
     muskingum_cunge:
       forma_seccion: "trapezoidal"
       n_manning: 0.04           # cauce natural; lo declara el consultor
+      # Geometria de la seccion. NO sale de la cadena: el DEM de 12,5 m no
+      # resuelve un cauce de pocos metros de ancho. Son valores que el
+      # consultor fija y el informe debe sustentar; con la seccion equivocada
+      # el amortiguamiento de la onda cambia y el caudal pico con el.
+      ancho_fondo_m: 3.0
+      talud_h_por_v: 2.0
   control:
     intervalo_min: 5             # debe coincidir con tormenta.intervalo_calculo_min
 
