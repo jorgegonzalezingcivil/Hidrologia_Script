@@ -842,6 +842,18 @@ ESQUEMA: dict[str, Campo] = {
         "nombre de la magnitud en el archivo", no_vacio=True),
     "cambio_climatico.unidad": texto(
         "unidad del ráster", opciones=("porcentaje", "milimetros")),
+    "cambio_climatico.criterio_adopcion": texto(
+        "cómo se elige la proyección adoptada",
+        opciones=("maximo", "declarado"),
+    ),
+    "cambio_climatico.escenario_adoptado": texto(
+        "escenario adoptado cuando el criterio es 'declarado'",
+        requerido=False,
+    ),
+    "cambio_climatico.horizonte_adoptado": texto(
+        "horizonte adoptado cuando el criterio es 'declarado'",
+        requerido=False,
+    ),
     "cambio_climatico.solo_si_incremento": booleano(
         "aplicar el factor solo cuando represente incremento",
     ),

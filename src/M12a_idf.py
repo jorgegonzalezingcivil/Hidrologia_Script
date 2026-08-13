@@ -91,6 +91,7 @@ class ResultadoM12a:
     desagregacion: list[dict[str, Any]] = field(default_factory=list)
     cambio_climatico: list[dict[str, Any]] = field(default_factory=list)
     silva: dict[str, Any] = field(default_factory=dict)
+    adoptado: dict[str, Any] = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -585,6 +586,7 @@ def ejecutar(
     _resolver_cambio_climatico(configuracion, base, resultado, delimitador,
                                logger)
     _escribir_figura(configuracion, base, resultado, logger)
+    _figura_cambio_climatico(configuracion, base, resultado, logger)
     _escribir_productos(base, resultado, delimitador, logger)
     return _cerrar(logger, resultado, base, ruta_json, inicio, SALIDA_CORRECTA)
 
@@ -927,6 +929,8 @@ def _resolver_cambio_climatico(configuracion, base, resultado, delimitador,
         if not resultado.cambio_climatico:
             return
 
+        _adoptar_escenario(configuracion, resultado, logger)
+
         aplicados = [c for c in resultado.cambio_climatico if c["aplicado"]]
         descartados = [c for c in resultado.cambio_climatico
                        if not c["aplicado"]]
@@ -980,6 +984,149 @@ def _resolver_cambio_climatico(configuracion, base, resultado, delimitador,
             "uso corriente, pero el informe debe declarar con que variable se "
             "calculo el factor y no solo que escenario y horizonte se uso.",
         ))
+
+
+def _adoptar_escenario(configuracion, resultado, logger) -> None:
+    """
+    Marca la combinación adoptada, según el criterio declarado.
+
+    CRITERIO 'maximo': se adopta la de mayor factor entre las aplicables. Es el
+    lado seguro y es una decisión, no un descuido: con cuatro proyecciones que
+    difieren, quedarse con la mayor evita que el diseño dependa de cuál de los
+    modelos climáticos se prefiera. El informe debe relacionar LAS CUATRO, y por
+    eso todas viajan a la tabla y a la figura; adoptar una no borra las demás.
+
+    CRITERIO 'declarado': se adopta la que nombren escenario_adoptado y
+    horizonte_adoptado, para cuando el contrato fija cuál usar.
+    """
+    criterio = str(configuracion.obtener(
+        "cambio_climatico.criterio_adopcion")).strip().lower()
+    aplicables = [c for c in resultado.cambio_climatico if c["aplicado"]]
+    for registro_cc in resultado.cambio_climatico:
+        registro_cc["adoptado"] = False
+
+    if not aplicables:
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "cambio_climatico.sin_adoptar",
+            "ninguna proyeccion es de incremento, de modo que no hay factor "
+            "que adoptar y el hietograma no se afecta.",
+        ))
+        return
+
+    if criterio == "declarado":
+        escenario = str(configuracion.obtener(
+            "cambio_climatico.escenario_adoptado", "") or "").strip().lower()
+        horizonte = str(configuracion.obtener(
+            "cambio_climatico.horizonte_adoptado", "") or "").strip()
+        elegida = next((c for c in aplicables
+                        if c["escenario"].lower() == escenario
+                        and c["horizonte"] == horizonte), None)
+        if elegida is None:
+            resultado.hallazgos.append(Hallazgo(
+                BLOQUEANTE, "cambio_climatico.declarado_ausente",
+                f"se declaro adoptar {escenario!r} en {horizonte!r}, que no "
+                "esta entre las combinaciones aplicables calculadas.",
+            ))
+            return
+    else:
+        elegida = max(aplicables, key=lambda c: c["factor_aplicado"])
+
+    elegida["adoptado"] = True
+    resultado.adoptado = dict(elegida, criterio=criterio)
+    logger.info("Adoptado %s %s: factor %.4f (criterio %s)",
+                elegida["escenario"], elegida["horizonte"],
+                elegida["factor_aplicado"], criterio)
+    otras = "; ".join(
+        f"{c['escenario']} {c['horizonte']} {c['factor_aplicado']:.3f}"
+        for c in resultado.cambio_climatico if not c["adoptado"])
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "cambio_climatico.adoptado",
+        f"se adopta {elegida['escenario'].upper()} en {elegida['horizonte']}, "
+        f"con un cambio de {elegida['cambio_pct']:+.1f} % y factor "
+        f"{elegida['factor_aplicado']:.3f}, por el criterio {criterio!r}. "
+        f"Las demas quedan calculadas y en la figura: {otras}. Adoptar la mayor "
+        "es el lado seguro y evita que el diseno dependa de cual de los "
+        "modelos climaticos se prefiera, pero el informe debe relacionar las "
+        "cuatro: un caudal con factor de cambio climatico y sin escenario "
+        "declarado no es comparable con ningun otro estudio.",
+    ))
+
+
+def _figura_cambio_climatico(configuracion, base, resultado, logger) -> None:
+    """
+    Las cuatro proyecciones, con su rango dentro de la cuenca y la adoptada.
+
+    La tabla dice el número; la figura dice cuánto se separan entre sí y cuánto
+    varía cada una dentro de la propia cuenca. Las dos cosas hacen falta para
+    sostener por qué se adoptó una: si el rango interno de una proyección se
+    solapa con el de otra, la diferencia entre escenarios no es la que parece.
+    """
+    if not resultado.cambio_climatico:
+        return
+    try:
+        import graficos
+    except ImportError as error:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "graficos.ausente",
+            f"no se pudo dibujar el cambio climatico: {error}"))
+        return
+
+    estilo = graficos.Estilo.desde_config(configuracion)
+    directorio = rutas.resolver(
+        configuracion.obtener("graficos.directorio"), base)
+    datos = sorted(resultado.cambio_climatico,
+                   key=lambda c: (c["escenario"], c["horizonte"]))
+
+    with graficos.figura(
+            estilo,
+            titulo="Cambio proyectado en la precipitacion media anual",
+            etiqueta_x="",
+            etiqueta_y="Cambio (%)") as (fig, ax):
+        posiciones = range(len(datos))
+        etiquetas = [f"{c['escenario'].upper()}\n{c['horizonte']}"
+                     for c in datos]
+        colores = ["#b03a2e" if c.get("adoptado") else estilo.color(0)
+                   for c in datos]
+        alturas = [c["cambio_pct"] for c in datos]
+        ax.bar(posiciones, alturas, color=colores, width=0.6)
+
+        # El rango dentro de la cuenca, como barra de error: es lo que la
+        # media sola no dice.
+        inferiores = [c["cambio_pct"] - c["minimo_pct"] for c in datos]
+        superiores = [c["maximo_pct"] - c["cambio_pct"] for c in datos]
+        ax.errorbar(posiciones, alturas, yerr=[inferiores, superiores],
+                    fmt="none", ecolor="#555555", capsize=4, linewidth=1.0,
+                    label="rango dentro de la cuenca")
+
+        ax.axhline(0.0, color=graficos.GRIS_CONTEXTO, linewidth=0.8)
+        for posicion, dato in zip(posiciones, datos):
+            ax.annotate(f"{dato['factor_aplicado']:.3f}",
+                        xy=(posicion, dato["maximo_pct"]),
+                        xytext=(0, 4), textcoords="offset points",
+                        ha="center", fontsize=estilo.tamano_fuente - 1,
+                        color="#b03a2e" if dato.get("adoptado") else "#555555")
+        ax.set_xticks(list(posiciones))
+        ax.set_xticklabels(etiquetas, fontsize=estilo.tamano_fuente - 1)
+        # Holgura arriba: el rotulo del factor y la leyenda comparten esquina y
+        # sin ella se pisaban.
+        techo = max(c["maximo_pct"] for c in datos)
+        ax.set_ylim(min(0.0, min(c["minimo_pct"] for c in datos) * 1.1),
+                    techo * 1.35)
+        adoptada = next((c for c in datos if c.get("adoptado")), None)
+        if adoptada is not None:
+            ax.plot([], [], marker="s", linestyle="none", color="#b03a2e",
+                    markersize=8,
+                    label=f"adoptado: factor {adoptada['factor_aplicado']:.3f}")
+        ax.legend(loc="upper left", frameon=False,
+                  fontsize=estilo.tamano_fuente - 1)
+        fig.text(0.01, -0.09,
+                 "Rotulo sobre cada barra: factor aplicable. El cambio es de la "
+                 "precipitacion MEDIA ANUAL, no del evento extremo.",
+                 fontsize=estilo.tamano_fuente - 2, color="#555555")
+        for ruta in graficos.guardar(fig, directorio / "M12a_cambio_climatico",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+    logger.info("Figura de cambio climatico escrita")
 
 
 # Periodos que lleva la figura de COMPARACION. Con ocho curvas por metodologia
@@ -1154,6 +1301,7 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "desagregacion": resultado.desagregacion,
         "cambio_climatico": resultado.cambio_climatico,
         "silva": resultado.silva,
+        "cambio_climatico_adoptado": resultado.adoptado,
         "productos": resultado.productos,
         "resumen": conteo,
         "codigo_salida": codigo,

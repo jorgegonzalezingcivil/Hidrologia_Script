@@ -899,6 +899,16 @@ cambio_climatico:
   # Regla condicional: si el factor proyecta disminucion, NO se afecta el
   # hietograma y se documenta la decision como margen de seguridad.
   solo_si_incremento: true
+  # CRITERIO DE ADOPCION. 'maximo' toma la de mayor factor entre las
+  # aplicables: es el lado seguro y evita que el diseno dependa de cual de los
+  # modelos climaticos se prefiera. 'declarado' usa el escenario y horizonte
+  # que nombren las dos claves siguientes, para cuando el contrato lo fija.
+  #
+  # Adoptar una NO borra las demas: las cuatro viajan a la tabla y a la figura,
+  # porque el informe debe relacionar el analisis completo.
+  criterio_adopcion: "maximo"    # maximo | declarado
+  escenario_adoptado: ""
+  horizonte_adoptado: ""
 
 # -----------------------------------------------------------------------------
 # M12b - HIETOGRAMA DE DISEÑO
