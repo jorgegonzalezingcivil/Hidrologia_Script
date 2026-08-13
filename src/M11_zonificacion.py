@@ -766,7 +766,8 @@ def _escribir_figuras(configuracion, base, resultado, ruta_subcuencas,
         for ruta in escritas or ():
             resultado.productos.append(rutas.relativa(ruta, base))
 
-    def mapa(columna, titulo, etiqueta_barra, nombre, rampa=""):
+    def mapa(columna, titulo, etiqueta_barra, nombre, rampa="",
+             absoluto=False):
         valores = [s.get(columna) for s in resultado.subcuencas]
         if not entidades or not any(v is not None for v in valores):
             return
@@ -779,15 +780,16 @@ def _escribir_figuras(configuracion, base, resultado, ruta_subcuencas,
             for etiqueta in ax.get_xticklabels():
                 etiqueta.set_rotation(30)
                 etiqueta.set_horizontalalignment("right")
-            registrar(graficos.guardar(fig, directorio / nombre, estilo))
+            destino = nombre if absoluto else directorio / nombre
+            registrar(graficos.guardar(fig, destino, estilo))
 
     # --- Precipitacion por subcuenca y periodo -------------------------------
     if resultado.campos:
         with graficos.figura(
                 estilo,
-                titulo="Precipitacion media areal por subcuenca",
+                titulo="Precipitacion maxima en 24 h, promedio areal por subcuenca",
                 etiqueta_x="Periodo de retorno (anos)",
-                etiqueta_y="Precipitacion (mm)") as (fig, ax):
+                etiqueta_y="Pmax 24 h (mm)") as (fig, ax):
             equis = [float(c["periodo_retorno"]) for c in resultado.campos]
             ax.fill_between(
                 equis, [c["minimo_mm"] for c in resultado.campos],
@@ -805,9 +807,29 @@ def _escribir_figuras(configuracion, base, resultado, ruta_subcuencas,
             registrar(graficos.guardar(
                 fig, directorio / "M11_precipitacion_subcuencas", estilo))
 
+    # UN MAPA POR PERIODO DE RETORNO. Publicar solo el de referencia mezclaba
+    # dos cosas: ese periodo se eligio para AGRUPAR las zonas, no porque sea el
+    # que el estudio usa. El diseno trabaja con los periodos altos, y un mapa
+    # que no los muestra deja fuera justo lo que se va a citar.
+    #
+    # Y NO ES "PRECIPITACION MEDIA": es la maxima en 24 horas de cada periodo
+    # de retorno, promediada sobre el area de cada subcuenca. La precipitacion
+    # media son las isoyetas de total mensual multianual del M06, otra magnitud
+    # distinta. Llamar "media" a las dos invita a confundirlas en el informe.
+    individuales = graficos.directorio_tema(directorio / "individuales",
+                                            "pmax_subcuencas")
+    for campo in resultado.campos:
+        periodo = str(campo["periodo_retorno"])
+        mapa(f"p_T{periodo}_mm",
+             f"Pmax 24 h por subcuenca, T = {periodo} anos",
+             "Pmax 24 h (mm)",
+             individuales / f"M11_mapa_pmax_T{periodo.replace('.', '_')}",
+             absoluto=True)
+
     mapa(f"p_T{referencia}_mm",
-         f"Precipitacion media areal, T {referencia} anos",
-         "Precipitacion (mm)", "M11_mapa_precipitacion")
+         f"Pmax 24 h por subcuenca, T = {referencia} anos "
+         "(periodo con el que se zonifica)",
+         "Pmax 24 h (mm)", "M11_mapa_precipitacion")
 
     # --- Zonas ---------------------------------------------------------------
     if resultado.zonas:
