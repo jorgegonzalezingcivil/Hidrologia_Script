@@ -916,6 +916,15 @@ cambio_climatico:
 tormenta:
   duracion_h: 3.0
   intervalo_calculo_min: 5       # Δt; se usa también en HEC-HMS y en tlag 'hechms'
+  # UNIDAD DEL HIETOGRAMA. En HEC-HMS cada hietograma distinto es un
+  # pluviometro: uno por subcuenca y periodo son mil series que nadie puede
+  # mantener ni revisar. Para eso existe la zonificacion del M11.
+  #
+  #   zona       un hietograma por zona pluviometrica y periodo de retorno
+  #   subcuenca  uno por subcuenca y periodo; solo si la variacion dentro de
+  #              cada zona importa mas que la manejabilidad del modelo, y
+  #              entonces hay que justificarlo en el informe
+  unidad_hietograma: "zona"      # zona | subcuenca
   metodo: "huff"
   huff:
     cuartil: 2

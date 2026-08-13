@@ -142,6 +142,48 @@ class PruebaResumen(unittest.TestCase):
         self.assertIn("error", m12b.resumir_hietograma([], 100.0))
 
 
+class PruebaAgrupacionPorZona(unittest.TestCase):
+    """
+    Para esto existe la zonificacion: en HEC-HMS cada hietograma distinto es un
+    pluviometro, y uno por subcuenca y periodo son series que nadie mantiene.
+    """
+
+    SUBCUENCAS = [
+        {"subcuenca": "A", "zona": "1", "area_km2": "9.0", "p_T10_mm": "50.0"},
+        {"subcuenca": "B", "zona": "1", "area_km2": "1.0", "p_T10_mm": "60.0"},
+        {"subcuenca": "C", "zona": "2", "area_km2": "4.0", "p_T10_mm": "80.0"},
+    ]
+
+    def test_una_fila_por_zona(self) -> None:
+        zonas, _ = m12b.agrupar_por_zona(self.SUBCUENCAS, ["p_T10_mm"])
+        self.assertEqual([z["zona"] for z in zonas], ["1", "2"])
+
+    def test_la_lamina_de_la_zona_pondera_por_area(self) -> None:
+        # 50 con peso 9 y 60 con peso 1 dan 51, no 55.
+        zonas, _ = m12b.agrupar_por_zona(self.SUBCUENCAS, ["p_T10_mm"])
+        self.assertAlmostEqual(zonas[0]["p_T10_mm"], 51.0, places=3)
+
+    def test_cada_subcuenca_queda_asignada_a_su_pluviometro(self) -> None:
+        _, asignacion = m12b.agrupar_por_zona(self.SUBCUENCAS, ["p_T10_mm"])
+        self.assertEqual(
+            {a["subcuenca"]: a["pluviometro"] for a in asignacion},
+            {"A": "Z1", "B": "Z1", "C": "Z2"})
+
+    def test_una_subcuenca_sin_zona_no_se_pierde(self) -> None:
+        # Dejarla fuera la sacaria del modelo sin que nada lo senalara.
+        subcuencas = self.SUBCUENCAS + [
+            {"subcuenca": "D", "zona": "", "area_km2": "2.0",
+             "p_T10_mm": "70.0"}]
+        zonas, asignacion = m12b.agrupar_por_zona(subcuencas, ["p_T10_mm"])
+        self.assertIn("sin_zona", [z["zona"] for z in zonas])
+        self.assertEqual(len(asignacion), 4)
+
+    def test_el_area_de_las_zonas_suma_la_del_conjunto(self) -> None:
+        zonas, _ = m12b.agrupar_por_zona(self.SUBCUENCAS, ["p_T10_mm"])
+        self.assertAlmostEqual(sum(z["area_km2"] for z in zonas), 14.0,
+                               places=3)
+
+
 class PruebaFactorArf(unittest.TestCase):
     FILAS = [{"duracion_h": "24.0", "arf": "0.9372"},
              {"duracion_h": "3.0", "arf": "0.8558"}]
@@ -168,6 +210,10 @@ class PruebaTablaReal(unittest.TestCase):
     def test_la_curva_existe_y_declara_su_origen(self) -> None:
         self.assertGreaterEqual(len(self.curva), 5)
         self.assertTrue(self.curva[0]["origen"])
+
+    def test_la_unidad_del_hietograma_esta_declarada(self) -> None:
+        self.assertIn(str(_CFG.obtener("tormenta.unidad_hietograma")),
+                      ("zona", "subcuenca"))
 
     def test_la_duracion_es_multiplo_del_intervalo(self) -> None:
         # Con un intervalo que no divide la duración, el último quedaría

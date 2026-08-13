@@ -865,6 +865,10 @@ ESQUEMA: dict[str, Campo] = {
     "tormenta.intervalo_calculo_min": entero(
         "intervalo de cálculo en minutos", minimo=1, maximo=1440,
     ),
+    "tormenta.unidad_hietograma": texto(
+        "unidad con la que se construye el hietograma",
+        opciones=("zona", "subcuenca"),
+    ),
     "tormenta.metodo": texto(
         "método de construcción del hietograma",
         opciones=("huff", "bloques_alternos", "scs", "triangular", "chicago"),

@@ -82,6 +82,7 @@ class ResultadoM12b:
     factores: dict[str, Any] = field(default_factory=dict)
     hietogramas: list[dict[str, Any]] = field(default_factory=list)
     resumen: list[dict[str, Any]] = field(default_factory=list)
+    asignacion: list[dict[str, Any]] = field(default_factory=list)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -180,6 +181,73 @@ def acumulada_en(curva: Sequence[dict[str, float]], tiempo_pct: float) -> float:
             return (anterior["precipitacion_pct"] * (1 - peso)
                     + siguiente["precipitacion_pct"] * peso)
     return curva[-1]["precipitacion_pct"]
+
+
+def agrupar_por_zona(
+    subcuencas, columnas,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """
+    Lámina media de cada zona pluviométrica y asignación de cada subcuenca.
+
+    PARA ESTO EXISTE LA ZONIFICACION. En HEC-HMS cada hietograma distinto es un
+    pluviometro, y un pluviometro por subcuenca y periodo de retorno son mil
+    series que nadie puede mantener ni revisar. Las zonas del M11 agrupan
+    subcuencas cuya lamina no difiere mas del umbral declarado: cinco zonas y
+    ocho periodos son cuarenta series, que si se manejan.
+
+    LA MEDIA DE LA ZONA SE PONDERA POR AREA, igual que en el M11. Una subcuenca
+    de diez kilometros cuadrados no puede pesar lo mismo que una de una
+    hectarea al definir la lluvia que las dos van a recibir.
+
+    Devuelve las zonas con su lamina por periodo y la tabla de asignacion, que
+    es la que el M13 necesita para enganchar cada subcuenca a su pluviometro.
+    """
+    por_zona: dict[str, list[dict[str, Any]]] = {}
+    asignacion: list[dict[str, Any]] = []
+    sin_zona = 0
+    for fila in subcuencas:
+        zona = str(fila.get("zona", "")).strip()
+        nombre = str(fila.get("subcuenca", "")).strip()
+        if not zona:
+            sin_zona += 1
+            zona = "sin_zona"
+        por_zona.setdefault(zona, []).append(fila)
+        asignacion.append({
+            "subcuenca": nombre,
+            "zona": zona,
+            "pluviometro": f"Z{zona}",
+        })
+
+    zonas: list[dict[str, Any]] = []
+    for zona, miembros in sorted(por_zona.items()):
+        areas = []
+        for fila in miembros:
+            try:
+                areas.append(float(fila.get("area_km2") or 0.0))
+            except (TypeError, ValueError):
+                areas.append(0.0)
+        total = sum(areas)
+        registro_zona: dict[str, Any] = {
+            "zona": zona,
+            "pluviometro": f"Z{zona}",
+            "subcuencas": len(miembros),
+            "area_km2": round(total, 3),
+        }
+        for columna in columnas:
+            valores, pesos = [], []
+            for fila, area in zip(miembros, areas):
+                try:
+                    valores.append(float(fila[columna]))
+                    pesos.append(area)
+                except (KeyError, TypeError, ValueError):
+                    continue
+            if not valores:
+                continue
+            peso_total = sum(pesos) or float(len(valores))
+            registro_zona[columna] = round(
+                sum(v * p for v, p in zip(valores, pesos)) / peso_total, 3)
+        zonas.append(registro_zona)
+    return zonas, asignacion
 
 
 def repartir(
@@ -423,7 +491,7 @@ def _factor_cambio_climatico(base, resultado) -> tuple[float, dict[str, Any]]:
 
 def _construir(configuracion, resultado, subcuencas, duracion_min,
                intervalo_min, arf, factor_cc, hipotesis, logger) -> None:
-    """Reparte la lámina de cada subcuenca y periodo en el tiempo."""
+    """Reparte la lámina de cada unidad de lluvia en el tiempo."""
     columnas = sorted(
         {c for fila in subcuencas for c in fila
          if c.startswith("p_T") and c.endswith("_mm")},
@@ -446,10 +514,25 @@ def _construir(configuracion, resultado, subcuencas, duracion_min,
         ))
         return
 
+    unidad = str(configuracion.obtener(
+        "tormenta.unidad_hietograma")).strip().lower()
+    if unidad == "zona":
+        unidades, resultado.asignacion = agrupar_por_zona(subcuencas, columnas)
+        clave_unidad = "zona"
+    else:
+        unidades = subcuencas
+        resultado.asignacion = [
+            {"subcuenca": str(f.get("subcuenca", "")).strip(),
+             "zona": str(f.get("zona", "")).strip(),
+             "pluviometro": str(f.get("subcuenca", "")).strip()}
+            for f in subcuencas]
+        clave_unidad = "subcuenca"
+
     residuos = []
     sin_lamina = 0
-    for fila in subcuencas:
-        nombre = str(fila.get("subcuenca", "")).strip()
+    for fila in unidades:
+        nombre = str(fila.get(clave_unidad, "")).strip()
+        pluviometro = str(fila.get("pluviometro", nombre)).strip() or nombre
         for columna in columnas:
             periodo = columna[3:-3]
             try:
@@ -467,9 +550,11 @@ def _construir(configuracion, resultado, subcuencas, duracion_min,
                 return
             for paso in intervalos:
                 resultado.hietogramas.append(
-                    {"subcuenca": nombre, "periodo_retorno": periodo, **paso})
+                    {"pluviometro": pluviometro, clave_unidad: nombre,
+                     "periodo_retorno": periodo, **paso})
             resumen = resumir_hietograma(intervalos, lamina)
-            resumen.update({"subcuenca": nombre, "periodo_retorno": periodo,
+            resumen.update({"pluviometro": pluviometro, clave_unidad: nombre,
+                            "periodo_retorno": periodo,
                             "pmax24_puntual_mm": round(puntual, 3),
                             "arf": arf, "factor_cc": factor_cc})
             resultado.resumen.append(resumen)
@@ -481,10 +566,13 @@ def _construir(configuracion, resultado, subcuencas, duracion_min,
             "no se construyo ningun hietograma."))
         return
 
-    logger.info("%d hietograma(s) de %d intervalo(s) sobre %d subcuenca(s) y "
+    resultado.factores["unidad_hietograma"] = unidad
+    resultado.factores["pluviometros"] = len({h["pluviometro"]
+                                              for h in resultado.hietogramas})
+    logger.info("%d hietograma(s) de %d intervalo(s) sobre %d %s(s) y "
                 "%d periodo(s)", len(resultado.resumen),
-                resultado.resumen[0]["intervalos"], len(subcuencas),
-                len(columnas))
+                resultado.resumen[0]["intervalos"], len(unidades),
+                clave_unidad, len(columnas))
 
     # EL MARGEN ES EL DEL REDONDEO, no cero. Cada intervalo se publica con
     # cuatro decimales, de modo que la suma de treinta y seis puede apartarse
@@ -518,9 +606,32 @@ def _construir(configuracion, resultado, subcuencas, duracion_min,
     if sin_lamina:
         resultado.hallazgos.append(Hallazgo(
             ADVERTENCIA, "hietograma.sin_lamina",
-            f"{sin_lamina} combinacion(es) de subcuenca y periodo sin lamina "
-            "legible: esas no tienen hietograma y no pueden entrar en el "
-            "modelo.",
+            f"{sin_lamina} combinacion(es) sin lamina legible: esas no tienen "
+            "hietograma y no pueden entrar en el modelo.",
+        ))
+
+    if unidad == "zona":
+        perdida = _dispersion_dentro_de_zona(subcuencas, columnas)
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "hietograma.por_zona",
+            f"{resultado.factores['pluviometros']} pluviometro(s) para "
+            f"{len(subcuencas)} subcuenca(s): uno por zona pluviometrica. Es "
+            "para esto que existe la zonificacion del M11, porque en HEC-HMS "
+            "cada hietograma distinto es un pluviometro y uno por subcuenca y "
+            f"periodo serian {len(subcuencas) * len(columnas)} series que nadie "
+            "puede mantener ni revisar. Al agrupar, la lamina de cada subcuenca "
+            f"se aparta de la de su zona hasta un {perdida:.1f} %, por debajo "
+            "del umbral con que se definieron las zonas.",
+        ))
+    else:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "hietograma.por_subcuenca",
+            f"se declaro un hietograma POR SUBCUENCA: son "
+            f"{len(resultado.resumen)} series y otros tantos pluviometros en "
+            "HEC-HMS. La zonificacion del M11 existe para evitarlo. Solo tiene "
+            "sentido si la variacion de la lluvia dentro de cada zona importa "
+            "mas que la manejabilidad del modelo, y esa es una decision que "
+            "debe justificarse en el informe.",
         ))
 
     if not resultado.curva[0].get("validado"):
@@ -546,6 +657,35 @@ def _construir(configuracion, resultado, subcuencas, duracion_min,
         f"cambio climatico {factor_cc:.3f}. El pico cae al "
         f"{muestra['pico_fraccion_del_tiempo']:.0%} de la duracion.",
     ))
+
+
+def _dispersion_dentro_de_zona(subcuencas, columnas) -> float:
+    """
+    Cuánto se aparta la lámina de una subcuenca de la media de su zona.
+
+    Es el precio de agrupar, y hay que decirlo: quien lea el modelo debe saber
+    que una subcuenca concreta recibe la lluvia de su zona y no la suya. Si esta
+    cifra superase el umbral con que el M11 definio las zonas, el agrupamiento
+    no estaria haciendo lo que dice.
+    """
+    if not columnas:
+        return 0.0
+    columna = columnas[0]
+    por_zona: dict[str, list[float]] = {}
+    for fila in subcuencas:
+        try:
+            por_zona.setdefault(str(fila.get("zona", "")).strip(), []).append(
+                float(fila[columna]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    peor = 0.0
+    for valores in por_zona.values():
+        if not valores:
+            continue
+        media = sum(valores) / len(valores)
+        if media > 0:
+            peor = max(peor, 100.0 * max(abs(v - media) for v in valores) / media)
+    return peor
 
 
 def _escribir_figuras(configuracion, base, resultado, logger) -> None:
@@ -603,7 +743,8 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
             otro.grid(False)
             ax.set_xlim(0, resultado.factores["duracion_h"] * 60.0)
             fig.text(0.01, -0.04,
-                     f"Media de las subcuencas. Huff cuartil "
+                     f"Media de los {resultado.factores['pluviometros']} "
+                     f"pluviometro(s). Huff cuartil "
                      f"{resultado.factores['cuartil']}, "
                      f"{resultado.factores['probabilidad_excedencia']:.0f} % de "
                      f"excedencia. Incluye ARF {resultado.factores['arf']:.3f} "
@@ -640,8 +781,11 @@ def _escribir_csv(destino: Path, filas, delimitador: str) -> None:
 def _escribir_productos(base, resultado, delimitador, logger) -> None:
     """Escribe las tablas del módulo."""
     directorio = rutas.directorio("procesado_tormenta", base, crear=True)
-    for nombre, contenido in (("hietogramas.csv", resultado.hietogramas),
-                              ("hietograma_resumen.csv", resultado.resumen)):
+    for nombre, contenido in (
+        ("hietogramas.csv", resultado.hietogramas),
+        ("hietograma_resumen.csv", resultado.resumen),
+        ("asignacion_pluviometros.csv", resultado.asignacion),
+    ):
         destino = directorio / nombre
         _escribir_csv(destino, contenido, delimitador)
         resultado.productos.append(rutas.relativa(destino, base))
