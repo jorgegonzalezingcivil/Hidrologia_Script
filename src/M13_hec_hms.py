@@ -353,6 +353,10 @@ def actualizar_subcuenca(bloque: str, parametros: dict) -> tuple[str, str]:
         ("Lag", f"{parametros['tlag_min']:.2f}"),
         ("Unitgraph Type", "STANDARD"),
     ))
+    # SIN FLUJO BASE, por decision del consultor: la tormenta de diseno es un
+    # evento aislado y lo que interesa es el hidrograma de escorrentia directa.
+    # Dejar 'Recession' sin sus parametros daria un metodo declarado y vacio.
+    bloque = fijar_grupo(bloque, "Baseflow", "None", ())
     return bloque, ""
 
 
@@ -472,7 +476,7 @@ def escribir_met(destino: Path, nombre: str, periodo: str, asignacion,
         "     Version: 4.13",
         "     Unit System: Metric",
         "     Set Missing Data to Default: Yes",
-        "     Precipitation Method: Specified Hyetograph",
+        "     Precipitation Method: Specified Average",
         "     Air Temperature Method: None",
         "     Atmospheric Pressure Method: None",
         "     Dew Point Method: None",
@@ -488,7 +492,8 @@ def escribir_met(destino: Path, nombre: str, periodo: str, asignacion,
     for gage in usados:
         lineas += [f"Gage: {gage}", "     Type: Recording", "End:", ""]
     lineas += [
-        "Precip Method Parameters: Specified Hyetograph",
+        "Precip Method Parameters: Specified Average",
+        "     Allow Depth Override: No",
         "End:",
         "",
     ]
@@ -500,6 +505,41 @@ def escribir_met(destino: Path, nombre: str, periodo: str, asignacion,
             "",
         ]
     destino.write_text("\n".join(lineas), encoding="utf-8")
+
+
+def escribir_runs(destino: Path, escenarios, modelo_cuenca: str,
+                  control: str) -> int:
+    """
+    Escribe las simulaciones, una por periodo de retorno.
+
+    UN 'RUN' ES SOLO LA COMBINACION de modelo de cuenca, meteorologia y control:
+    no lleva parametros propios. El formato esta leido de una simulacion que el
+    consultor creo en la interfaz, y la clave del modelo meteorologico es
+    'Precip', no 'Meteorology'.
+
+    Van todas en un unico archivo con el nombre del proyecto, como los
+    pluviometros.
+    """
+    lineas: list[str] = []
+    for nombre in escenarios:
+        corrida = f"TR_{nombre.lstrip('T')}"
+        lineas += [
+            f"Run: {corrida}",
+            "     Default Description: Yes",
+            f"     Log File: {corrida}.log",
+            f"     DSS File: {corrida}.dss",
+            "     Is Save Spatial Results: No",
+            f"     Basin: {modelo_cuenca}",
+            f"     Precip: {nombre}",
+            f"     Control: {control}",
+            "     Time-Series Output: Save All",
+            "     Time Series Results Manager Start:",
+            "     Time Series Results Manager End:",
+            "End:",
+            "",
+        ]
+    destino.write_text("\n".join(lineas), encoding="utf-8")
+    return len(escenarios)
 
 
 def escribir_control(destino: Path, nombre: str, inicio: _dt.datetime,
@@ -766,6 +806,13 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
             "pero sin declarar en el proyecto, y HEC-HMS no los vera.",
         ))
 
+    corridas = escribir_runs(
+        proyecto / f"{Path(str(configuracion.obtener('hec_hms.proyecto.archivo'))).stem}.run",
+        resultado.escenarios, modelo_cuenca, "Tormenta_diseno")
+    resultado.productos.append(
+        str(proyecto / f"{Path(str(configuracion.obtener('hec_hms.proyecto.archivo'))).stem}.run"))
+    logger.info("%d simulacion(es) escritas", corridas)
+
     resultado.meteorologia = {
         "pluviometros": resumen["pluviometros"],
         "ordenadas": resumen["ordenadas"],
@@ -786,12 +833,10 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
         "no en el DSS, de modo que el proyecto es autocontenido.",
     ))
     resultado.hallazgos.append(Hallazgo(
-        ADVERTENCIA, "escenarios.sin_crear",
-        f"quedan escritos {len(periodos)} modelo(s) meteorologico(s) y las "
-        "especificaciones de control, pero las SIMULACIONES (los 'Run') se "
-        "crean en HEC-HMS combinando modelo de cuenca, meteorologia y control. "
-        "Es un paso de interfaz que el M14 ejecutara, o que el consultor hace "
-        "en tres clics por escenario.",
+        INFORMATIVO, "escenarios.creados",
+        f"{corridas} simulacion(es) escritas, una por periodo de retorno, cada "
+        f"una combinando el modelo {modelo_cuenca!r}, su meteorologia y las "
+        "especificaciones de control. El M14 las ejecutara.",
     ))
 
 

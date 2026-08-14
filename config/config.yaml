@@ -1113,7 +1113,9 @@ numero_curva:
 hec_hms:
   transform: "scs_uh"            # scs_uh | clark | snyder | modclark
   loss: "scs_cn"
-  baseflow: "recession"
+  # DECISION DEL CONSULTOR: sin flujo base. La tormenta de diseno es un
+  # evento aislado y el hidrograma que interesa es el de escorrentia directa.
+  baseflow: "none"
   # --- M13: proyecto de HEC-HMS ya construido --------------------------------
   # EL CONSULTOR ENTREGA EL MODELO ARMADO y la cadena lo ACTUALIZA: carga los
   # parametros calculados, escribe la meteorologia y genera los escenarios. La
@@ -1139,8 +1141,8 @@ hec_hms:
       # resuelve un cauce de pocos metros de ancho. Son valores que el
       # consultor fija y el informe debe sustentar; con la seccion equivocada
       # el amortiguamiento de la onda cambia y el caudal pico con el.
-      ancho_fondo_m: 3.0
-      talud_h_por_v: 2.0
+      ancho_fondo_m: 1.0
+      talud_h_por_v: 1.0
       # Celeridad indice de la onda, en m/s. HEC-HMS la pide para arrancar el
       # calculo y la ajusta despues; el valor declarado es el punto de partida.
       celeridad_indice_ms: 1.0
