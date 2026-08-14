@@ -1358,11 +1358,23 @@ graficos:
 # M15 / M16 / M17 - SALIDAS
 # -----------------------------------------------------------------------------
 informe:
+  # TRES COSAS FUERA DEL CODIGO: el formato, la estructura y la redaccion.
+  # Reordenar capitulos o cambiar una frase no exige tocar Python.
   plantilla: "templates/informe.dotx"
+  estructura: "config/informe.yaml"
+  texto: "templates/informe/texto.yaml"
+  archivo: "informe_hidrologico.docx"
+  # La plantilla se DERIVA de un informe del consultor ya entregado, que define
+  # el formato de casa (CLAUDE.md, seccion 10). Se toman estilos, numeracion,
+  # encabezados y configuracion de pagina; nunca su contenido.
+  informe_de_referencia: "docs/referencia/Informe Hidrología.docx"
   formato_figuras: "Ilustración"
   formato_graficos: "Gráfico"
   formato_tablas: "Tabla"
   numeracion_por_capitulo: true
+  # Entre el numero de capitulo y el consecutivo. El informe de referencia los
+  # concatena y 'Tabla 621' se lee como el numero seiscientos veintiuno.
+  separador_numeracion: "-"
 
 cartografia:
   plantillas_qpt: "templates/mapas"

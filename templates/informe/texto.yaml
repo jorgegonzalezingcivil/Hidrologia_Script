@@ -1,0 +1,246 @@
+# =============================================================================
+# NARRATIVA DEL INFORME (M15)
+# =============================================================================
+# El texto vive AQUI y no en el codigo. Redactarlo de otra manera, corregir una
+# frase o adaptar el registro a otra entidad es editar este archivo.
+#
+# Cada clave es una lista de parrafos. Las llaves marcan valores que el modulo
+# sustituye con lo que la cadena calculo: {area_km2}, {q_100}, etc. Un valor que
+# el modulo no sepa resolver se sustituye por una marca visible y se reporta,
+# nunca se deja la llave cruda ni se calla.
+#
+# El registro sigue el del informe de referencia: tercera persona, tecnico, sin
+# adjetivos de valoracion.
+# -----------------------------------------------------------------------------
+
+version: 1
+
+introduccion:
+  - >
+    El presente documento contiene el estudio hidrologico de la cuenca aferente
+    al sitio de proyecto. Su objeto es establecer los caudales maximos asociados
+    a distintos periodos de retorno, que constituyen el insumo para el diseno de
+    las obras hidraulicas.
+  - >
+    El estudio parte de la informacion hidroclimatologica del IDEAM disponible
+    en el area de influencia, de la cartografia oficial y del modelo digital de
+    elevacion, y aplica el modelo lluvia-escorrentia del Soil Conservation
+    Service implementado en HEC-HMS.
+
+sistema_hidrico:
+  - >
+    La cuenca aferente al sitio de proyecto tiene un area de {area_km2} km2 y un
+    perimetro de {perimetro_km} km. Su cauce principal recorre
+    {longitud_cauce_km} km entre las cotas {cota_max} y {cota_min} m s. n. m.,
+    con una elevacion media de {cota_media} m s. n. m.
+
+informacion_base:
+  - >
+    La informacion base del estudio procede de fuentes oficiales. A continuacion
+    se relaciona cada una con su procedencia y la fecha de consulta.
+
+informacion_hidroclimatologica:
+  - >
+    Las series de precipitacion proceden del Instituto de Hidrologia,
+    Meteorologia y Estudios Ambientales, IDEAM, obtenidas del servicio DHIME. En
+    el area de influencia del proyecto se identificaron {n_estaciones}
+    estaciones, de las cuales entran en cada analisis las que cumplen los
+    criterios de longitud y calidad de registro que ese analisis exige.
+  - >
+    Las series se sometieron a analisis de datos anomalos, de consistencia y de
+    complemento de faltantes antes de su uso, en ese orden. Los criterios de
+    descarte y los registros afectados quedan documentados en los anexos de
+    calculo.
+
+informacion_cartografica:
+  - >
+    La cartografia base corresponde a la del Instituto Geografico Agustin
+    Codazzi, IGAC. La zonificacion hidrografica procede del IDEAM. Todo el
+    procesamiento se realizo en el sistema de referencia MAGNA-SIRGAS con origen
+    nacional CTM12.
+
+informacion_topografica:
+  - >
+    El modelo digital de elevacion empleado corresponde a ALOS PALSAR, con una
+    resolucion de 12,5 m. Sobre el se realizo la delimitacion de la cuenca y de
+    las subcuencas, y de el se derivaron las pendientes y las longitudes de
+    flujo.
+
+informacion_suelos:
+  - >
+    El grupo hidrologico de suelo y la cobertura de la tierra se obtuvieron de
+    las capas disponibles para el area de estudio. La homologacion entre las
+    clases de las capas y las categorias del metodo del numero de curva quedo
+    registrada en una tabla de equivalencias diligenciada para este estudio.
+
+morfometria_intro:
+  - >
+    La caracterizacion morfometrica establece los parametros que gobiernan la
+    respuesta de la cuenca ante un evento de precipitacion. Se realiza para la
+    cuenca completa y, de forma individual, para cada una de las
+    {n_subcuencas} subcuencas en que se dividio el modelo.
+
+delimitacion:
+  - >
+    La delimitacion se realizo a partir del modelo digital de elevacion, con el
+    punto de cierre en el sitio de proyecto. La division en subcuencas se
+    efectuo con el modulo de geoprocesamiento de HEC-HMS y tiene como unico
+    objetivo mejorar la representacion de los hidrogramas, incluyendo el
+    transito por los cauces internos.
+
+parametros_morfometricos:
+  - >
+    En la tabla siguiente se resumen los parametros morfometricos de la cuenca.
+    La curva hipsometrica y la distribucion altimetrica complementan esa
+    descripcion mostrando como se reparte el area con la elevacion.
+
+numero_curva:
+  - >
+    El numero de curva se determino por el metodo del Soil Conservation Service,
+    cruzando el grupo hidrologico de suelo con la cobertura de la tierra y
+    ponderando por area dentro de cada subcuenca. El valor medio ponderado para
+    la cuenca es de {cn_medio}, en condicion de humedad antecedente media.
+
+tiempos:
+  - >
+    El tiempo de concentracion se estimo con las formulas empiricas aplicables a
+    cada subcuenca segun su area y su pendiente, y se adopto el valor de la
+    formula declarada para el estudio. La mediana de los tiempos de
+    concentracion de las subcuencas es de {tc_mediana_min} minutos.
+  - >
+    El tiempo de rezago se obtuvo con el criterio {criterio_rezago}. La mediana
+    de los tiempos de rezago es de {tlag_mediana_min} minutos. Este es el
+    parametro que HEC-HMS emplea en la transformacion de lluvia neta a
+    escorrentia mediante el hidrograma unitario del Soil Conservation Service.
+
+precipitacion_intro:
+  - >
+    El analisis de precipitaciones establece la lamina de diseno para cada
+    periodo de retorno y su distribucion en el tiempo. De el sale el hietograma
+    que alimenta el modelo lluvia-escorrentia.
+
+precipitacion_mensual:
+  - >
+    La serie de precipitacion total mensual se empleo para caracterizar el
+    regimen de lluvias de la zona y su variabilidad interanual asociada al
+    fenomeno ENSO. Esa clasificacion no elimina estaciones ni registros: solo
+    ordena la informacion por fase.
+
+pmax24:
+  - >
+    La serie de precipitacion maxima en 24 horas es la base del analisis de
+    frecuencia. Se conserva integra, sin filtrado por valores anomalos: el
+    criterio de datos dudosos se aplica a la serie mensual, y aplicarlo a los
+    maximos truncaria justamente el dato de diseno.
+
+analisis_frecuencia:
+  - >
+    Se ajustaron las distribuciones de probabilidad usuales en hidrologia de
+    eventos extremos mediante momentos, momentos-L y maxima verosimilitud, y se
+    evaluo su bondad de ajuste con las pruebas de Kolmogorov-Smirnov,
+    Anderson-Darling y chi-cuadrado, junto con los criterios de informacion de
+    Akaike y bayesiano. La distribucion adoptada es {distribucion_adoptada}.
+  - >
+    Los periodos de retorno considerados son {periodos_retorno} anos.
+
+hietograma:
+  - >
+    La lamina de 24 horas se lleva a la duracion de diseno de
+    {duracion_tormenta_h} horas mediante un factor de escala temporal de
+    {factor_escala}, correspondiente a la relacion {fuente_escala}. El nivel de
+    la lamina lo aporta el analisis de frecuencia; el factor solo establece que
+    fraccion de ella corresponde a esa duracion.
+  - >
+    La distribucion en el tiempo sigue las curvas de Huff, adoptando el segundo
+    cuartil con 50 % de probabilidad de excedencia, que representa tormentas de
+    severidad media. El hietograma se discretizo en intervalos de
+    {intervalo_min} minutos, el mismo paso de calculo del modelo hidrologico.
+
+cambio_climatico:
+  - >
+    Se evaluo el efecto del cambio climatico sobre la precipitacion de diseno a
+    partir de la informacion de la Cuarta Comunicacion Nacional de Cambio
+    Climatico del IDEAM. El factor adoptado es de {factor_cc}, aplicado sobre la
+    lamina de diseno. El factor solo se aplica cuando la proyeccion es de
+    incremento; si la proyeccion fuese a la baja, el hietograma no se afecta y
+    la decision se documenta.
+
+idf:
+  - >
+    Las curvas intensidad-duracion-frecuencia se calcularon por dos
+    metodologias, la regionalizacion del INVIAS de Vargas y Diaz-Granados y la
+    de Silva. Se presentan ambas y se declara cual gobierna el resultado.
+
+hidrologico_intro:
+  - >
+    El analisis hidrologico establece los caudales de creciente asociados a cada
+    periodo de retorno en el sitio de proyecto.
+
+crecientes_intro:
+  - >
+    El analisis de crecientes se realiza mediante el modelo lluvia-escorrentia,
+    dado que la cuenca no cuenta con registros de caudal utilizables para un
+    analisis de frecuencia directo.
+
+modelo_lluvia_escorrentia:
+  - >
+    El modelo se construyo en HEC-HMS con {n_subcuencas} subcuencas,
+    {n_tramos} tramos de transito y sus respectivas uniones. El metodo de
+    perdidas es el numero de curva del Soil Conservation Service y la
+    transformacion de lluvia neta a escorrentia es el hidrograma unitario del
+    mismo servicio.
+  - >
+    No se considera flujo base. La tormenta de diseno es un evento aislado y el
+    hidrograma que interesa para el diseno es el de escorrentia directa.
+
+arf:
+  - >
+    La lamina de diseno obtenida del analisis de frecuencia es puntual, mientras
+    que la que cae sobre la cuenca se distribuye sobre su area. El factor de
+    reduccion por area adoptado es de {arf}, correspondiente a un area de
+    {area_km2} km2 y a la duracion de diseno.
+
+transito:
+  - >
+    El transito de crecientes por los cauces se realizo por el metodo de
+    Muskingum-Cunge con seccion trapezoidal. El ancho de fondo de cada tramo se
+    asigno segun su area de drenaje acumulada mediante una relacion de geometria
+    hidraulica, de modo que la seccion crece hacia aguas abajo en lugar de ser
+    unica para toda la red.
+
+resultados_crecientes:
+  - >
+    En la tabla siguiente se presentan los caudales maximos en el sitio de
+    proyecto para cada periodo de retorno, que constituyen el insumo para el
+    diseno hidraulico. El caudal asociado al periodo de retorno de 100 anos es
+    de {q_100} m3/s, equivalente a un caudal especifico de
+    {caudal_especifico_100} m3/s por kilometro cuadrado.
+
+conclusiones:
+  - >
+    A continuacion se relacionan las conclusiones del estudio.
+
+bibliografia:
+  - >
+    Chow, V. T., Maidment, D. R. y Mays, L. W. Hidrologia aplicada. McGraw-Hill.
+  - >
+    Huff, F. A. Time distribution of rainfall in heavy storms. Water Resources
+    Research.
+  - >
+    Menabde, M., Seed, A. y Pegram, G. A simple scaling model for extreme
+    rainfall. Water Resources Research, 35(2), 335-339, 1999.
+  - >
+    US Army Corps of Engineers. Hydrologic Modeling System HEC-HMS. Technical
+    Reference Manual. Hydrologic Engineering Center.
+  - >
+    US Department of Agriculture, Soil Conservation Service. National
+    Engineering Handbook, Section 4: Hydrology.
+  - >
+    Vargas, R. y Diaz-Granados, M. Curvas sinteticas regionalizadas de
+    intensidad-duracion-frecuencia para Colombia. Universidad de los Andes, 1998.
+
+anexos:
+  - >
+    Los anexos contienen la informacion de soporte del estudio: series
+    hidroclimatologicas empleadas, memorias de calculo, cartografia tematica y
+    el modelo de HEC-HMS.

@@ -250,10 +250,13 @@ pasos:
 
   # --- Entrega --------------------------------------------------------------
   - modulo: M15
+    # El formato, la estructura y la redaccion viven fuera del codigo: la
+    # plantilla se deriva del informe de referencia del consultor, el arbol de
+    # capitulos esta en config/informe.yaml y el texto en templates/informe.
     nombre: "Redacción del informe en Word"
     script: "src/M15_informe.py"
     entorno: venv
-    estado: pendiente
+    estado: disponible
 
   - modulo: M16
     nombre: "Cartografía temática"

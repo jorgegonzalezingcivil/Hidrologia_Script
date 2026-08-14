@@ -25,6 +25,15 @@ pyyaml==6.0.2
 numpy==2.5.1
 scipy==1.18.0
 
+# --- Documentos de Word ------------------------------------------------------
+# La consume el M15. Se elige python-docx y no la librería 'docx' de npm por dos
+# razones: ABRE archivos existentes, que es lo que exige partir de la plantilla
+# con los estilos del consultor, y no mete Node en una cadena que CLAUDE.md,
+# sección 3, define como dos entornos de Python.
+#
+# Arrastra lxml, que ya es dependencia indirecta de otras.
+python-docx==1.2.0
+
 # --- Graficación -------------------------------------------------------------
 # La consume src/graficos.py, punto único de estilo de las figuras. CLAUDE.md no
 # asignaba su generación a ningún módulo: 'informe' define cómo el M15 las numera

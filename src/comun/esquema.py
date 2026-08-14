@@ -1255,6 +1255,16 @@ ESQUEMA: dict[str, Campo] = {
     ),
 
     "informe.plantilla": ruta("plantilla .dotx del informe"),
+    "informe.estructura": ruta("declaración del árbol de capítulos"),
+    "informe.texto": ruta("narrativa del informe, con sus huecos"),
+    "informe.archivo": texto("nombre del documento producido", no_vacio=True),
+    "informe.informe_de_referencia": ruta(
+        "informe del consultor del que se deriva la plantilla"),
+    # Un solo carácter, o ninguno para reproducir el modelo tal cual.
+    "informe.separador_numeracion": texto(
+        "separador entre capítulo y consecutivo en las leyendas",
+        requerido=False,
+    ),
     "informe.formato_figuras": texto("rótulo de las figuras", no_vacio=True),
     "informe.formato_graficos": texto("rótulo de los gráficos", no_vacio=True),
     "informe.formato_tablas": texto("rótulo de las tablas", no_vacio=True),

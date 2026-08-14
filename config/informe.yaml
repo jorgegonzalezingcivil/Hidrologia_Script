@@ -1,0 +1,216 @@
+# =============================================================================
+# ESTRUCTURA DEL INFORME (M15)
+# =============================================================================
+# El arbol de capitulos vive AQUI y no en el codigo, igual que el del proyecto
+# QGIS vive en proyecto_qgis.yaml. Reordenar el informe, anadir un apartado o
+# quitarlo es editar este archivo, no reprogramar el modulo.
+#
+# La estructura sigue la del informe de referencia (CLAUDE.md, seccion 10).
+#
+# Cada nodo admite:
+#   titulo      obligatorio
+#   nivel       1 a 4; el estilo sale de ahi (Ttulo1 a Ttulo4)
+#   texto       clave del parrafo o parrafos en templates/informe/texto.yaml
+#   tablas      lista de tablas a insertar
+#   figuras     lista de figuras a insertar
+#   pendiente   texto de la marca visible que espera al consultor
+#   hijos       nodos anidados
+#
+# Una tabla se declara con:
+#   archivo     CSV relativo a la raiz del estudio
+#   titulo      leyenda
+#   fuente      linea de procedencia; por defecto la del estudio
+#   columnas    lista de columnas a mostrar, con su encabezado descriptivo
+#   filas_max   corta la tabla y anota cuantas filas se omitieron
+#   orden       columna por la que ordenar
+#
+# Una figura se declara con:
+#   archivo     PNG relativo al directorio de graficos
+#   titulo      leyenda
+#   ancho_cm    por defecto el ancho util de la pagina
+# -----------------------------------------------------------------------------
+
+version: 1
+
+# Procedencia por defecto de tablas y figuras que produce la cadena.
+fuente_propia: "Elaboracion propia"
+
+capitulos:
+
+  - titulo: "INTRODUCCIÓN"
+    nivel: 1
+    texto: introduccion
+    pendiente: >
+      Describir el alcance del contrato, la entidad contratante y el objeto
+      especifico del estudio hidrologico.
+
+  - titulo: "DESCRIPCIÓN DEL SISTEMA HÍDRICO EN EL SITIO DE PROYECTO"
+    nivel: 1
+    texto: sistema_hidrico
+    pendiente: >
+      Describir el sistema hidrico con conocimiento de campo: corrientes
+      receptoras, obras existentes, usos del agua y condiciones observadas en
+      la visita.
+
+  - titulo: "INFORMACIÓN BASE"
+    nivel: 1
+    texto: informacion_base
+    hijos:
+      - titulo: "Información Hidroclimatológica"
+        nivel: 2
+        texto: informacion_hidroclimatologica
+        tablas:
+          - archivo: "data/02_procesado/estaciones/inventario_estaciones.csv"
+            titulo: "Identificación de estaciones IDEAM"
+            columnas:
+              Código de la estación: "Código"
+              Nombre de la estación: "Nombre"
+              Categoría: "Categoría"
+              Altitud: "Altitud (m s. n. m.)"
+              Corriente asociada: "Corriente"
+              Municipio: "Municipio"
+            orden: "Código de la estación"
+            filas_max: 40
+      - titulo: "Información Cartográfica"
+        nivel: 2
+        texto: informacion_cartografica
+      - titulo: "Información Topográfica"
+        nivel: 2
+        texto: informacion_topografica
+      - titulo: "Información de Suelos y Coberturas"
+        nivel: 2
+        texto: informacion_suelos
+
+  - titulo: "CARACTERIZACIÓN MORFOMÉTRICA DE LA CUENCA"
+    nivel: 1
+    texto: morfometria_intro
+    hijos:
+      - titulo: "Delimitación de la cuenca"
+        nivel: 2
+        texto: delimitacion
+      - titulo: "Parámetros morfométricos"
+        nivel: 2
+        texto: parametros_morfometricos
+        tablas:
+          - archivo: "data/02_procesado/morfometria/parametros.csv"
+            titulo: "Parámetros morfométricos de la cuenca"
+            columnas:
+              area_km2: "Área (km²)"
+              perimetro_km: "Perímetro (km)"
+              long_cauce_principal_km: "Longitud del cauce principal (km)"
+              longitud_axial_km: "Longitud axial (km)"
+              coef_forma: "Coeficiente de forma"
+              coef_compacidad: "Coeficiente de compacidad"
+              indice_sinuosidad: "Índice de sinuosidad"
+              pendiente_media_cauce_pct: "Pendiente media del cauce (%)"
+              pendiente_media_pct: "Pendiente media de la cuenca (%)"
+              cota_min: "Cota mínima (m s. n. m.)"
+              cota_max: "Cota máxima (m s. n. m.)"
+              cota_media: "Cota media (m s. n. m.)"
+        figuras:
+          - archivo: "M10_curva_hipsometrica.png"
+            titulo: "Curva hipsométrica de la cuenca"
+          - archivo: "M10_distribucion_altimetrica.png"
+            titulo: "Distribución altimétrica de la cuenca"
+      - titulo: "Tipo de suelo hidrológico y número de curva"
+        nivel: 2
+        texto: numero_curva
+        figuras:
+          - archivo: "M10_mapa_cn.png"
+            titulo: "Número de curva por subcuenca"
+      - titulo: "Tiempos de concentración y rezago"
+        nivel: 2
+        texto: tiempos
+        figuras:
+          - archivo: "M10_mapa_rezago.png"
+            titulo: "Tiempo de rezago por subcuenca"
+
+  - titulo: "ANÁLISIS DE PRECIPITACIONES"
+    nivel: 1
+    texto: precipitacion_intro
+    hijos:
+      - titulo: "Precipitación total mensual"
+        nivel: 2
+        texto: precipitacion_mensual
+      - titulo: "Precipitación máxima en 24 horas"
+        nivel: 2
+        texto: pmax24
+        hijos:
+          - titulo: "Análisis estadístico de eventos máximos"
+            nivel: 3
+            texto: analisis_frecuencia
+          - titulo: "Hietograma de diseño"
+            nivel: 3
+            texto: hietograma
+            figuras:
+              - archivo: "M12b_hietograma_T500.png"
+                titulo: "Hietograma de diseño, periodo de retorno de 500 años"
+      - titulo: "Influencia del cambio climático"
+        nivel: 2
+        texto: cambio_climatico
+      - titulo: "Curvas IDF"
+        nivel: 2
+        texto: idf
+        figuras:
+          - archivo: "M12a_idf_comparacion.png"
+            titulo: "Comparación de metodologías de curvas IDF"
+
+  - titulo: "ANÁLISIS HIDROLÓGICO"
+    nivel: 1
+    texto: hidrologico_intro
+    hijos:
+      - titulo: "Análisis de crecientes"
+        nivel: 2
+        texto: crecientes_intro
+        hijos:
+          - titulo: "Modelo lluvia - escorrentía"
+            nivel: 3
+            texto: modelo_lluvia_escorrentia
+          - titulo: "Factor de reducción por área"
+            nivel: 3
+            texto: arf
+            figuras:
+              - archivo: "M11c_curvas_arf.png"
+                titulo: "Factor de reducción por área"
+          - titulo: "Tránsito de crecientes"
+            nivel: 3
+            texto: transito
+          - titulo: "Resultados"
+            nivel: 3
+            texto: resultados_crecientes
+            tablas:
+              - archivo: "data/02_procesado/hidrologia/qmax_por_periodo.csv"
+                titulo: "Caudal máximo contra periodo de retorno en el sitio de proyecto"
+                filtro:
+                  columna: tipo
+                  valor: Sink
+                columnas:
+                  elemento: "Elemento"
+                  q_T2_33_m3s: "T = 2.33 años"
+                  q_T5_m3s: "T = 5 años"
+                  q_T10_m3s: "T = 10 años"
+                  q_T25_m3s: "T = 25 años"
+                  q_T50_m3s: "T = 50 años"
+                  q_T100_m3s: "T = 100 años"
+                  q_T500_m3s: "T = 500 años"
+            figuras:
+              - archivo: "M14_qmax_vs_periodo.png"
+                titulo: "Caudal máximo contra periodo de retorno"
+              - archivo: "M14_hidrograma_Sink-1.png"
+                titulo: "Hidrograma de creciente en el sitio de proyecto"
+
+  - titulo: "CONCLUSIONES"
+    nivel: 1
+    texto: conclusiones
+    pendiente: >
+      Redactar las conclusiones del estudio y las recomendaciones de diseno.
+      Dependen del uso que la obra dara a los caudales y del criterio del
+      consultor.
+
+  - titulo: "BIBLIOGRAFÍA"
+    nivel: 1
+    texto: bibliografia
+
+  - titulo: "ANEXOS"
+    nivel: 1
+    texto: anexos
