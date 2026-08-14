@@ -142,6 +142,59 @@ class PruebaResumen(unittest.TestCase):
         self.assertIn("error", m12b.resumir_hietograma([], 100.0))
 
 
+class PruebaRazonDeDesagregacion(unittest.TestCase):
+    """
+    Es lo que distingue h2_idf de h1_directa: la primera mete la lámina de 24 h
+    entera en la duración de diseño, la segunda toma de la IDF qué fracción le
+    corresponde.
+    """
+
+    CABECERA = ("periodo_retorno;pmax24_mm;h2_idf_invias_sobre_p24;"
+                "h2_idf_silva_sobre_p24\n")
+
+    def _escribir(self, filas: str) -> Path:
+        ruta = Path(tempfile.mkdtemp()) / "desagregacion.csv"
+        ruta.write_text(self.CABECERA + filas, encoding="utf-8")
+        return ruta
+
+    def test_devuelve_la_razon_de_cada_periodo(self) -> None:
+        # No es la misma para todos: la IDF y la serie de máximos no crecen al
+        # mismo ritmo.
+        ruta = self._escribir("2.33;42.0;0.8425;0.4232\n100.0;82.1;0.8477;0.4233\n")
+        razones = m12b.razones_de_desagregacion(ruta, ";", "invias")
+        self.assertAlmostEqual(razones["2.33"], 0.8425)
+        self.assertAlmostEqual(razones["100.0"], 0.8477)
+
+    def test_el_periodo_entero_queda_en_las_dos_formas(self) -> None:
+        # La columna del M11 lo trae sin decimales y la tabla del M12a con
+        # ellos: buscar solo una forma dejaría periodos sin razón, y esos
+        # heredarían 1.0 en silencio, es decir, h1_directa.
+        ruta = self._escribir("100.0;82.1;0.8477;0.4233\n")
+        razones = m12b.razones_de_desagregacion(ruta, ";", "invias")
+        self.assertIn("100", razones)
+        self.assertIn("100.0", razones)
+
+    def test_cada_fuente_da_lo_suyo(self) -> None:
+        ruta = self._escribir("100.0;82.1;0.8477;0.4233\n")
+        self.assertAlmostEqual(
+            m12b.razones_de_desagregacion(ruta, ";", "silva")["100"], 0.4233)
+
+    def test_una_razon_mayor_que_uno_se_rechaza(self) -> None:
+        # La lámina de una duración parcial no puede superar la de 24 h.
+        ruta = self._escribir("100.0;82.1;1.4;0.4233\n")
+        with self.assertRaises(ErrorFormato):
+            m12b.razones_de_desagregacion(ruta, ";", "invias")
+
+    def test_una_fuente_inexistente_es_error_explicito(self) -> None:
+        ruta = self._escribir("100.0;82.1;0.8477;0.4233\n")
+        with self.assertRaises(ErrorFormato):
+            m12b.razones_de_desagregacion(ruta, ";", "otra")
+
+    def test_tabla_ausente(self) -> None:
+        with self.assertRaises(ErrorRutas):
+            m12b.razones_de_desagregacion(Path("no_existe.csv"), ";", "invias")
+
+
 class PruebaAgrupacionPorZona(unittest.TestCase):
     """
     Para esto existe la zonificacion: en HEC-HMS cada hietograma distinto es un

@@ -938,6 +938,10 @@ tormenta:
   # config.yaml del estudio tras comparar las tres hipotesis, y el motivo es
   # obligatorio (seccion 7). Aqui queda en null a proposito.
   hipotesis_adoptada: null       # h1_directa | h2_idf | h3_factor
+  # Con h2_idf, de que curva IDF sale la razon P(duracion)/P24h. Las dos
+  # estan calculadas en el M12a y difieren mucho: sobre este estudio,
+  # INVIAS da 0,80 a 0,90 y Silva 0,42.
+  fuente_idf_desagregacion: "invias"   # invias | silva
   motivo_hipotesis: ""
   coeficiente_desagregacion:
     valor: null

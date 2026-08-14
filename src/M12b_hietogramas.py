@@ -183,6 +183,67 @@ def acumulada_en(curva: Sequence[dict[str, float]], tiempo_pct: float) -> float:
     return curva[-1]["precipitacion_pct"]
 
 
+def razones_de_desagregacion(
+    ruta: Path, delimitador: str, fuente: str = "invias",
+) -> dict[str, float]:
+    """
+    Razón P(duración) / P24h por periodo de retorno, de la tabla del M12a.
+
+    ES LO QUE DISTINGUE h2_idf DE h1_directa. La primera hipótesis mete la
+    lámina de 24 horas entera en la duración de diseño; la segunda toma de la
+    curva IDF qué fracción de esa lámina corresponde a esa duración.
+
+    LA RAZÓN ES UNA SOLA PARA TODA LA CUENCA y no varía por subcuenca: la IDF
+    está regionalizada y no se resuelve a esa escala. El reparto espacial lo
+    sigue aportando el M11 con su lámina de 24 h promediada por subcuenca. Es
+    una mezcla deliberada de dos fuentes y el informe debe declararla.
+
+    La razón NO es la misma para todos los periodos de retorno: con INVIAS va
+    de 0,80 a 0,90 según el periodo, porque la IDF y la serie de máximos no
+    crecen al mismo ritmo.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si no está la tabla del M12a.
+    ErrorFormato
+        Si no trae la columna de esa fuente o ninguna razón utilizable.
+    """
+    if not ruta.is_file():
+        raise ErrorRutas(
+            f"no se encuentra {ruta}: la razon de desagregacion la publica el "
+            "M12a, que hay que ejecutar antes.")
+    columna = f"h2_idf_{fuente}_sobre_p24"
+    razones: dict[str, float] = {}
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        lector = csv.DictReader(manejador, delimiter=delimitador)
+        if lector.fieldnames and columna not in lector.fieldnames:
+            raise ErrorFormato(
+                f"{ruta.name} no trae la columna {columna!r}. Fuentes "
+                f"disponibles: "
+                f"{[c for c in lector.fieldnames if c.endswith('_sobre_p24')]}.")
+        for fila in lector:
+            try:
+                valor = float(fila[columna])
+                periodo = str(float(fila["periodo_retorno"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if valor <= 0 or valor > 1.0:
+                raise ErrorFormato(
+                    f"{ruta.name}: la razon {valor:g} del periodo "
+                    f"{fila.get('periodo_retorno')} esta fuera de (0, 1]. La "
+                    "lamina de una duracion parcial no puede superar la de 24 h.")
+            # El periodo se guarda en las dos formas en que puede venir escrito,
+            # '2.33' y '2', porque la columna del M11 lo trae sin decimales
+            # cuando es entero y la tabla del M12a con ellos.
+            razones[periodo] = valor
+            if periodo.endswith(".0"):
+                razones[periodo[:-2]] = valor
+    if not razones:
+        raise ErrorFormato(f"{ruta.name} no trae ninguna razon utilizable.")
+    return razones
+
+
 def agrupar_por_zona(
     subcuencas, columnas,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -454,7 +515,7 @@ def ejecutar(
 
     with registro.bloque(logger, "Hietogramas"):
         _construir(configuracion, resultado, subcuencas, duracion_min,
-                   intervalo_min, arf, factor_cc, hipotesis, logger)
+                   intervalo_min, arf, factor_cc, hipotesis, logger, base)
 
     with registro.bloque(logger, "Figuras"):
         _escribir_figuras(configuracion, base, resultado, logger)
@@ -490,7 +551,8 @@ def _factor_cambio_climatico(base, resultado) -> tuple[float, dict[str, Any]]:
 
 
 def _construir(configuracion, resultado, subcuencas, duracion_min,
-               intervalo_min, arf, factor_cc, hipotesis, logger) -> None:
+               intervalo_min, arf, factor_cc, hipotesis, logger,
+               base=None) -> None:
     """Reparte la lámina de cada unidad de lluvia en el tiempo."""
     columnas = sorted(
         {c for fila in subcuencas for c in fila
@@ -503,14 +565,40 @@ def _construir(configuracion, resultado, subcuencas, duracion_min,
         ))
         return
 
-    if hipotesis != "h1_directa":
+    razones: dict[str, float] = {}
+    if hipotesis == "h2_idf":
+        fuente = str(configuracion.obtener(
+            "tormenta.fuente_idf_desagregacion", "invias")).strip().lower()
+        try:
+            razones = razones_de_desagregacion(
+                rutas.directorio("procesado_tormenta", base)
+                / "desagregacion.csv",
+                str(configuracion.obtener("insumos_usuario.delimitador_csv")),
+                fuente)
+        except (ErrorFormato, ErrorRutas) as error:
+            resultado.hallazgos.append(Hallazgo(
+                BLOQUEANTE, "hietograma.sin_razon_idf", str(error)))
+            return
+        resultado.factores["fuente_idf"] = fuente
+        resultado.factores["razones_p3h_sobre_p24"] = razones
+        media = sum(razones.values()) / len(razones)
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "hietograma.hipotesis_h2",
+            f"la lamina de diseno se desagrega con la curva IDF de {fuente!r}: "
+            f"la razon P3h/P24h va de {min(razones.values()):.3f} a "
+            f"{max(razones.values()):.3f}, media {media:.3f}. LA RAZON ES UNA "
+            "SOLA PARA TODA LA CUENCA, porque la IDF esta regionalizada y no se "
+            "resuelve por subcuenca; el reparto espacial lo sigue aportando el "
+            "M11 con su lamina de 24 h. El informe debe declarar esa mezcla.",
+        ))
+    elif hipotesis != "h1_directa":
         resultado.hallazgos.append(Hallazgo(
             ADVERTENCIA, "hietograma.hipotesis_no_soportada",
             f"la hipotesis adoptada es {hipotesis!r}, pero este modulo solo "
-            "sabe partir de la lamina de 24 h que el M11 promedio por "
-            "subcuenca ('h1_directa'). Para 'h2_idf' o 'h3_factor' hace falta "
-            "que el M12a publique la lamina desagregada POR SUBCUENCA, y hoy "
-            "solo la publica para el conjunto.",
+            "sabe partir de la lamina de 24 h que el M11 promedio por subcuenca "
+            "('h1_directa') o aplicarle la razon de la IDF ('h2_idf'). Para "
+            "'h3_factor' hace falta declarar el coeficiente en "
+            "tormenta.coeficiente_desagregacion.",
         ))
         return
 
@@ -540,7 +628,11 @@ def _construir(configuracion, resultado, subcuencas, duracion_min,
             except (KeyError, TypeError, ValueError):
                 sin_lamina += 1
                 continue
-            lamina = puntual * arf * factor_cc
+            # h1_directa deja la razon en 1: la lamina de 24 h cae entera en la
+            # duracion de diseno. h2_idf la reduce con la razon que la curva IDF
+            # da para ESE periodo de retorno, que no es la misma para todos.
+            razon = razones.get(periodo, 1.0) if razones else 1.0
+            lamina = puntual * razon * arf * factor_cc
             try:
                 intervalos = repartir(lamina, duracion_min, intervalo_min,
                                       resultado.curva)

@@ -889,6 +889,10 @@ ESQUEMA: dict[str, Campo] = {
         "hipótesis adoptada por el consultor",
         permite_nulo=True, opciones=HIPOTESIS_DESAGREGACION,
     ),
+    "tormenta.fuente_idf_desagregacion": texto(
+        "curva IDF de la que sale la razón P(d)/P24h en h2_idf",
+        opciones=("invias", "silva"),
+    ),
     "tormenta.coeficiente_desagregacion.valor": numero(
         "coeficiente de desagregación de h3_factor",
         permite_nulo=True, minimo=0, maximo=1,
