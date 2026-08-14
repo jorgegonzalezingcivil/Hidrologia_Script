@@ -138,6 +138,46 @@ def separar_bloques(texto: str) -> list[tuple[str, str, str]]:
     return bloques
 
 
+def fijar_grupo(bloque: str, clave_metodo: str, valor_metodo: str,
+                parametros: Sequence[tuple[str, str]]) -> str:
+    """
+    Reescribe el grupo de un metodo: su linea y los parametros que lo siguen.
+
+    EL SITIO IMPORTA TANTO COMO EL NOMBRE. HEC-HMS lee el .basin por grupos
+    separados por lineas en blanco, y cada parametro pertenece al metodo que lo
+    encabeza. La primera version anadia 'Curve Number' y 'Lag' antes del 'End:',
+    es decir dentro del grupo del flujo base, y HEC-HMS los rechazo uno a uno:
+
+        WARNING 12050: Unrecognized parameter in basin model
+        Line contents are "lag: 28.14"
+
+    El proyecto abria y los ignoraba en silencio, que es peor que no abrir.
+
+    El grupo va desde la linea del metodo hasta la siguiente linea en blanco.
+    Se sustituye entero, de modo que los parametros del metodo anterior
+    desaparecen sin tener que enumerarlos.
+    """
+    lineas = bloque.splitlines(keepends=True)
+    salida: list[str] = []
+    indice = 0
+    reemplazado = False
+    while indice < len(lineas):
+        linea = lineas[indice]
+        if not reemplazado and re.match(rf"^\s*{re.escape(clave_metodo)}: ", linea):
+            sangria = re.match(r"^(\s*)", linea).group(1)
+            salida.append(f"{sangria}{clave_metodo}: {valor_metodo}\n")
+            for nombre, valor in parametros:
+                salida.append(f"{sangria}{nombre}: {valor}\n")
+            indice += 1
+            while indice < len(lineas) and lineas[indice].strip():
+                indice += 1
+            reemplazado = True
+            continue
+        salida.append(linea)
+        indice += 1
+    return "".join(salida)
+
+
 def fijar_campo(bloque: str, clave: str, valor: str) -> str:
     """
     Sustituye el valor de un campo, o lo añade antes del 'End:' si no está.
@@ -296,13 +336,16 @@ def actualizar_subcuenca(bloque: str, parametros: dict) -> tuple[str, str]:
     if faltan:
         return bloque, f"sin {', '.join(faltan)}"
 
-    bloque = fijar_campo(bloque, "LossRate", "SCS")
-    bloque = fijar_campo(bloque, "Curve Number", f"{parametros['cn']:.1f}")
-    bloque = fijar_campo(bloque, "Transform", "SCS")
-    bloque = fijar_campo(bloque, "Lag", f"{parametros['tlag_min']:.2f}")
-    # Campos del metodo anterior que ya no aplican.
-    bloque = quitar_campos(bloque, ("Clark Method", "Time Area Method",
-                                    "Initial Loss", "Constant Loss Rate"))
+    bloque = fijar_grupo(bloque, "LossRate", "SCS", (
+        ("Percent Impervious Area", "0.0"),
+        ("Curve Number", f"{parametros['cn']:.1f}"),
+    ))
+    # 'Unitgraph Type: STANDARD' acompana siempre al hidrograma unitario del
+    # SCS en los modelos de ejemplo de HEC-HMS 4.13.
+    bloque = fijar_grupo(bloque, "Transform", "SCS", (
+        ("Lag", f"{parametros['tlag_min']:.2f}"),
+        ("Unitgraph Type", "STANDARD"),
+    ))
     return bloque, ""
 
 
@@ -314,14 +357,18 @@ def actualizar_tramo(bloque: str, geometria: dict, n_manning: float,
     if geometria["pendiente"] <= 0:
         return bloque, "pendiente nula"
 
-    bloque = fijar_campo(bloque, "Route", "Muskingum Cunge")
-    bloque = fijar_campo(bloque, "Channel", "Trapezoid")
-    bloque = fijar_campo(bloque, "Length", f"{geometria['longitud_m']:.2f}")
-    bloque = fijar_campo(bloque, "Energy Slope", f"{geometria['pendiente']:.6f}")
-    bloque = fijar_campo(bloque, "Bottom Width", f"{ancho_fondo:.2f}")
-    bloque = fijar_campo(bloque, "Side Slope", f"{talud:.2f}")
-    bloque = fijar_campo(bloque, "Manning n", f"{n_manning:.3f}")
-    bloque = quitar_campos(bloque, ("Lag",))
+    bloque = fijar_grupo(bloque, "Route", "Muskingum Cunge", (
+        ("Initial Variable", "Combined Inflow"),
+        ("Channel Loss", "None"),
+        ("Length", f"{geometria['longitud_m']:.2f}"),
+        ("Energy Slope", f"{geometria['pendiente']:.6f}"),
+        ("Shape", "Trapezoid"),
+        ("Width", f"{ancho_fondo:.2f}"),
+        ("Side Slope", f"{talud:.2f}"),
+        ("Manning n", f"{n_manning:.3f}"),
+        ("Index Method", "Discharge"),
+        ("Space Time Method", "Auto DX Auto DT"),
+    ))
     return bloque, ""
 
 
@@ -365,30 +412,51 @@ def escribir_gage(destino: Path, hietogramas, intervalo_min: float,
 
 
 def escribir_met(destino: Path, nombre: str, periodo: str, asignacion,
-                 pluviometro_de_zona) -> None:
+                 pluviometro_de_zona, modelo_cuenca: str) -> None:
     """
     Modelo meteorológico de un periodo de retorno.
+
+    LA ESTRUCTURA SALE DE LOS EJEMPLOS DE HEC-HMS 4.13, no de suponerla. Un .met
+    necesita tres cosas que la primera versión no escribía y sin las cuales el
+    programa no lo muestra: declarar a qué modelo de cuenca se aplica
+    ('Use Basin Model'), listar los pluviómetros que usa, y enumerar todos los
+    métodos meteorológicos aunque sean 'None'.
 
     Cada subcuenca queda enganchada al pluviómetro de SU ZONA. Es lo que hace
     que cinco series basten para ciento veinticinco subcuencas.
     """
+    usados = sorted({pluviometro_de_zona(f["pluviometro"], periodo)
+                     for f in asignacion})
     lineas = [
         f"Meteorology: {nombre}",
-        "     Description: tormenta de diseno, periodo de retorno "
-        f"{periodo} anios",
+        f"     Description: tormenta de diseno, periodo de retorno {periodo} anios",
+        "     Version: 4.13",
         "     Unit System: Metric",
+        "     Set Missing Data to Default: Yes",
         "     Precipitation Method: Specified Hyetograph",
         "     Air Temperature Method: None",
-        "     Evapotranspiration Method: None",
+        "     Atmospheric Pressure Method: None",
+        "     Dew Point Method: None",
+        "     Wind Speed Method: None",
+        "     Shortwave Radiation Method: None",
+        "     Longwave Radiation Method: None",
         "     Snowmelt Method: None",
+        "     Evapotranspiration Method: No Evapotranspiration",
+        f"     Use Basin Model: {modelo_cuenca}",
+        "End:",
+        "",
+    ]
+    for gage in usados:
+        lineas += [f"Gage: {gage}", "     Type: Recording", "End:", ""]
+    lineas += [
+        "Precip Method Parameters: Specified Hyetograph",
         "End:",
         "",
     ]
     for fila in asignacion:
-        gage = pluviometro_de_zona(fila["pluviometro"], periodo)
         lineas += [
             f"Subbasin: {fila['subcuenca']}",
-            f"     Gage: {gage}",
+            f"     Gage: {pluviometro_de_zona(fila['pluviometro'], periodo)}",
             "End:",
             "",
         ]
@@ -602,12 +670,16 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
     duracion_h = float(configuracion.obtener("tormenta.duracion_h"))
     inicio = _dt.datetime(2000, 1, 1, 0, 0)
 
-    gage = proyecto / "hietogramas.gage"
+    # El archivo de pluviometros se llama COMO EL PROYECTO: es asi como HEC-HMS
+    # lo encuentra, sin declararlo en el .hms.
+    gage = proyecto / f"{Path(str(configuracion.obtener('hec_hms.proyecto.archivo'))).stem}.gage"
     resumen = escribir_gage(gage, hietogramas, intervalo, inicio)
     resultado.productos.append(str(gage))
 
     periodos = sorted({str(h["periodo_retorno"]) for h in hietogramas},
                       key=float)
+    modelo_cuenca = _nombre_del_modelo(
+        proyecto / str(configuracion.obtener("hec_hms.proyecto.modelo_cuenca")))
 
     def pluviometro_de_zona(pluviometro: str, periodo: str) -> str:
         return f"{pluviometro}_T{periodo.replace('.', '_')}"
@@ -615,7 +687,8 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
     for periodo in periodos:
         nombre = f"T{periodo.replace('.', '_')}"
         destino = proyecto / f"{nombre}.met"
-        escribir_met(destino, nombre, periodo, asignacion, pluviometro_de_zona)
+        escribir_met(destino, nombre, periodo, asignacion, pluviometro_de_zona,
+                     modelo_cuenca)
         resultado.productos.append(str(destino))
         resultado.escenarios.append(nombre)
 
@@ -625,6 +698,19 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
     control = proyecto / "Tormenta_diseno.control"
     escribir_control(control, "Tormenta_diseno", inicio, fin, intervalo)
     resultado.productos.append(str(control))
+
+    ruta_hms = proyecto / str(configuracion.obtener("hec_hms.proyecto.archivo"))
+    if ruta_hms.is_file():
+        registrar_componentes(ruta_hms,
+                              [f"T{p.replace('.', '_')}" for p in periodos],
+                              "Tormenta_diseno")
+        resultado.productos.append(str(ruta_hms))
+    else:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "proyecto.sin_hms",
+            f"no se encuentra {ruta_hms.name}: los componentes quedan escritos "
+            "pero sin declarar en el proyecto, y HEC-HMS no los vera.",
+        ))
 
     resultado.meteorologia = {
         "pluviometros": resumen["pluviometros"],
@@ -653,6 +739,53 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
         "Es un paso de interfaz que el M14 ejecutara, o que el consultor hace "
         "en tres clics por escenario.",
     ))
+
+
+def registrar_componentes(
+    ruta_hms: Path, meteorologias: Sequence[str], control: str,
+) -> None:
+    """
+    Declara los componentes nuevos en el archivo de proyecto.
+
+    SIN ESTO EL PROYECTO NO LOS VE. HEC-HMS no descubre los archivos de un
+    directorio: el .hms es su índice.
+
+    EL MODELO METEOROLÓGICO SE DECLARA COMO 'Precipitation', no como
+    'Meteorology', que es la etiqueta que usa el .met por dentro. Los
+    pluviómetros NO se declaran aquí: HEC-HMS toma el archivo .gage que se llama
+    como el proyecto. Las dos cosas salen de los proyectos de ejemplo de la
+    propia instalación, no de suponerlas.
+    """
+    texto = ruta_hms.read_text(encoding="utf-8", errors="replace")
+    texto = re.sub(
+        r"^(?:Precipitation Gage|Precipitation|Meteorology|Control): .*?^End:\s*\n",
+        "", texto, flags=re.S | re.M)
+
+    partes = [texto.rstrip("\n"), ""]
+    for nombre in meteorologias:
+        partes += [f"Precipitation: {nombre}",
+                   f"     Filename: {nombre}.met",
+                   "     Description: tormenta de diseno", "End:", ""]
+    partes += [f"Control: {control}",
+               f"     FileName: {control}.control", "End:", ""]
+    ruta_hms.write_text("\n".join(partes), encoding="utf-8")
+
+
+def _nombre_del_modelo(ruta_basin: Path) -> str:
+    """
+    Nombre interno del modelo de cuenca, que no tiene por que ser el del archivo.
+
+    El .met lo referencia por su nombre ('Basin 1') y no por su archivo
+    ('Basin_1.basin'): tomarlo del archivo dejaria la referencia rota.
+    """
+    if not ruta_basin.is_file():
+        return ruta_basin.stem
+    for linea in ruta_basin.read_text(
+            encoding="utf-8", errors="replace").splitlines():
+        encabezado = re.match(r"^Basin: (.+)$", linea)
+        if encabezado:
+            return encabezado.group(1).strip()
+    return ruta_basin.stem
 
 
 def _registrar_productos(base, resultado) -> None:
