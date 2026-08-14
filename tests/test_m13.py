@@ -8,6 +8,7 @@ Pruebas del M13: actualización del proyecto de HEC-HMS.
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -166,6 +167,51 @@ class PruebaActualizacion(unittest.TestCase):
         original = self._tramo()
         salida, motivo = m13.actualizar_tramo(original, {}, 0.04, 3.0, 2.0)
         self.assertEqual(salida, original)
+
+
+class PruebaMeteorologia(unittest.TestCase):
+    """
+    El vocabulario del .met está leído de uno que HEC-HMS reescribió al guardar,
+    y su log lo confirma: 'Found no parameter problems in meteorologic model'.
+    """
+
+    ASIGNACION = [
+        {"subcuenca": "SB1", "pluviometro": "Z1"},
+        {"subcuenca": "SB2", "pluviometro": "Z2"},
+        {"subcuenca": "SB3", "pluviometro": "Z1"},
+    ]
+
+    def _escribir(self) -> str:
+        destino = Path(tempfile.mkdtemp()) / "T10.met"
+        m13.escribir_met(destino, "T10", "10", self.ASIGNACION,
+                         lambda zona, periodo: f"{zona}_T{periodo}", "Basin 1")
+        return destino.read_text(encoding="utf-8")
+
+    def test_el_metodo_es_el_nombre_del_archivo_no_el_de_la_interfaz(self) -> None:
+        texto = self._escribir()
+        self.assertIn("     Precipitation Method: Specified Average\n", texto)
+        self.assertNotIn("Specified Hyetograph", texto)
+
+    def test_cada_subcuenca_lleva_su_pluviometro_dentro_del_bloque(self) -> None:
+        # Es la línea que engancha la serie. Sin ella HEC-HMS abre el modelo
+        # meteorológico vacío y la simulación aborta sin lluvia.
+        texto = self._escribir()
+        self.assertIn("Subbasin: SB1\n     Gage: Z1_T10\nEnd:\n", texto)
+        self.assertIn("Subbasin: SB2\n     Gage: Z2_T10\nEnd:\n", texto)
+        self.assertEqual(texto.count("\n     Gage: "), len(self.ASIGNACION))
+
+    def test_no_se_listan_los_pluviometros_aparte(self) -> None:
+        # Una versión previa los declaraba al principio del .met; HEC-HMS los
+        # borró al guardar. Viven en el .gage.
+        texto = self._escribir()
+        self.assertNotIn("\nGage:", texto)
+        self.assertNotIn("Type: Recording", texto)
+
+    def test_declara_el_modelo_de_cuenca_y_todos_los_metodos(self) -> None:
+        texto = self._escribir()
+        self.assertIn("     Use Basin Model: Basin 1\n", texto)
+        for metodo in ("Air Temperature", "Snowmelt", "Wind Speed"):
+            self.assertIn(f"     {metodo} Method: None\n", texto)
 
 
 class PruebaConfiguracion(unittest.TestCase):

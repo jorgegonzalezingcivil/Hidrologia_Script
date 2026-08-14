@@ -1256,6 +1256,7 @@ def tiempos_de_subcuenca(
     criterio_rezago: str,
     intervalo_min: float,
     formula_adoptada: str = "",
+    respaldo_fuera_de_rango: bool = False,
 ) -> dict[str, Any]:
     """
     Tiempo de concentración y de rezago de UNA subcuenca.
@@ -1315,6 +1316,22 @@ def tiempos_de_subcuenca(
                                   and elegida.get("motivo") else "")))
 
     tc_horas = resumen.get("tc_horas")
+
+    # RESPALDO PARA LAS QUE QUEDAN FUERA DE RANGO. Sin valor, esas subcuencas no
+    # entran en HEC-HMS y el modelo se detiene: el consultor decidio incluirlas
+    # con un parametro de referencia antes que dejarlas fuera. Se usa la MISMA
+    # formula declarada, aplicada fuera de su rango de calibracion, y se marca
+    # como tal para que el informe no la presente como equivalente a las demas.
+    # Extrapolar una formula empirica y decirlo es defendible; hacerlo callando
+    # no lo es.
+    fuera_de_rango = False
+    if tc_horas is None and formula_adoptada and respaldo_fuera_de_rango:
+        elegida = next((e for e in evaluadas
+                        if e["formula"] == formula_adoptada), None)
+        if elegida is not None and elegida.get("tc_horas") is not None:
+            tc_horas = elegida["tc_horas"]
+            fuera_de_rango = True
+
     rezago = tiempo_de_rezago(tc_horas, criterio_rezago, intervalo_min)
     tlag_min = rezago.get("tlag_minutos")
 
@@ -1335,8 +1352,10 @@ def tiempos_de_subcuenca(
         "cv": resumen.get("estadisticos", {}).get("cv"),
         "tc_horas": tc_horas,
         "tc_minutos": round(tc_horas * 60.0, 2) if tc_horas else None,
-        "procede_adoptar": resumen["procede_adoptar"],
-        "criterio_tc": resumen.get("criterio"),
+        "procede_adoptar": resumen["procede_adoptar"] or fuera_de_rango,
+        "tc_fuera_de_rango": fuera_de_rango,
+        "criterio_tc": ("formula fuera de su rango de calibracion"
+                        if fuera_de_rango else resumen.get("criterio")),
         "motivo_sin_tc": motivo,
         "tlag_horas": rezago.get("tlag_horas"),
         "tlag_minutos": tlag_min,
@@ -1897,11 +1916,14 @@ def _resolver_subcuencas(configuracion, base, ruta_cuenca, ruta_dem, matriz,
         "tiempo_concentracion.cv_maximo_admisible"))
     formula_adoptada = str(configuracion.obtener(
         "tiempo_concentracion.formula_adoptada", "") or "").strip()
+    respaldo = str(configuracion.obtener(
+        "tiempo_concentracion.fuera_de_rango",
+        "omitir")).strip().lower() == "calcular_y_declarar"
 
     for subcuenca in subcuencas:
         tiempos = tiempos_de_subcuenca(
             subcuenca, matriz, minimo, cv_maximo, criterio_rezago, intervalo,
-            formula_adoptada)
+            formula_adoptada, respaldo)
         subcuenca.update({c: v for c, v in tiempos.items() if c != "evaluadas"})
     resultado.subcuencas = subcuencas
 
@@ -1936,6 +1958,18 @@ def _resolver_subcuencas(configuracion, base, ruta_cuenca, ruta_dem, matriz,
             + f". Ejemplos: {[s['subcuenca'] for s in sin_tc[:5]]}. Sin Tc no "
             "hay rezago, y sin rezago esa subcuenca no se puede transformar en "
             "HEC-HMS: la decision es del consultor y debe quedar escrita.",
+        ))
+
+    extrapoladas = [s for s in subcuencas if s.get("tc_fuera_de_rango")]
+    if extrapoladas:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "subcuencas.tc_fuera_de_rango",
+            f"{len(extrapoladas)} subcuenca(s) reciben tiempo de concentracion "
+            f"con la formula {formula_adoptada!r} aplicada FUERA de su rango de "
+            f"calibracion: {[(s['subcuenca'], s['motivo_sin_tc']) for s in extrapoladas]}. "
+            "Es una decision del consultor, para que entren en el modelo en "
+            "lugar de quedarse fuera. El informe debe presentarlas como "
+            "extrapoladas y no como equivalentes a las demas.",
         ))
 
     cortas = [s for s in subcuencas if s.get("tlag_bajo_el_intervalo")]

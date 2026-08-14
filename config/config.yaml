@@ -1068,6 +1068,13 @@ tiempo_concentracion:
   # valores entre 0,55 y 6,30 h en una misma unidad: promediar eso no da un
   # valor central sino uno arbitrario.
   formula_adoptada: "scs_lag"
+  # QUE HACER CON LAS QUE QUEDAN FUERA DEL RANGO DE CALIBRACION. Sin valor no
+  # entran en HEC-HMS y el modelo se detiene.
+  #   omitir                 se quedan sin Tc y el consultor decide
+  #   calcular_y_declarar    se aplica la misma formula fuera de su rango y se
+  #                          marca como extrapolada, para que el informe no la
+  #                          presente como equivalente a las demas
+  fuera_de_rango: "calcular_y_declarar"
   cv_maximo_admisible: 0.60      # por encima: advertir
   reportar_sensibilidad_caudal: true
 

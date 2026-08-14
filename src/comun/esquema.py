@@ -1019,6 +1019,10 @@ ESQUEMA: dict[str, Campo] = {
         "fórmula única adoptada por subcuenca; vacío usa la mediana",
         requerido=False,
     ),
+    "tiempo_concentracion.fuera_de_rango": texto(
+        "qué hacer con las unidades fuera del rango de calibración",
+        opciones=("omitir", "calcular_y_declarar"),
+    ),
     "tiempo_concentracion.cv_maximo_admisible": numero(
         "coeficiente de variación máximo admisible", minimo=0, maximo=5,
     ),

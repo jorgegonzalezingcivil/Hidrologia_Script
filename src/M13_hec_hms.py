@@ -459,17 +459,24 @@ def escribir_met(destino: Path, nombre: str, periodo: str, asignacion,
     """
     Modelo meteorológico de un periodo de retorno.
 
-    LA ESTRUCTURA SALE DE LOS EJEMPLOS DE HEC-HMS 4.13, no de suponerla. Un .met
-    necesita tres cosas que la primera versión no escribía y sin las cuales el
-    programa no lo muestra: declarar a qué modelo de cuenca se aplica
-    ('Use Basin Model'), listar los pluviómetros que usa, y enumerar todos los
-    métodos meteorológicos aunque sean 'None'.
+    LA ESTRUCTURA ESTÁ LEÍDA DE UN .met QUE EL PROPIO HEC-HMS REESCRIBIÓ, que es
+    la única autoridad sobre un formato sin especificación publicada. De ahí
+    salen las dos cosas que la primera versión no acertaba: el método se llama
+    'Specified Average' (no 'Specified Hyetograph', que es la etiqueta de la
+    interfaz), y el pluviómetro se engancha con un 'Gage:' DENTRO del bloque de
+    cada subcuenca.
+
+    NO SE LISTAN LOS PLUVIÓMETROS APARTE. Una versión previa abría el archivo con
+    un bloque por pluviómetro usado; HEC-HMS los borró al guardar. Se declaran en
+    el .gage y el .met solo los referencia por nombre.
+
+    Hay que enumerar todos los métodos meteorológicos aunque sean 'None' y
+    declarar a qué modelo de cuenca se aplica ('Use Basin Model'): sin eso el
+    programa no muestra el modelo meteorológico.
 
     Cada subcuenca queda enganchada al pluviómetro de SU ZONA. Es lo que hace
     que cinco series basten para ciento veinticinco subcuencas.
     """
-    usados = sorted({pluviometro_de_zona(f["pluviometro"], periodo)
-                     for f in asignacion})
     lineas = [
         f"Meteorology: {nombre}",
         f"     Description: tormenta de diseno, periodo de retorno {periodo} anios",
@@ -489,8 +496,6 @@ def escribir_met(destino: Path, nombre: str, periodo: str, asignacion,
         "End:",
         "",
     ]
-    for gage in usados:
-        lineas += [f"Gage: {gage}", "     Type: Recording", "End:", ""]
     lineas += [
         "Precip Method Parameters: Specified Average",
         "     Allow Depth Override: No",
@@ -829,8 +834,9 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
         f"ordenada(s) en total, y {len(periodos)} modelo(s) meteorologico(s), "
         "uno por periodo de retorno. Cada subcuenca queda enganchada al "
         "pluviometro de SU ZONA, que es lo que hace que cinco series basten "
-        f"para {len(asignacion)} subcuencas. Las series van dentro del .gage y "
-        "no en el DSS, de modo que el proyecto es autocontenido.",
+        f"para {len(asignacion)} subcuencas. Las ordenadas van al DSS del "
+        f"proyecto ({resumen['dss']}) y el .gage guarda solo su ruta interna, "
+        "que es como HEC-HMS almacena una serie introducida a mano.",
     ))
     resultado.hallazgos.append(Hallazgo(
         INFORMATIVO, "escenarios.creados",
