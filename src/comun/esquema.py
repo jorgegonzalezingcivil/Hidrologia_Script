@@ -1085,6 +1085,27 @@ ESQUEMA: dict[str, Campo] = {
         "intervalo de cálculo de las especificaciones de control",
         minimo=1, maximo=1440,
     ),
+    # --- M14: cómputo de los escenarios y resultados -------------------------
+    "hec_hms.simulacion.ejecutar": booleano(
+        "lanzar HEC-HMS sin interfaz para computar los escenarios"),
+    "hec_hms.simulacion.tiempo_limite_s": numero(
+        "tiempo límite de la sesión de HEC-HMS, en segundos",
+        minimo=60, maximo=86400,
+    ),
+    "hec_hms.resultados.salida": texto(
+        "directorio de las tablas de resultados", no_vacio=True),
+    "hec_hms.resultados.punto_de_proyecto": texto(
+        "elemento de cierre; vacío usa el sumidero del modelo", requerido=False),
+    # Vacía es lo normal: el cierre siempre lleva figura y los demás puntos son
+    # una elección del consultor sobre su propio modelo.
+    "hec_hms.resultados.puntos_de_interes": lista(
+        "elementos que además del cierre reciben figura de hidrograma",
+        requerido=False, no_vacio=False,
+    ),
+    "hec_hms.resultados.tolerancia_balance_pct": numero(
+        "desviación admisible entre la lámina de exceso y el volumen del "
+        "hidrograma directo", minimo=0.0, maximo=50.0,
+    ),
     # --- M09: intercambio con HEC-HMS ----------------------------------------
     "hec_hms.proyecto.directorio": texto(
         "ruta absoluta del proyecto de HEC-HMS ya construido", requerido=False),

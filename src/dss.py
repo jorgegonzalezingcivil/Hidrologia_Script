@@ -33,19 +33,47 @@ abreviada, que es la que el programa escribe en sus propios archivos.
 from __future__ import annotations
 
 import datetime as _dt
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
 __all__ = [
     "INTERVALOS",
+    "Serie",
     "ruta_dss",
     "escribir_serie_precipitacion",
+    "leer_series",
     "ErrorDss",
 ]
 
 
 class ErrorDss(RuntimeError):
     """Falla al escribir o leer un DSS, que el módulo debe reportar."""
+
+
+@dataclass
+class Serie:
+    """
+    Una serie de tiempo leída del DSS, ya despegada de la librería.
+
+    Existe para que los módulos de análisis no manejen objetos de 'hecdss': lo
+    que reciben son listas de Python y dos cadenas. Un cambio en la interfaz de
+    la librería se absorbe aquí y no se propaga a quien calcula.
+    """
+
+    elemento: str
+    parametro: str
+    unidades: str = ""
+    tipo_dato: str = ""
+    instantes: list[_dt.datetime] = field(default_factory=list)
+    valores: list[float] = field(default_factory=list)
+
+    @property
+    def intervalo_min(self) -> float:
+        """Paso de tiempo en minutos, medido sobre las dos primeras marcas."""
+        if len(self.instantes) < 2:
+            return 0.0
+        return (self.instantes[1] - self.instantes[0]).total_seconds() / 60.0
 
 
 # Nombres que HEC da a los intervalos regulares en la parte E del pathname. No
@@ -151,3 +179,85 @@ def escribir_serie_precipitacion(
         "intervalo_min": intervalo_min,
         "unidades": unidades,
     }
+
+
+def leer_series(
+    origen: Path, parametros: Sequence[str] = (), elementos: Sequence[str] = (),
+) -> list[Serie]:
+    """
+    Lee del DSS las series de los parámetros pedidos, ya convertidas a 'Serie'.
+
+    EL ARCHIVO SE ABRE UNA SOLA VEZ. Un DSS de resultados de HEC-HMS trae más de
+    dos mil series para un modelo de ciento veinticinco subcuencas; abrirlo y
+    cerrarlo por cada una multiplica el tiempo de lectura por el número de
+    series y no aporta nada.
+
+    EL PATHNAME NO SE CONSTRUYE, SE BUSCA EN EL CATÁLOGO. La parte D lleva el
+    bloque de fechas que el DSS decide al guardar, y una misma corrida produce
+    '01Jan2000' para unas series y '31Dec1999-01Jan2000' para otras según dónde
+    caiga el primer instante. Armar el pathname a mano acierta con unas y falla
+    con otras, y una serie que no se encuentra no da error: falta y ya.
+
+    Parámetros
+    ----------
+    parametros
+        Partes C que interesan (FLOW, PRECIP-EXCESS...). Vacío: todas.
+    elementos
+        Partes B que interesan. Vacío: todos.
+
+    Excepciones
+    -----------
+    ErrorDss
+        Si el archivo no está, si falta la librería o si la lectura falla.
+    """
+    origen = Path(origen)
+    if not origen.is_file():
+        raise ErrorDss(f"no se encuentra el archivo DSS {origen}.")
+
+    try:
+        from hecdss import HecDss
+    except ImportError as error:  # pragma: no cover - depende del entorno
+        raise ErrorDss(
+            "no está instalado 'hecdss', que es lo que lee el formato DSS. "
+            "Instalarlo en el venv del proyecto.") from error
+
+    quiere_parametro = {p.upper() for p in parametros}
+    quiere_elemento = set(elementos)
+    series: list[Serie] = []
+    try:
+        with HecDss(str(origen)) as archivo:
+            for pathname in [str(p) for p in archivo.get_catalog()]:
+                partes = pathname.split("/")
+                if len(partes) < 7:
+                    continue
+                elemento, parametro = partes[2], partes[3]
+                if quiere_parametro and parametro.upper() not in quiere_parametro:
+                    continue
+                if quiere_elemento and elemento not in quiere_elemento:
+                    continue
+                leida = archivo.get(pathname)
+                # 'values' llega como arreglo de numpy: comprobar su longitud y
+                # no su verdad, que en un arreglo de varios elementos es un
+                # error y no un booleano.
+                if leida is None or len(getattr(leida, "values", ())) == 0:
+                    continue
+                series.append(Serie(
+                    elemento=elemento,
+                    parametro=parametro.upper(),
+                    unidades=str(getattr(leida, "units", "") or ""),
+                    tipo_dato=str(getattr(leida, "data_type", "") or ""),
+                    instantes=list(leida.times),
+                    valores=[float(v) for v in leida.values],
+                ))
+    except ErrorDss:
+        raise
+    except Exception as error:  # noqa: BLE001 - la librería no tipa sus fallos
+        raise ErrorDss(
+            f"no se pudo leer {origen.name}: {error}") from error
+
+    if not series:
+        raise ErrorDss(
+            f"{origen.name} no trae ninguna serie de {sorted(quiere_parametro) or 'ningún parámetro'}"
+            f"{' para ' + str(sorted(quiere_elemento)) if quiere_elemento else ''}. "
+            "Un DSS de resultados vacío suele significar que la corrida abortó.")
+    return series

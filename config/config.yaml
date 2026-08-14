@@ -1156,6 +1156,30 @@ hec_hms:
   control:
     intervalo_min: 5             # debe coincidir con tormenta.intervalo_calculo_min
 
+  # --- M14: computo de los escenarios ----------------------------------------
+  # HEC-HMS se ejecuta SIN INTERFAZ, con su API de guion en Jython. El lanzador
+  # sale de software.hec_hms.ruta. Las ocho corridas van en una sola sesion:
+  # arrancar la maquina virtual y cargar un modelo de 125 subcuencas cuesta unos
+  # dos minutos y medio, y computar una corrida, quince segundos.
+  simulacion:
+    ejecutar: true               # false: leer los DSS que ya existan
+    tiempo_limite_s: 3600
+
+  resultados:
+    salida: "data/02_procesado/hidrologia"
+    # Elemento de cierre. Vacio: el sumidero del modelo, si hay uno solo. Con
+    # varios hay que declararlo, porque elegir el primero daria la tabla de
+    # caudales de otro sitio.
+    punto_de_proyecto: ""
+    # Elementos que ademas del cierre reciben figura de hidrograma. El informe
+    # de referencia ilustra la creciente de una subcuenca, una confluencia y un
+    # tramo transitado. Los nombres se comprueban contra el .basin.
+    puntos_de_interes: []
+    # La lamina de exceso y el volumen del hidrograma directo son la misma agua
+    # contada de dos maneras. Por encima de este porcentaje se advierte: apunta
+    # al area declarada en HEC-HMS, al numero de curva o a la transformacion.
+    tolerancia_balance_pct: 1.0
+
   # --- M09: intercambio con el paso manual -----------------------------------
   # CLAUDE.md, seccion 4: la delimitacion asistida de HEC-HMS es el UNICO paso
   # con intervencion manual obligatoria. El M09 esta a caballo de el: prepara lo

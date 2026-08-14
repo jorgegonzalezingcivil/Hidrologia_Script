@@ -1,0 +1,949 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+M14 - Ejecución de simulaciones y extracción de resultados
+==========================================================
+Entorno: venv del proyecto.
+
+CIERRA EL MODELO LLUVIA-ESCORRENTÍA. El M13 dejó el proyecto actualizado y los
+ocho escenarios escritos; aquí se computan sin abrir el programa y se extrae de
+sus resultados lo que el informe necesita: el caudal pico por elemento y periodo
+de retorno, y el hidrograma de creciente en el sitio de proyecto.
+
+SE EJECUTA SIN INTERFAZ. HEC-HMS admite un guion en Jython y esa es la única
+forma de que la cadena compute sin intervención manual (CLAUDE.md, sección 4).
+Todo lo que toca el ejecutable está en el adaptador 'hms.py'; todo lo que toca el
+formato DSS, en 'dss.py'.
+
+EL CÓDIGO DE SALIDA DEL PROCESO NO ES PRUEBA DE NADA. Medido sobre la 4.13: una
+invocación que no llegó a computar terminó en cero. Y el DSS de una corrida que
+aborta CONSERVA LOS RESULTADOS DE LA ANTERIOR, de modo que leerlo sin comprobar
+el log entrega caudales de un modelo que ya no existe, con formato correcto y sin
+ninguna señal. Por eso cada corrida se valida contra su log antes de leer su DSS,
+y una corrida abortada es bloqueante.
+
+EL PICO EN EL BORDE DE LA VENTANA NO ES UN PICO. Si el máximo cae en la primera o
+en la última ordenada, la ventana de control no contiene la creciente: el valor
+que se leería es el mayor de los calculados, no el mayor de los que ocurren. Se
+detecta y se advierte, porque un hidrograma truncado produce una tabla de
+caudales verosímil y baja.
+
+EL BALANCE DE CADA SUBCUENCA SE VERIFICA. La lámina de exceso que HEC-HMS reporta
+y el volumen del hidrograma directo son la misma agua contada de dos maneras: si
+no coinciden, algo entre el número de curva, el área y la transformación no es lo
+que se cree. Es la comprobación que permite defender el CN ante interventoría.
+
+Productos:
+    data/02_procesado/hidrologia/resultados_por_elemento.csv
+    data/02_procesado/hidrologia/qmax_por_periodo.csv
+    data/02_procesado/hidrologia/balance_subcuencas.csv
+    data/02_procesado/hidrologia/hidrogramas.csv
+    data/05_resultados/graficos/M14_qmax_vs_periodo.png y .svg
+    data/05_resultados/graficos/M14_hidrograma_*.png y .svg
+    data/02_procesado/M14_simulaciones.json
+
+Uso:
+    python src/M14_simulaciones.py
+    python src/M14_simulaciones.py --sin-computar   # lee los DSS que ya existen
+
+Códigos de salida:
+    0  correcto
+    1  hay hallazgos bloqueantes
+    3  no se pudo leer la configuración o los insumos
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import re
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Sequence
+
+_DIRECTORIO_SRC = Path(__file__).resolve().parent
+if str(_DIRECTORIO_SRC) not in sys.path:
+    sys.path.insert(0, str(_DIRECTORIO_SRC))
+
+from comun import esquema, registro, rutas  # noqa: E402
+from comun.config import Config, cargar  # noqa: E402
+from comun.errores import (  # noqa: E402
+    ErrorConfiguracion,
+    ErrorFormato,
+    ErrorHidrologia,
+    ErrorRutas,
+)
+from comun.esquema import ADVERTENCIA, BLOQUEANTE, INFORMATIVO, Hallazgo  # noqa: E402
+
+MODULO = "M14"
+DESCRIPCION = "Ejecución de simulaciones y extracción de resultados"
+
+SALIDA_CORRECTA = 0
+SALIDA_BLOQUEANTE = 1
+SALIDA_ERROR = 3
+
+# Partes C del pathname que se extraen. El DSS de resultados trae dieciséis por
+# elemento; estas son las que sostienen la tabla de caudales y el balance.
+CAUDAL = "FLOW"
+DIRECTO = "FLOW-DIRECT"
+EXCESO = "PRECIP-EXCESS"
+PERDIDA = "PRECIP-LOSS"
+PARAMETROS = (CAUDAL, DIRECTO, EXCESO, PERDIDA)
+
+
+@dataclass
+class ResultadoM14:
+    proyecto: str = ""
+    corridas: list[dict[str, Any]] = field(default_factory=list)
+    elementos: dict[str, str] = field(default_factory=dict)
+    punto_de_proyecto: str = ""
+    resultados: list[dict[str, Any]] = field(default_factory=list)
+    balance: list[dict[str, Any]] = field(default_factory=list)
+    hidrogramas: list[dict[str, Any]] = field(default_factory=list)
+    productos: list[str] = field(default_factory=list)
+    hallazgos: list[Hallazgo] = field(default_factory=list)
+
+
+# =============================================================================
+# Funciones puras
+# =============================================================================
+def volumen_m3(instantes: Sequence[Any], valores: Sequence[float]) -> float:
+    """
+    Volumen bajo un hidrograma, por trapecios.
+
+    SE INTEGRA POR TRAPECIOS Y NO POR RECTÁNGULOS porque el caudal es un valor
+    INSTANTÁNEO (HEC-HMS lo marca 'INST-VAL' en el DSS), no una media del
+    intervalo. Multiplicar cada ordenada por el paso sobrestima el volumen en la
+    rama ascendente y lo subestima en la de recesión; sobre una creciente
+    puntiaguda la diferencia no se compensa.
+    """
+    if len(valores) < 2 or len(instantes) != len(valores):
+        return 0.0
+    total = 0.0
+    for (t0, t1), (v0, v1) in zip(zip(instantes, instantes[1:]),
+                                  zip(valores, valores[1:])):
+        segundos = (t1 - t0).total_seconds()
+        total += 0.5 * (float(v0) + float(v1)) * segundos
+    return total
+
+
+def lamina_mm(volumen: float, area_km2: float) -> float:
+    """Lámina equivalente en milímetros de un volumen sobre un área."""
+    if area_km2 <= 0:
+        return 0.0
+    return volumen / (area_km2 * 1.0e6) * 1000.0
+
+
+def resumir_hidrograma(instantes: Sequence[Any],
+                       valores: Sequence[float]) -> dict[str, Any]:
+    """
+    Caudal pico, instante en que ocurre y volumen de un hidrograma.
+
+    'pico_en_el_borde' avisa de que el máximo cae en la primera o en la última
+    ordenada. Eso no es un pico: es el mayor valor DENTRO de una ventana que no
+    contiene la creciente, y produce una tabla de caudales verosímil y baja.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si la serie está vacía o las marcas de tiempo no acompañan a los
+        valores. Devolver ceros sería un caudal de diseño inventado.
+    """
+    if not valores:
+        raise ErrorHidrologia("el hidrograma no trae ninguna ordenada.")
+    if len(instantes) != len(valores):
+        raise ErrorHidrologia(
+            f"el hidrograma trae {len(valores)} valor(es) y "
+            f"{len(instantes)} marca(s) de tiempo.")
+
+    indice = max(range(len(valores)), key=lambda i: valores[i])
+    minutos = ((instantes[indice] - instantes[0]).total_seconds() / 60.0
+               if len(instantes) > 1 else 0.0)
+    return {
+        "qmax_m3s": float(valores[indice]),
+        "instante_pico": instantes[indice].isoformat(timespec="minutes"),
+        "t_pico_min": round(minutos, 1),
+        "t_pico_h": round(minutos / 60.0, 3),
+        "volumen_Mm3": round(volumen_m3(instantes, valores) / 1.0e6, 6),
+        "ordenadas": len(valores),
+        "pico_en_el_borde": indice in (0, len(valores) - 1),
+    }
+
+
+def balance_de_subcuenca(
+    exceso_mm: Sequence[float],
+    perdida_mm: Sequence[float],
+    volumen_directo_m3: float,
+    area_km2: float,
+) -> dict[str, Any]:
+    """
+    Contrasta la lámina de exceso con el volumen del hidrograma directo.
+
+    SON LA MISMA AGUA CONTADA DE DOS MANERAS: lo que el método de pérdidas dejó
+    escurrir y lo que la transformación convirtió en hidrograma. Que no
+    coincidan señala una incoherencia entre el número de curva, el área que
+    HEC-HMS tiene declarada y el método de transformación, y es el tipo de fallo
+    que no da error en ninguna parte.
+
+    La desviación se expresa en porcentaje de la lámina de exceso. Con exceso
+    nulo no hay contra qué comparar y se devuelve None, que no es lo mismo que
+    cero.
+    """
+    exceso = sum(float(v) for v in exceso_mm)
+    perdida = sum(float(v) for v in perdida_mm)
+    precipitacion = exceso + perdida
+    verificada = lamina_mm(volumen_directo_m3, area_km2)
+    desviacion = (100.0 * (verificada - exceso) / exceso) if exceso > 0 else None
+    return {
+        "precipitacion_mm": round(precipitacion, 3),
+        "perdida_mm": round(perdida, 3),
+        "exceso_mm": round(exceso, 3),
+        "coef_escorrentia": (round(exceso / precipitacion, 4)
+                             if precipitacion > 0 else None),
+        "lamina_del_hidrograma_mm": round(verificada, 3),
+        "desviacion_pct": (round(desviacion, 3)
+                           if desviacion is not None else None),
+    }
+
+
+def periodos_no_monotonos(
+    caudales: dict[str, float], orden: Sequence[str],
+) -> list[tuple[str, str]]:
+    """
+    Pares de periodos consecutivos en que el caudal NO crece con el periodo.
+
+    Un caudal de diseño que baja al subir el periodo de retorno es imposible con
+    la misma cuenca y el mismo método: delata una lámina mal asignada, un
+    pluviómetro cruzado o una corrida leída de un modelo anterior. No da error en
+    ninguna parte y la tabla sale con aspecto normal.
+    """
+    fallos: list[tuple[str, str]] = []
+    disponibles = [p for p in orden if caudales.get(p) is not None]
+    for anterior, siguiente in zip(disponibles, disponibles[1:]):
+        if caudales[siguiente] < caudales[anterior]:
+            fallos.append((anterior, siguiente))
+    return fallos
+
+
+def elementos_del_modelo(texto_basin: str) -> dict[str, dict[str, Any]]:
+    """
+    Tipo y área de cada elemento, leídos del modelo de cuenca.
+
+    EL ÁREA SE TOMA DEL .basin Y NO DEL M10. Es la que HEC-HMS usó para calcular
+    el hidrograma; verificar el balance contra otra cifra, aunque fuera más
+    exacta, compararía dos cosas distintas y culparía al modelo de una
+    discrepancia que está en la comparación.
+    """
+    elementos: dict[str, dict[str, Any]] = {}
+    tipo = nombre = ""
+    for linea in texto_basin.splitlines():
+        encabezado = re.match(
+            r"^(Subbasin|Reach|Junction|Sink|Reservoir|Source|Diversion): (.+)$",
+            linea)
+        if encabezado:
+            tipo, nombre = encabezado.group(1), encabezado.group(2).strip()
+            elementos[nombre] = {"tipo": tipo, "area_km2": None}
+            continue
+        area = re.match(r"^\s+Area: ([0-9.eE+-]+)\s*$", linea)
+        if area and nombre and tipo == "Subbasin":
+            try:
+                elementos[nombre]["area_km2"] = float(area.group(1))
+            except ValueError:
+                pass
+    return elementos
+
+
+def corridas_declaradas(texto_run: str) -> list[tuple[str, str]]:
+    """
+    Corridas del proyecto, como pares (nombre, modelo meteorológico).
+
+    SE LEEN DEL .run Y NO SE DEDUCEN DE LA CONFIGURACIÓN. El archivo de
+    simulaciones es lo que HEC-HMS va a ejecutar; una lista construida a partir
+    de los periodos de retorno coincidiría casi siempre y fallaría justo cuando
+    el consultor añadió o quitó un escenario a mano.
+    """
+    corridas: list[tuple[str, str]] = []
+    nombre = ""
+    for linea in texto_run.splitlines():
+        encabezado = re.match(r"^Run: (.+)$", linea)
+        if encabezado:
+            nombre = encabezado.group(1).strip()
+            continue
+        precip = re.match(r"^\s+Precip: (.+)$", linea)
+        if precip and nombre:
+            corridas.append((nombre, precip.group(1).strip()))
+            nombre = ""
+    return corridas
+
+
+def ordenar_periodos(periodos: Sequence[str]) -> list[str]:
+    """
+    Ordena etiquetas de periodo de retorno por su VALOR, no por su texto.
+
+    EL ORDEN DEL ARCHIVO DE SIMULACIONES NO SIRVE. HEC-HMS reordena las corridas
+    alfabéticamente al guardar, y en ese orden '100' va antes que '15' y '2.33'
+    queda en medio. Medido sobre el proyecto del estudio: la comprobación de que
+    el caudal crece con el periodo comparaba T100 contra T15 y denunciaba un
+    descenso que no existía.
+    """
+    def clave(texto: str) -> float:
+        try:
+            return float(texto)
+        except (TypeError, ValueError):
+            return float("inf")
+    return sorted(dict.fromkeys(periodos), key=clave)
+
+
+def periodo_de_meteorologia(nombre: str) -> str:
+    """
+    Periodo de retorno que representa un modelo meteorológico ('T2_33' -> '2.33').
+
+    El nombre lo escribió el M13 sustituyendo el punto decimal, porque HEC-HMS no
+    lo admite en un identificador. Aquí se deshace esa sustitución.
+    """
+    limpio = nombre.strip()
+    if limpio.upper().startswith("T"):
+        limpio = limpio[1:]
+    return limpio.replace("_", ".")
+
+
+# =============================================================================
+# Ejecución
+# =============================================================================
+def ejecutar(
+    raiz: Path | None = None,
+    ruta_config: Path | None = None,
+    ruta_json: Path | None = None,
+    computar: bool | None = None,
+    consola: bool = True,
+) -> tuple[int, list[Hallazgo]]:
+    """Computa los escenarios de HEC-HMS y extrae sus resultados."""
+    inicio_reloj = time.perf_counter()
+
+    base = Path(raiz).resolve() if raiz is not None else rutas.raiz_proyecto()
+    configuracion: Config = cargar(ruta=ruta_config, raiz=base)
+    logger = registro.configurar(
+        MODULO, nivel=configuracion.obtener("ejecucion.nivel_log", "INFO"),
+        raiz=base, consola=consola,
+    )
+    resultado = ResultadoM14()
+    ruta_json = ruta_json or (
+        rutas.directorio("procesado", base, crear=True) / "M14_simulaciones.json")
+
+    registro.registrar_cabecera(
+        logger, MODULO, DESCRIPCION, config=configuracion,
+        insumos={"proyecto": configuracion.obtener(
+            "hec_hms.proyecto.directorio")},
+        parametros=configuracion.parametros("hec_hms"))
+
+    directorio = str(configuracion.obtener(
+        "hec_hms.proyecto.directorio", "") or "").strip()
+    if not directorio:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "proyecto.sin_ruta",
+            "hec_hms.proyecto.directorio esta vacio: hay que declarar donde "
+            "vive el modelo. La cadena no lo busca ni lo adivina.",
+        ))
+        return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
+                       SALIDA_BLOQUEANTE)
+
+    proyecto = Path(directorio)
+    resultado.proyecto = str(proyecto)
+    ruta_basin = proyecto / str(configuracion.obtener(
+        "hec_hms.proyecto.modelo_cuenca"))
+    archivo_hms = str(configuracion.obtener("hec_hms.proyecto.archivo", "")).strip()
+    ruta_run = (proyecto / archivo_hms).with_suffix(".run") if archivo_hms else None
+
+    for ruta, clave in ((ruta_basin, "modelo de cuenca"),
+                        (ruta_run, "archivo de simulaciones")):
+        if ruta is None or not ruta.is_file():
+            resultado.hallazgos.append(Hallazgo(
+                BLOQUEANTE, "proyecto.incompleto",
+                f"no se encuentra el {clave} en {ruta}. El M13 es quien lo "
+                "escribe: ejecutarlo antes.",
+            ))
+            return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
+                           SALIDA_BLOQUEANTE)
+
+    resultado.elementos = elementos_del_modelo(
+        ruta_basin.read_text(encoding="utf-8", errors="replace"))
+    corridas = corridas_declaradas(
+        ruta_run.read_text(encoding="utf-8", errors="replace"))
+    if not corridas:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "proyecto.sin_corridas",
+            f"{ruta_run.name} no declara ninguna simulacion.",
+        ))
+        return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
+                       SALIDA_BLOQUEANTE)
+
+    punto = _resolver_punto_de_proyecto(configuracion, resultado)
+    if punto is None:
+        return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
+                       SALIDA_BLOQUEANTE)
+    resultado.punto_de_proyecto = punto
+
+    if computar is None:
+        computar = bool(configuracion.obtener("hec_hms.simulacion.ejecutar", True))
+    if computar:
+        with registro.bloque(logger, "Computo de los escenarios"):
+            if not _computar(configuracion, proyecto, archivo_hms,
+                             [c for c, _ in corridas], base, resultado, logger):
+                return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
+                               SALIDA_BLOQUEANTE)
+    else:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "computo.omitido",
+            "se leen los DSS que ya existian sin volver a computar. Nada "
+            "garantiza que correspondan al modelo actual: si el M13 se ejecuto "
+            "despues, los caudales son de un modelo anterior.",
+        ))
+        with registro.bloque(logger, "Estado de las corridas"):
+            if not _revisar_logs(proyecto, [c for c, _ in corridas], resultado,
+                                 logger):
+                return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
+                               SALIDA_BLOQUEANTE)
+
+    with registro.bloque(logger, "Extraccion de resultados"):
+        try:
+            _extraer(configuracion, proyecto, corridas, resultado, logger)
+        except (ErrorFormato, ErrorHidrologia, ErrorRutas) as error:
+            resultado.hallazgos.append(Hallazgo(
+                BLOQUEANTE, "resultados.lectura", str(error)))
+            return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
+                           SALIDA_BLOQUEANTE)
+
+    with registro.bloque(logger, "Tablas"):
+        _escribir_tablas(configuracion, base, resultado, logger)
+
+    with registro.bloque(logger, "Figuras"):
+        _escribir_figuras(configuracion, base, resultado, logger)
+
+    resultado.productos = [str(p) for p in resultado.productos]
+    return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
+                   SALIDA_CORRECTA)
+
+
+def _resolver_punto_de_proyecto(configuracion, resultado) -> str | None:
+    """
+    Elemento de cierre del modelo, declarado o deducido del sumidero.
+
+    Un modelo con varios sumideros no tiene un cierre evidente y elegir el
+    primero produciría la tabla de caudales de otro sitio. Se exige declararlo.
+    """
+    declarado = str(configuracion.obtener(
+        "hec_hms.resultados.punto_de_proyecto", "") or "").strip()
+    if declarado:
+        if declarado not in resultado.elementos:
+            resultado.hallazgos.append(Hallazgo(
+                BLOQUEANTE, "resultados.punto_inexistente",
+                f"hec_hms.resultados.punto_de_proyecto declara {declarado!r}, "
+                f"que no es un elemento del modelo.",
+            ))
+            return None
+        return declarado
+
+    sumideros = [n for n, d in resultado.elementos.items() if d["tipo"] == "Sink"]
+    if len(sumideros) == 1:
+        return sumideros[0]
+    resultado.hallazgos.append(Hallazgo(
+        BLOQUEANTE, "resultados.punto_ambiguo",
+        f"el modelo tiene {len(sumideros)} sumidero(s) y no se puede deducir el "
+        "sitio de proyecto. Declararlo en hec_hms.resultados.punto_de_proyecto.",
+    ))
+    return None
+
+
+def _computar(configuracion, proyecto, archivo_hms, corridas, base, resultado,
+              logger) -> bool:
+    """Lanza HEC-HMS sin interfaz y valida cada corrida contra su log."""
+    import hms
+
+    instalacion = Path(str(configuracion.obtener("software.hec_hms.ruta")))
+    limite = float(configuracion.obtener(
+        "hec_hms.simulacion.tiempo_limite_s", 3600))
+    guion = rutas.directorio("modelos_hec_hms", base, crear=True) / "M14_computo.script"
+
+    logger.info("Computando %d corrida(s) en una sola sesion de HEC-HMS",
+                len(corridas))
+    try:
+        salida = hms.ejecutar_corridas(
+            instalacion, proyecto, Path(archivo_hms).stem, corridas, guion,
+            tiempo_limite_s=limite)
+    except hms.ErrorHms as error:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "computo.fallido", str(error)))
+        return False
+
+    resultado.productos.append(str(guion))
+    return _clasificar_corridas(salida["corridas"], resultado, logger,
+                                codigo=salida["codigo"])
+
+
+def _revisar_logs(proyecto, corridas, resultado, logger) -> bool:
+    """Lee el estado de corridas ya computadas, sin volver a lanzarlas."""
+    import hms
+
+    estados = []
+    for corrida in corridas:
+        try:
+            estados.append(hms.leer_log_de_corrida(
+                proyecto / f"{corrida}.log", corrida))
+        except hms.ErrorHms as error:
+            estados.append(hms.ResultadoCorrida(corrida=corrida,
+                                                errores=[str(error)]))
+    return _clasificar_corridas(estados, resultado, logger)
+
+
+def _clasificar_corridas(estados, resultado, logger, codigo: int = 0) -> bool:
+    """
+    Convierte el estado de cada corrida en hallazgos y decide si se sigue.
+
+    UNA SOLA CORRIDA INUTILIZABLE DETIENE EL MODULO. La tabla de caudales por
+    periodo de retorno no admite huecos: publicarla sin un periodo, o peor, con
+    el resultado que quedo de una corrida anterior, es lo que no se puede
+    defender.
+    """
+    resultado.corridas = [{
+        "corrida": e.corrida, "terminada": e.terminada, "abortada": e.abortada,
+        "duracion": e.duracion, "errores": e.errores[:10],
+        "advertencias_n": len(e.advertencias),
+    } for e in estados]
+
+    utilizables = [e for e in estados if e.utilizable]
+    fallidas = [e for e in estados if not e.utilizable]
+    logger.info("%d corrida(s) utilizable(s) de %d", len(utilizables),
+                len(estados))
+
+    if fallidas:
+        detalle = "; ".join(
+            f"{e.corrida}: " + (", ".join(e.errores[:3]) if e.errores
+                                else ("abortada" if e.abortada
+                                      else "no llego a terminar"))
+            for e in fallidas)
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "computo.corridas_fallidas",
+            f"{len(fallidas)} de {len(estados)} corrida(s) no son utilizables: "
+            f"{detalle}. El proceso de HEC-HMS termino con codigo {codigo}, que "
+            "no es prueba de nada: el log de cada corrida es la autoridad. NO se "
+            "leen sus resultados, porque el DSS de una corrida abortada conserva "
+            "los de la anterior y los entregaria sin ninguna senal.",
+        ))
+        return False
+
+    con_avisos = [e for e in estados if e.advertencias]
+    if con_avisos:
+        muestra = sorted({a for e in con_avisos for a in e.advertencias})[:4]
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "computo.advertencias",
+            f"{len(con_avisos)} corrida(s) terminaron con advertencias de "
+            f"HEC-HMS. Ejemplos: {muestra}. No invalidan el resultado, pero "
+            "quedan registradas: las de inestabilidad numerica en tramos cortos "
+            "y las de celeridad fuera del indice afectan al transito.",
+        ))
+
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "computo.terminado",
+        f"{len(utilizables)} escenario(s) computados y validados contra su "
+        "propio log.",
+    ))
+    return True
+
+
+def _extraer(configuracion, proyecto, corridas, resultado, logger) -> None:
+    """Lee el DSS de cada corrida y arma las tablas de resultados."""
+    import dss
+
+    puntos = _puntos_con_hidrograma(configuracion, resultado)
+    tolerancia = float(configuracion.obtener(
+        "hec_hms.resultados.tolerancia_balance_pct", 1.0))
+
+    truncados: list[str] = []
+    fuera_de_balance: list[str] = []
+    por_elemento: dict[str, dict[str, float]] = {}
+
+    for corrida, meteorologia in corridas:
+        periodo = periodo_de_meteorologia(meteorologia)
+        origen = proyecto / f"{corrida}.dss"
+        series = dss.leer_series(origen, parametros=PARAMETROS)
+        agrupadas: dict[str, dict[str, Any]] = {}
+        for serie in series:
+            agrupadas.setdefault(serie.elemento, {})[serie.parametro] = serie
+        logger.info("%s: %d elemento(s) con resultados", corrida, len(agrupadas))
+
+        for elemento, del_elemento in sorted(agrupadas.items()):
+            caudal = del_elemento.get(CAUDAL)
+            if caudal is None:
+                continue
+            resumen = resumir_hidrograma(caudal.instantes, caudal.valores)
+            ficha = resultado.elementos.get(elemento, {})
+            fila = {
+                "elemento": elemento,
+                "tipo": ficha.get("tipo", "desconocido"),
+                "area_km2": ficha.get("area_km2"),
+                "periodo_retorno": periodo,
+                "corrida": corrida,
+                "unidades": caudal.unidades,
+            }
+            fila.update({c: v for c, v in resumen.items()
+                         if c != "pico_en_el_borde"})
+            fila["pico_en_el_borde"] = resumen["pico_en_el_borde"]
+            if resumen["pico_en_el_borde"]:
+                truncados.append(f"{elemento} (T{periodo})")
+            resultado.resultados.append(fila)
+            por_elemento.setdefault(elemento, {})[periodo] = resumen["qmax_m3s"]
+
+            if elemento in puntos:
+                paso = caudal.intervalo_min
+                resultado.hidrogramas += [{
+                    "elemento": elemento, "periodo_retorno": periodo,
+                    "minuto": round(i * paso, 1),
+                    "caudal_m3s": round(float(v), 4),
+                } for i, v in enumerate(caudal.valores)]
+
+            if ficha.get("tipo") != "Subbasin":
+                continue
+            directo = del_elemento.get(DIRECTO)
+            exceso = del_elemento.get(EXCESO)
+            perdida = del_elemento.get(PERDIDA)
+            if directo is None or exceso is None or perdida is None:
+                continue
+            balance = balance_de_subcuenca(
+                exceso.valores, perdida.valores,
+                volumen_m3(directo.instantes, directo.valores),
+                float(ficha.get("area_km2") or 0.0))
+            balance.update({"subcuenca": elemento, "periodo_retorno": periodo,
+                            "area_km2": ficha.get("area_km2")})
+            resultado.balance.append(balance)
+            desviacion = balance["desviacion_pct"]
+            if desviacion is not None and abs(desviacion) > tolerancia:
+                fuera_de_balance.append(
+                    f"{elemento} (T{periodo}, {desviacion:+.1f} %)")
+
+    _hallazgos_de_extraccion(resultado, por_elemento, corridas, truncados,
+                             fuera_de_balance, tolerancia, puntos)
+
+
+def _puntos_con_hidrograma(configuracion, resultado) -> list[str]:
+    """
+    Elementos que reciben figura de hidrograma: el cierre y los declarados.
+
+    Los declarados se comprueban contra el modelo. Un nombre mal escrito en la
+    configuracion produciria una figura menos y ninguna senal.
+    """
+    puntos = [resultado.punto_de_proyecto]
+    declarados = configuracion.obtener("hec_hms.resultados.puntos_de_interes", [])
+    ausentes = []
+    for nombre in [str(p).strip() for p in (declarados or []) if str(p).strip()]:
+        if nombre not in resultado.elementos:
+            ausentes.append(nombre)
+        elif nombre not in puntos:
+            puntos.append(nombre)
+    if ausentes:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "resultados.puntos_inexistentes",
+            f"hec_hms.resultados.puntos_de_interes nombra {ausentes}, que no "
+            "son elementos del modelo. Se ignoran: revisar la ortografia contra "
+            "el .basin.",
+        ))
+    return puntos
+
+
+def _hallazgos_de_extraccion(resultado, por_elemento, corridas, truncados,
+                             fuera_de_balance, tolerancia, puntos) -> None:
+    """Convierte lo medido durante la extraccion en hallazgos del reporte."""
+    orden = ordenar_periodos([periodo_de_meteorologia(m) for _, m in corridas])
+    cierre = por_elemento.get(resultado.punto_de_proyecto, {})
+    if cierre:
+        caudales = ", ".join(f"T{p} = {cierre[p]:.1f}"
+                             for p in orden if p in cierre)
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "resultados.sitio_de_proyecto",
+            f"caudal pico en {resultado.punto_de_proyecto!r}, en m3/s: "
+            f"{caudales}. Es la tabla Qmax contra periodo de retorno del "
+            "informe, y el insumo de la modelacion hidraulica.",
+        ))
+
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "resultados.extraidos",
+        f"{len(por_elemento)} elemento(s) con caudal pico, tiempo al pico y "
+        f"volumen en {len(corridas)} periodo(s) de retorno, y balance de "
+        f"{len({b['subcuenca'] for b in resultado.balance})} subcuenca(s). "
+        f"Hidrograma completo para {puntos}.",
+    ))
+
+    no_monotonos = []
+    for elemento, caudales in por_elemento.items():
+        fallos = periodos_no_monotonos(caudales, orden)
+        if fallos:
+            no_monotonos.append(f"{elemento} {fallos[:2]}")
+    if no_monotonos:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "resultados.no_monotonos",
+            f"{len(no_monotonos)} elemento(s) con caudal que NO crece al crecer "
+            f"el periodo de retorno: {no_monotonos[:6]}. Con la misma cuenca y "
+            "el mismo metodo eso es imposible: delata una lamina mal asignada, "
+            "un pluviometro cruzado o un DSS leido de un modelo anterior. La "
+            "tabla sale con aspecto normal, y por eso se detiene aqui.",
+        ))
+
+    if truncados:
+        elementos = sorted({t.split(" (")[0] for t in truncados})
+        severidad = (BLOQUEANTE if resultado.punto_de_proyecto in elementos
+                     else ADVERTENCIA)
+        resultado.hallazgos.append(Hallazgo(
+            severidad, "resultados.hidrograma_truncado",
+            f"{len(elementos)} elemento(s) con el maximo en el borde de la "
+            f"ventana de calculo: {elementos[:8]}. Eso no es un pico, es el "
+            "mayor valor de una ventana que no contiene la creciente, y el "
+            "caudal que se leeria es menor que el real. Alargar el fin en las "
+            "especificaciones de control (hec_hms.control) y volver a computar.",
+        ))
+
+    if fuera_de_balance:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "resultados.balance",
+            f"{len(fuera_de_balance)} caso(s) en que el volumen del hidrograma "
+            f"directo se aparta mas de {tolerancia:.1f} % de la lamina de "
+            f"exceso: {fuera_de_balance[:6]}. Son la misma agua contada de dos "
+            "maneras: la diferencia apunta al area declarada en HEC-HMS, al "
+            "numero de curva o a la transformacion.",
+        ))
+
+
+def _escribir_tablas(configuracion, base, resultado, logger) -> None:
+    """Escribe las cuatro tablas de resultados."""
+    delimitador = str(configuracion.obtener("insumos_usuario.delimitador_csv"))
+    destino = rutas.resolver(
+        configuracion.obtener("hec_hms.resultados.salida"), base)
+    destino.mkdir(parents=True, exist_ok=True)
+
+    for nombre, filas in (("resultados_por_elemento", resultado.resultados),
+                          ("balance_subcuencas", resultado.balance),
+                          ("hidrogramas", resultado.hidrogramas)):
+        ruta = destino / f"{nombre}.csv"
+        _escribir_csv(ruta, filas, delimitador)
+        resultado.productos.append(rutas.relativa(ruta, base))
+
+    # La tabla ancha es la del informe: una fila por elemento y una columna por
+    # periodo de retorno. LAS COLUMNAS VAN EN ORDEN DE PERIODO y no en el de las
+    # corridas: HEC-HMS las reordena alfabeticamente al guardar, y una tabla de
+    # caudales de diseno con T100 antes que T15 se lee mal.
+    periodos = _periodos_en_orden(resultado)
+    valores: dict[str, dict[str, dict[str, Any]]] = {}
+    fichas: dict[str, dict[str, Any]] = {}
+    for fila in resultado.resultados:
+        fichas.setdefault(fila["elemento"], {
+            "elemento": fila["elemento"], "tipo": fila["tipo"],
+            "area_km2": fila["area_km2"]})
+        valores.setdefault(fila["elemento"], {})[fila["periodo_retorno"]] = fila
+
+    anchas: dict[str, dict[str, Any]] = {}
+    for elemento, ficha in fichas.items():
+        registro_ = dict(ficha)
+        for periodo in periodos:
+            fila = valores[elemento].get(periodo)
+            etiqueta = periodo.replace(".", "_")
+            registro_[f"q_T{etiqueta}_m3s"] = (round(fila["qmax_m3s"], 3)
+                                               if fila else None)
+            registro_[f"tp_T{etiqueta}_h"] = fila["t_pico_h"] if fila else None
+        anchas[elemento] = registro_
+    ruta = destino / "qmax_por_periodo.csv"
+    _escribir_csv(ruta, list(anchas.values()), delimitador)
+    resultado.productos.append(rutas.relativa(ruta, base))
+    logger.info("%d elemento(s) en la tabla de caudales, %d periodo(s)",
+                len(anchas), len(periodos))
+
+
+def _periodos_en_orden(resultado) -> list[str]:
+    """Periodos de retorno presentes, ordenados por su valor numerico."""
+    return ordenar_periodos([f["periodo_retorno"] for f in resultado.resultados])
+
+
+def _escribir_figuras(configuracion, base, resultado, logger) -> None:
+    """Curva Qmax contra periodo de retorno e hidrogramas de los puntos."""
+    if not resultado.resultados:
+        return
+    try:
+        import graficos
+    except ImportError as error:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "graficos.ausente",
+            f"no se pudieron dibujar los resultados: {error}"))
+        return
+
+    estilo = graficos.Estilo.desde_config(configuracion)
+    directorio = rutas.resolver(
+        configuracion.obtener("graficos.directorio"), base)
+    periodos = _periodos_en_orden(resultado)
+    puntos = sorted({h["elemento"] for h in resultado.hidrogramas})
+
+    escritas = 0
+    # 1. Qmax contra periodo de retorno, un trazo por punto de interes.
+    series: dict[str, tuple[list[float], list[float]]] = {}
+    for punto in puntos:
+        pares = [(float(p), f["qmax_m3s"]) for p in periodos
+                 for f in resultado.resultados
+                 if f["elemento"] == punto and f["periodo_retorno"] == p]
+        if pares:
+            series[punto] = ([x for x, _ in pares], [y for _, y in pares])
+    if series:
+        with graficos.figura(
+                estilo, titulo="Caudal maximo contra periodo de retorno",
+                etiqueta_x="Periodo de retorno (anos)",
+                etiqueta_y="Caudal pico (m3/s)") as (fig, ax):
+            graficos.lineas(ax, series, estilo)
+            ax.set_xscale("log")
+            ax.set_xticks([float(p) for p in periodos])
+            ax.set_xticklabels(periodos)
+            ax.set_ylim(bottom=0)
+            fig.text(0.01, -0.04,
+                     f"Sitio de proyecto: {resultado.punto_de_proyecto}. "
+                     "Modelo HEC-HMS, SCS Curve Number y SCS Unit Hydrograph, "
+                     "transito Muskingum-Cunge.",
+                     fontsize=estilo.tamano_fuente - 2, color="#555555")
+            for ruta in graficos.guardar(
+                    fig, directorio / "M14_qmax_vs_periodo", estilo):
+                resultado.productos.append(rutas.relativa(ruta, base))
+            escritas += 1
+
+    # 2. Un hidrograma por punto, con los periodos superpuestos.
+    for punto in puntos:
+        curvas: dict[str, tuple[list[float], list[float]]] = {}
+        for periodo in periodos:
+            pasos = [h for h in resultado.hidrogramas
+                     if h["elemento"] == punto and h["periodo_retorno"] == periodo]
+            if pasos:
+                pasos.sort(key=lambda h: h["minuto"])
+                curvas[f"T = {periodo} anos"] = (
+                    [p["minuto"] / 60.0 for p in pasos],
+                    [p["caudal_m3s"] for p in pasos])
+        if not curvas:
+            continue
+        # RAMPA Y NO PALETA CATEGORICA. Los periodos de retorno son una
+        # categoria ORDENADA y la paleta de identificacion se repite a partir
+        # del sexto color: con ocho curvas, T = 2,33 salia del mismo azul que
+        # T = 100 y T = 5 del mismo rojo que T = 500. Sobre una familia de
+        # hidrogramas anidados eso invierte la lectura.
+        colores = graficos.rampa(len(curvas), estilo)
+        with graficos.figura(
+                estilo, titulo=f"Hidrograma de creciente, {punto}",
+                etiqueta_x="Tiempo desde el inicio de la tormenta (h)",
+                etiqueta_y="Caudal (m3/s)") as (fig, ax):
+            for color, (nombre, (x, y)) in zip(colores, curvas.items()):
+                ax.plot(x, y, color=color, linewidth=1.5, label=nombre)
+            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            ax.set_ylim(bottom=0)
+            ax.set_xlim(left=0)
+            for ruta in graficos.guardar(
+                    fig, directorio / f"M14_hidrograma_{punto.replace(' ', '_')}",
+                    estilo):
+                resultado.productos.append(rutas.relativa(ruta, base))
+            escritas += 1
+    logger.info("%d figura(s) escritas", escritas)
+
+
+def _escribir_csv(destino: Path, filas, delimitador: str) -> None:
+    """Escribe una tabla con la union de las columnas de todas sus filas."""
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    filas = list(filas)
+    if not filas:
+        destino.write_text("", encoding="utf-8-sig")
+        return
+    columnas: list[str] = []
+    for fila in filas:
+        for clave in fila:
+            if clave not in columnas:
+                columnas.append(clave)
+    with destino.open("w", encoding="utf-8-sig", newline="") as manejador:
+        escritor = csv.DictWriter(manejador, fieldnames=columnas,
+                                  delimiter=delimitador, extrasaction="ignore")
+        escritor.writeheader()
+        escritor.writerows(filas)
+
+
+def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
+    """Emite el reporte, escribe el JSON y cierra el log."""
+    orden = {BLOQUEANTE: 0, ADVERTENCIA: 1, INFORMATIVO: 2}
+    hallazgos = sorted(resultado.hallazgos,
+                       key=lambda h: (orden.get(h.severidad, 9), h.clave))
+
+    logger.info(registro.SEPARADOR)
+    for severidad, emitir in ((BLOQUEANTE, logger.error),
+                              (ADVERTENCIA, logger.warning),
+                              (INFORMATIVO, logger.info)):
+        grupo = [h for h in hallazgos if h.severidad == severidad]
+        if not grupo:
+            continue
+        emitir("%s (%d)", severidad, len(grupo))
+        for hallazgo in grupo:
+            emitir("  %-44s %s", hallazgo.clave, hallazgo.mensaje)
+
+    conteo = esquema.resumen_por_severidad(hallazgos)
+    if conteo[BLOQUEANTE] and codigo == SALIDA_CORRECTA:
+        codigo = SALIDA_BLOQUEANTE
+    logger.info(registro.SEPARADOR)
+    logger.info("RESUMEN: %d bloqueante(s), %d advertencia(s), %d informativo(s)",
+                conteo[BLOQUEANTE], conteo[ADVERTENCIA], conteo[INFORMATIVO])
+
+    reporte = {
+        "modulo": MODULO,
+        "proyecto": resultado.proyecto,
+        "punto_de_proyecto": resultado.punto_de_proyecto,
+        "corridas": resultado.corridas,
+        "elementos": len(resultado.elementos),
+        "resultados": len(resultado.resultados),
+        "balance": len(resultado.balance),
+        "productos": resultado.productos,
+        "resumen": conteo,
+        "codigo_salida": codigo,
+        "conforme": codigo == SALIDA_CORRECTA,
+        "hallazgos": [h.como_dict() for h in hallazgos],
+    }
+    ruta_json.parent.mkdir(parents=True, exist_ok=True)
+    ruta_json.write_text(json.dumps(reporte, ensure_ascii=False, indent=1),
+                         encoding="utf-8")
+
+    productos = {f"producto {i}": p
+                 for i, p in enumerate(resultado.productos, start=1)}
+    productos["reporte JSON"] = rutas.relativa(ruta_json, base)
+    archivo_log = registro.ruta_log(logger)
+    if archivo_log is not None:
+        productos["log de ejecucion"] = rutas.relativa(archivo_log, base)
+
+    registro.registrar_cierre(
+        logger, MODULO, "CORRECTO" if codigo == SALIDA_CORRECTA else "DETENIDO",
+        segundos=time.perf_counter() - inicio, productos=productos)
+    return codigo, hallazgos
+
+
+def _analizar_argumentos(argv=None):
+    analizador = argparse.ArgumentParser(description=DESCRIPCION)
+    analizador.add_argument("--raiz", type=Path, default=None)
+    analizador.add_argument("--config", type=Path, default=None)
+    analizador.add_argument("--json", type=Path, default=None)
+    analizador.add_argument(
+        "--sin-computar", dest="computar", action="store_false", default=None,
+        help="lee los DSS que ya existen en lugar de volver a computar")
+    return analizador.parse_args(argv)
+
+
+def main(argv=None) -> int:
+    """Punto de entrada. Devuelve el codigo de salida del proceso."""
+    argumentos = _analizar_argumentos(argv)
+    try:
+        codigo, _ = ejecutar(
+            raiz=argumentos.raiz, ruta_config=argumentos.config,
+            ruta_json=argumentos.json, computar=argumentos.computar)
+    except (ErrorConfiguracion, ErrorRutas, ErrorFormato,
+            ErrorHidrologia) as error:
+        print(f"{MODULO}: {error}", file=sys.stderr)
+        return SALIDA_ERROR
+    return codigo
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

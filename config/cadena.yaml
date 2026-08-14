@@ -206,10 +206,13 @@ pasos:
     modos: [detallado]
 
   - modulo: M14
+    # Computa los ocho escenarios SIN ABRIR el programa, con la API de guion de
+    # HEC-HMS, y lee los resultados de sus DSS. Cada corrida se valida contra su
+    # propio log: el codigo de salida del proceso no dice si el calculo sirvio.
     nombre: "Ejecución de simulaciones y extracción de resultados"
-    script: "src/M14_simulacion.py"
+    script: "src/M14_simulaciones.py"
     entorno: venv
-    estado: pendiente
+    estado: disponible
     modos: [detallado]
 
   - modulo: M14b
