@@ -139,8 +139,21 @@ class PruebaActualizacion(unittest.TestCase):
         self.assertIn("Route: Muskingum Cunge", salida)
         self.assertIn("Length: 809.21", salida)
         self.assertIn("Energy Slope: 0.012300", salida)
-        self.assertIn("Manning n: 0.040", salida)
+        # 'Mannings n' con ese: es la etiqueta que HEC-HMS escribe, leida de un
+        # tramo que el propio programa configuro.
+        self.assertIn("Mannings n: 0.040", salida)
         self.assertIn("Downstream: J2", salida)
+
+    def test_el_end_del_bloque_no_se_pierde(self) -> None:
+        # Cuando el metodo es el ultimo grupo no hay linea en blanco tras el, y
+        # detenerse solo en la linea en blanco se comia el 'End:': el bloque
+        # quedaba sin cerrar y se fusionaba con el siguiente. Se perdian la
+        # mitad de las subcuencas.
+        salida, _ = m13.actualizar_tramo(
+            self._tramo(), {"longitud_m": 100.0, "pendiente": 0.01},
+            0.04, 3.0, 2.0)
+        self.assertEqual(salida.count("End:"), 1)
+        self.assertTrue(salida.rstrip().endswith("End:"))
 
     def test_un_tramo_sin_pendiente_no_se_toca(self) -> None:
         original = self._tramo()

@@ -1141,6 +1141,9 @@ hec_hms:
       # el amortiguamiento de la onda cambia y el caudal pico con el.
       ancho_fondo_m: 3.0
       talud_h_por_v: 2.0
+      # Celeridad indice de la onda, en m/s. HEC-HMS la pide para arrancar el
+      # calculo y la ajusta despues; el valor declarado es el punto de partida.
+      celeridad_indice_ms: 1.0
   control:
     intervalo_min: 5             # debe coincidir con tormenta.intervalo_calculo_min
 

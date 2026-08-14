@@ -1072,6 +1072,8 @@ ESQUEMA: dict[str, Campo] = {
         "ancho de fondo de la seccion trapezoidal", minimo=0.1, maximo=200.0),
     "hec_hms.transito.muskingum_cunge.talud_h_por_v": numero(
         "talud de la seccion, horizontal por vertical", minimo=0.0, maximo=10.0),
+    "hec_hms.transito.muskingum_cunge.celeridad_indice_ms": numero(
+        "celeridad índice de la onda", minimo=0.1, maximo=10.0),
     "hec_hms.transito.muskingum_cunge.n_manning": numero(
         "coeficiente n de Manning", permite_nulo=True, minimo=0.005, maximo=0.2,
     ),

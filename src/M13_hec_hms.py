@@ -169,7 +169,14 @@ def fijar_grupo(bloque: str, clave_metodo: str, valor_metodo: str,
             for nombre, valor in parametros:
                 salida.append(f"{sangria}{nombre}: {valor}\n")
             indice += 1
-            while indice < len(lineas) and lineas[indice].strip():
+            # El grupo termina en una linea en blanco O en el 'End:' del
+            # bloque, lo que llegue antes. Detenerse solo en la linea en blanco
+            # se comia el 'End:' cuando el metodo era el ultimo grupo, que es
+            # como HEC-HMS reescribe los tramos al guardar: el bloque quedaba
+            # sin cerrar y se fusionaba con el siguiente. Se perdian la mitad de
+            # las subcuencas y el modulo declaraba haber actualizado 61 de 125.
+            while (indice < len(lineas) and lineas[indice].strip()
+                   and lineas[indice].strip() != "End:"):
                 indice += 1
             reemplazado = True
             continue
@@ -350,65 +357,97 @@ def actualizar_subcuenca(bloque: str, parametros: dict) -> tuple[str, str]:
 
 
 def actualizar_tramo(bloque: str, geometria: dict, n_manning: float,
-                     ancho_fondo: float, talud: float) -> tuple[str, str]:
+                     ancho_fondo: float, talud: float,
+                     celeridad: float = 1.0) -> tuple[str, str]:
     """Reescribe un bloque de tramo a Muskingum-Cunge con su geometría."""
     if not geometria:
         return bloque, "sin geometria"
     if geometria["pendiente"] <= 0:
         return bloque, "pendiente nula"
 
+    # EL VOCABULARIO SALE DE UN TRAMO QUE HEC-HMS CONFIGURO, no de suponerlo.
+    # Cinco etiquetas no eran las que parecian: 'Mannings n' lleva ese, el ancho
+    # es 'Bottom Width', el metodo de paso es 'Space-Time Method: Automatic DX
+    # and DT' y el indice se declara en dos lineas, tipo y valor. La primera
+    # version las escribio de otra forma y HEC-HMS las rechazo una a una:
+    #
+    #     Section begins with label "reach: R62"
+    #     Line contents are "manningn: 0.040"
+    #
+    # El orden tambien se respeta: es el que el programa escribe al guardar.
     bloque = fijar_grupo(bloque, "Route", "Muskingum Cunge", (
-        ("Initial Variable", "Combined Inflow"),
-        ("Channel Loss", "None"),
+        ("Channel", "Trapezoid"),
         ("Length", f"{geometria['longitud_m']:.2f}"),
         ("Energy Slope", f"{geometria['pendiente']:.6f}"),
-        ("Shape", "Trapezoid"),
-        ("Width", f"{ancho_fondo:.2f}"),
+        ("Mannings n", f"{n_manning:.3f}"),
+        ("Bottom Width", f"{ancho_fondo:.2f}"),
         ("Side Slope", f"{talud:.2f}"),
-        ("Manning n", f"{n_manning:.3f}"),
-        ("Index Method", "Discharge"),
-        ("Space Time Method", "Auto DX Auto DT"),
+        ("Initial Variable", "Combined Inflow"),
+        ("Space-Time Method", "Automatic DX and DT"),
+        ("Index Parameter Type", "Index Celerity"),
+        ("Index Celerity", f"{celeridad:.2f}"),
+        ("Maximum Depth Iterations", "20"),
+        ("Maximum Route Step Iterations", "30"),
+        ("Channel Loss", "None"),
     ))
     return bloque, ""
 
 
-def escribir_gage(destino: Path, hietogramas, intervalo_min: float,
-                  inicio: _dt.datetime) -> dict[str, Any]:
+def escribir_gage(destino_gage: Path, destino_dss: Path, hietogramas,
+                  intervalo_min: float, inicio: _dt.datetime) -> dict[str, Any]:
     """
-    Escribe los pluviómetros como series manuales.
+    Escribe los pluviometros: las series en el DSS y su declaracion en el .gage.
 
-    Cada pluviómetro es una zona pluviométrica y un periodo de retorno. Van con
-    su serie completa dentro del archivo, sin DSS, para que el proyecto sea
-    autocontenido y no dependa de una librería binaria.
+    HEC-HMS NO ADMITE SERIES EN TEXTO. Su 'Manual Entry' guarda los valores en el
+    DSS del proyecto y en el .gage deja solo el 'Pathname'. La primera version
+    escribia los valores dentro del .gage, sin 'Filename', y el programa caia
+    con un NullPointerException al construir la ruta del archivo que no estaba.
+    El vocabulario de aqui esta leido de un pluviometro que el propio HEC-HMS
+    escribio.
+
+    El nombre va DOS veces, dentro y fuera del bloque, y el archivo se abre con
+    un bloque 'Gage Manager'. Las dos cosas son de su formato, no un descuido.
     """
+    import dss as adaptador_dss
+
     por_pluviometro: dict[str, list[dict]] = {}
     for paso in hietogramas:
-        clave = f"{paso['pluviometro']}_T{str(paso['periodo_retorno']).replace('.', '_')}"
+        clave = (f"{paso['pluviometro']}_T"
+                 f"{str(paso['periodo_retorno']).replace('.', '_')}")
         por_pluviometro.setdefault(clave, []).append(paso)
 
-    lineas: list[str] = []
+    lineas = ["Gage Manager: ", "     Gage Manager: ", "     Version: 4.13",
+              "     Filepath Separator: \\", "End: ", ""]
+    escritas = []
     for nombre, pasos in sorted(por_pluviometro.items()):
         pasos.sort(key=lambda p: int(p["intervalo"]))
-        fin = inicio + _dt.timedelta(minutes=intervalo_min * len(pasos))
+        valores = [float(p["lamina_mm"]) for p in pasos]
+        escrita = adaptador_dss.escribir_serie_precipitacion(
+            destino_dss, nombre, valores, inicio, int(intervalo_min))
+        escritas.append(escrita)
+        fin = inicio + _dt.timedelta(minutes=intervalo_min * len(valores))
         lineas += [
             f"Gage: {nombre}",
+            f"     Gage: {nombre}",
             "     Gage Type: Precipitation",
             "     Description: hietograma de diseno, metodo de Huff",
-            "     Data Type: Incremental",
-            "     Units: MM",
-            f"     Start Time: {inicio:%d %B %Y, %H:%M}",
-            f"     End Time: {fin:%d %B %Y, %H:%M}",
-            f"     Time Interval: {intervalo_min:.0f}",
-            "     Local to Project: Yes",
+            "     Reference Height Units: Meters",
+            "     Reference Height: 10.0",
+            "     Data Source Type: Manual Entry",
+            f"     Filename: {destino_dss.name}",
+            f"     Pathname: {escrita['pathname']}",
+            "     Variant: Variant-1",
+            f"       Start Time: {inicio.day} {inicio:%B %Y}, {inicio:%H:%M}",
+            f"       End Time: {fin.day} {fin:%B %Y}, {fin:%H:%M}",
+            "     End Variant: Variant-1",
+            "End:",
             "",
         ]
-        for paso in pasos:
-            lineas.append(f"     Value: {float(paso['lamina_mm']):.4f}")
-        lineas += ["End:", ""]
 
-    destino.write_text("\n".join(lineas), encoding="utf-8")
+    destino_gage.write_text("\n".join(lineas), encoding="utf-8")
     return {"pluviometros": len(por_pluviometro),
-            "ordenadas": len(hietogramas)}
+            "ordenadas": sum(e["ordenadas"] for e in escritas),
+            "dss": destino_dss.name}
 
 
 def escribir_met(destino: Path, nombre: str, periodo: str, asignacion,
@@ -584,11 +623,20 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
     texto = ruta_basin.read_text(encoding="utf-8", errors="replace")
 
     if bool(configuracion.obtener("hec_hms.proyecto.copia_de_seguridad")):
+        # SE RESPALDA TODO LO QUE EL MODULO TOCA, no solo el .basin. La primera
+        # version copiaba unicamente el modelo de cuenca, que era lo que parecia
+        # costoso de perder, y dejo sin proteger el .hms: una escritura
+        # equivocada lo trunco y el proyecto dejo de abrir. El indice del
+        # proyecto es tan insustituible como el modelo.
         marca = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-        copia = ruta_basin.with_suffix(f".basin.{marca}.bak")
-        shutil.copy2(ruta_basin, copia)
-        resultado.productos.append(str(copia))
-        logger.info("Copia previa: %s", copia.name)
+        for original in sorted(ruta_basin.parent.glob("*")):
+            if original.suffix.lower() not in (".basin", ".hms", ".gage",
+                                               ".met", ".control", ".dss"):
+                continue
+            copia = original.with_name(f"{original.name}.{marca}.bak")
+            shutil.copy2(original, copia)
+            resultado.productos.append(str(copia))
+        logger.info("Copia previa de los archivos del proyecto: marca %s", marca)
 
     n_manning = float(configuracion.obtener(
         "hec_hms.transito.muskingum_cunge.n_manning"))
@@ -596,6 +644,8 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
         "hec_hms.transito.muskingum_cunge.ancho_fondo_m"))
     talud = float(configuracion.obtener(
         "hec_hms.transito.muskingum_cunge.talud_h_por_v"))
+    celeridad = float(configuracion.obtener(
+        "hec_hms.transito.muskingum_cunge.celeridad_indice_ms", 1.0))
 
     nuevos: list[str] = []
     sin_parametros: list[str] = []
@@ -611,7 +661,8 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
                 actualizadas += 1
         elif tipo == "Reach":
             bloque, motivo = actualizar_tramo(
-                bloque, geometrias.get(nombre, {}), n_manning, ancho, talud)
+                bloque, geometrias.get(nombre, {}), n_manning, ancho, talud,
+                celeridad)
             if motivo:
                 sin_geometria.append(f"{nombre} ({motivo})")
             else:
@@ -673,7 +724,10 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
     # El archivo de pluviometros se llama COMO EL PROYECTO: es asi como HEC-HMS
     # lo encuentra, sin declararlo en el .hms.
     gage = proyecto / f"{Path(str(configuracion.obtener('hec_hms.proyecto.archivo'))).stem}.gage"
-    resumen = escribir_gage(gage, hietogramas, intervalo, inicio)
+    resumen = escribir_gage(
+        gage, proyecto / str(configuracion.obtener(
+            "hec_hms.proyecto.dss", "") or f"{gage.stem}.dss"),
+        hietogramas, intervalo, inicio)
     resultado.productos.append(str(gage))
 
     periodos = sorted({str(h["periodo_retorno"]) for h in hietogramas},
