@@ -325,5 +325,65 @@ class PruebaTablaReal(unittest.TestCase):
             self.assertIsInstance(valores["validado"], bool)
 
 
+class PruebaEscalaTemporal(unittest.TestCase):
+    """
+    El paso de P24h a la duración de diseño es el parámetro que más mueve el
+    caudal de toda la cadena, y por eso se deriva en lugar de escribirse.
+    """
+
+    def test_dyck_peschke_da_la_razon_conocida(self) -> None:
+        # (180/1440)^0.25 = 0.5946, la relación de uso corriente en la práctica
+        # colombiana para llevar la lámina de 24 h a 3 h.
+        self.assertAlmostEqual(
+            m12a.coeficiente_de_escala(180.0, 0.25), 0.5946, places=4)
+
+    def test_a_las_24_horas_vale_uno(self) -> None:
+        self.assertAlmostEqual(m12a.coeficiente_de_escala(1440.0, 0.25), 1.0)
+
+    def test_cambia_con_la_duracion(self) -> None:
+        # Es la razón de derivarlo: un coeficiente escrito a mano valdría para
+        # la duración con que se calculó y callaría si la tormenta cambia.
+        self.assertAlmostEqual(
+            m12a.coeficiente_de_escala(360.0, 0.25), 0.7071, places=4)
+
+    def test_una_duracion_mayor_de_24_h_se_rechaza(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m12a.coeficiente_de_escala(2880.0, 0.25)
+
+    def test_un_exponente_imposible_se_rechaza(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m12a.coeficiente_de_escala(180.0, 1.5)
+        with self.assertRaises(ErrorHidrologia):
+            m12a.coeficiente_de_escala(180.0, 0.0)
+
+
+class PruebaRazonInternaDeIdf(unittest.TestCase):
+    """
+    La razón se toma DENTRO de la curva. Dividir la lámina de la IDF entre la
+    Pmáx24h del análisis de frecuencia devuelve la discrepancia entre las dos
+    fuentes disfrazada de escala temporal: medido en el estudio, la curva del
+    INVIAS a 24 h supera en un 72 % a las estaciones.
+    """
+
+    def test_usa_la_forma_y_no_el_nivel(self) -> None:
+        # Duplicar las dos intensidades no cambia la razón.
+        una = m12a.razon_interna_de_idf(23.2, 5.88, 180.0)
+        otra = m12a.razon_interna_de_idf(46.4, 11.76, 180.0)
+        self.assertAlmostEqual(una, otra, places=9)
+
+    def test_la_razon_de_invias_cae_donde_se_midio(self) -> None:
+        # i(3h)=23.2 mm/h e i(24h)=5.88 mm/h dan 0.493, el valor del estudio.
+        razon = m12a.razon_interna_de_idf(23.2, 5.8833, 180.0)
+        self.assertAlmostEqual(razon, 0.4931, places=3)
+
+    def test_a_las_24_horas_vale_uno(self) -> None:
+        self.assertAlmostEqual(
+            m12a.razon_interna_de_idf(5.0, 5.0, 1440.0), 1.0, places=9)
+
+    def test_sin_intensidad_de_24_h_no_inventa_razon(self) -> None:
+        self.assertIsNone(m12a.razon_interna_de_idf(23.2, None, 180.0))
+        self.assertIsNone(m12a.razon_interna_de_idf(None, 2.9, 180.0))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

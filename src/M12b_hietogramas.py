@@ -193,14 +193,19 @@ def razones_de_desagregacion(
     lámina de 24 horas entera en la duración de diseño; la segunda toma de la
     curva IDF qué fracción de esa lámina corresponde a esa duración.
 
+    SE LEE LA RAZÓN INTERNA DE LA CURVA, no el cociente contra la Pmáx24h del
+    análisis de frecuencia. Son dos estimaciones con niveles distintos: medido
+    en este estudio, la curva del INVIAS extrapolada a 24 h supera en un 72 % la
+    Pmáx24h de las estaciones, y dividir una entre la otra devolvía esa
+    discrepancia disfrazada de escala temporal. Se delataba en dos sitios: el
+    cociente variaba con el periodo de retorno (0,80 a 0,90) cuando una relación
+    de escala no debe hacerlo, y el exponente implícito salía 0,079 frente al
+    0,20 a 0,35 que reporta la literatura.
+
     LA RAZÓN ES UNA SOLA PARA TODA LA CUENCA y no varía por subcuenca: la IDF
     está regionalizada y no se resuelve a esa escala. El reparto espacial lo
     sigue aportando el M11 con su lámina de 24 h promediada por subcuenca. Es
     una mezcla deliberada de dos fuentes y el informe debe declararla.
-
-    La razón NO es la misma para todos los periodos de retorno: con INVIAS va
-    de 0,80 a 0,90 según el periodo, porque la IDF y la serie de máximos no
-    crecen al mismo ritmo.
 
     Excepciones
     -----------
@@ -213,7 +218,7 @@ def razones_de_desagregacion(
         raise ErrorRutas(
             f"no se encuentra {ruta}: la razon de desagregacion la publica el "
             "M12a, que hay que ejecutar antes.")
-    columna = f"h2_idf_{fuente}_sobre_p24"
+    columna = f"h2_idf_{fuente}_razon_interna"
     razones: dict[str, float] = {}
     with ruta.open(encoding="utf-8-sig", newline="") as manejador:
         lector = csv.DictReader(manejador, delimiter=delimitador)
@@ -242,6 +247,56 @@ def razones_de_desagregacion(
     if not razones:
         raise ErrorFormato(f"{ruta.name} no trae ninguna razon utilizable.")
     return razones
+
+
+def coeficiente_de_escala_del_m12a(ruta: Path, delimitador: str) -> float:
+    """
+    Factor de escala temporal que el M12a derivó de la duración de diseño.
+
+    ES UNO SOLO Y NO DEPENDE DEL PERIODO DE RETORNO. Una relación de escala
+    liga duraciones, no frecuencias: si el valor variara entre periodos, lo que
+    se está leyendo no es una escala. Se comprueba aquí porque un archivo
+    heredado de otra versión de la cadena pasaría inadvertido.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si no está la tabla del M12a.
+    ErrorFormato
+        Si no trae la columna de h3_factor, si el cociente sale de (0, 1] o si
+        difiere entre periodos de retorno.
+    """
+    if not ruta.is_file():
+        raise ErrorRutas(
+            f"no se encuentra {ruta}: el factor lo publica el M12a, que hay "
+            "que ejecutar antes.")
+    valores: dict[str, float] = {}
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        for fila in csv.DictReader(manejador, delimiter=delimitador):
+            # SE LEE EL FACTOR PUBLICADO y no se recupera dividiendo la lamina
+            # entre la P24h: esa division arrastra el redondeo de la lamina a
+            # dos decimales, y la comprobacion de que la escala no varia con el
+            # periodo de retorno fallaba por ese ruido.
+            try:
+                valores[str(fila["periodo_retorno"])] = float(
+                    fila["h3_factor_escala"])
+            except (KeyError, TypeError, ValueError):
+                continue
+    if not valores:
+        raise ErrorFormato(
+            f"{ruta.name} no trae la columna 'h3_factor_escala'. Se escribe "
+            "cuando tormenta.coeficiente_desagregacion declara su criterio.")
+    menor, mayor = min(valores.values()), max(valores.values())
+    if not 0.0 < menor <= 1.0:
+        raise ErrorFormato(
+            f"{ruta.name}: el factor de escala {menor:g} esta fuera de (0, 1]. "
+            "La lamina de una duracion parcial no puede superar la de 24 h.")
+    if mayor - menor > 1e-6:
+        raise ErrorFormato(
+            f"{ruta.name}: el factor de escala varia entre periodos de retorno "
+            f"({menor:.4f} a {mayor:.4f}). Una relacion de escala liga "
+            "duraciones y no frecuencias: si varia, no es una escala.")
+    return menor
 
 
 def agrupar_por_zona(
@@ -566,7 +621,33 @@ def _construir(configuracion, resultado, subcuencas, duracion_min,
         return
 
     razones: dict[str, float] = {}
-    if hipotesis == "h2_idf":
+    if hipotesis == "h3_factor":
+        # FACTOR DE ESCALA TEMPORAL. El nivel lo pone el analisis de frecuencia
+        # y la escala la relacion P_d = P24h*(d/1440)^H. El coeficiente lo
+        # deriva el M12a de la duracion, de modo que cambiar la tormenta de
+        # diseno lo recalcula en lugar de heredar el anterior.
+        try:
+            factor = coeficiente_de_escala_del_m12a(
+                rutas.directorio("procesado_tormenta", base) / "desagregacion.csv",
+                str(configuracion.obtener("insumos_usuario.delimitador_csv")))
+        except (ErrorFormato, ErrorRutas) as error:
+            resultado.hallazgos.append(Hallazgo(
+                BLOQUEANTE, "hietograma.sin_factor_escala", str(error)))
+            return
+        razones = {p: factor for p in
+                   [c[3:-3] for c in columnas]}
+        resultado.factores["factor_escala_temporal"] = factor
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "hietograma.hipotesis_h3",
+            f"la lamina de 24 h se lleva a la duracion de diseno con un factor "
+            f"de escala temporal de {factor:.4f}, IGUAL para todos los periodos "
+            "de retorno, que es lo propio de una relacion de escala. El nivel "
+            "lo pone el analisis de frecuencia del M07 y la escala la relacion "
+            "declarada en tormenta.coeficiente_desagregacion. El informe debe "
+            "citar su fuente: es el parametro que mas mueve el caudal de "
+            "diseno de toda la cadena.",
+        ))
+    elif hipotesis == "h2_idf":
         fuente = str(configuracion.obtener(
             "tormenta.fuente_idf_desagregacion", "invias")).strip().lower()
         try:
@@ -593,12 +674,10 @@ def _construir(configuracion, resultado, subcuencas, duracion_min,
         ))
     elif hipotesis != "h1_directa":
         resultado.hallazgos.append(Hallazgo(
-            ADVERTENCIA, "hietograma.hipotesis_no_soportada",
-            f"la hipotesis adoptada es {hipotesis!r}, pero este modulo solo "
-            "sabe partir de la lamina de 24 h que el M11 promedio por subcuenca "
-            "('h1_directa') o aplicarle la razon de la IDF ('h2_idf'). Para "
-            "'h3_factor' hace falta declarar el coeficiente en "
-            "tormenta.coeficiente_desagregacion.",
+            BLOQUEANTE, "hietograma.hipotesis_no_soportada",
+            f"la hipotesis adoptada es {hipotesis!r} y no es ninguna de las "
+            "tres que este modulo sabe aplicar: 'h1_directa', 'h2_idf' o "
+            "'h3_factor'.",
         ))
         return
 

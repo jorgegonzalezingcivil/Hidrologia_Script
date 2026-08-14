@@ -280,12 +280,79 @@ def lamina_de_intensidad(intensidad_mm_h: float, duracion_min: float) -> float:
     return intensidad_mm_h * duracion_min / 60.0
 
 
+def coeficiente_de_escala(duracion_min: float, exponente: float) -> float:
+    """
+    Factor de escala temporal P(d) / P(24h) por invarianza de escala.
+
+        P_d = P_24h * (d / 1440)^H
+
+    CON H = 0,25 ES LA RELACIÓN DE DYCK Y PESCHKE, de uso corriente en la
+    práctica colombiana para discretizar la lámina de 24 horas. Es el caso
+    particular del escalamiento simple que Menabde, Seed y Pegram (1999)
+    formalizaron: la serie de máximos anuales de intensidad media cumple esa
+    propiedad entre 30 min y 24 h. La literatura sitúa H entre 0,20 y 0,35 para
+    lluvia extrema.
+
+    EL COEFICIENTE SE DERIVA DE LA DURACIÓN Y NO SE DECLARA FIJO. Un número
+    escrito a mano vale para la duración con que se calculó y calla si la
+    tormenta de diseño cambia: con 3 horas vale 0,595 y con 6 vale 0,707, y
+    nada avisaría de que el estudio quedó con el de la duración anterior.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si la duración no es positiva, si supera las 24 horas (no es una
+        desagregación) o si el exponente sale del intervalo (0, 1).
+    """
+    if duracion_min <= 0:
+        raise ErrorHidrologia(
+            f"la duracion {duracion_min} min no es positiva.")
+    if duracion_min > MINUTOS_EN_24H:
+        raise ErrorHidrologia(
+            f"la duracion {duracion_min:.0f} min supera las 24 h: la relacion "
+            "de escala desagrega la lamina de 24 h, no la extrapola.")
+    if not 0.0 < exponente < 1.0:
+        raise ErrorHidrologia(
+            f"el exponente de escala {exponente:g} esta fuera de (0, 1). La "
+            "literatura lo situa entre 0,20 y 0,35 para lluvia extrema.")
+    return (duracion_min / MINUTOS_EN_24H) ** exponente
+
+
+def razon_interna_de_idf(
+    intensidad_duracion: float | None, intensidad_24h: float | None,
+    duracion_min: float,
+) -> float | None:
+    """
+    Razón P(duración) / P(24 h) calculada DENTRO de la misma curva IDF.
+
+    POR QUÉ NO SE DIVIDE ENTRE LA P24h DEL ANÁLISIS DE FRECUENCIA. Son dos
+    estimaciones con niveles distintos: medido en este estudio, la curva del
+    INVIAS extrapolada a 24 h supera en un 72 % la Pmáx24h de las estaciones.
+    Dividir la lámina de una entre la de la otra no da una escala temporal, da
+    esa discrepancia disfrazada de factor. Se notaba en que el cociente variaba
+    con el periodo de retorno (0,80 a 0,90) cuando una relación de escala no
+    debe hacerlo, y en que el exponente implícito salía 0,079, muy por debajo
+    de cualquier valor publicado.
+
+    Tomando la razón dentro de la curva se usa su FORMA y no su NIVEL, que es
+    lo único que la regionalización resuelve con fiabilidad.
+    """
+    if not intensidad_duracion or not intensidad_24h or duracion_min <= 0:
+        return None
+    lamina = lamina_de_intensidad(intensidad_duracion, duracion_min)
+    lamina_24h = lamina_de_intensidad(intensidad_24h, MINUTOS_EN_24H)
+    if lamina_24h <= 0:
+        return None
+    return lamina / lamina_24h
+
+
 def desagregar(
     pmax24_mm: float,
     duracion_min: float,
     intensidades: dict[str, float | None] | None,
     coeficiente: float | None,
     metodologia_adoptada: str = "",
+    intensidades_24h: dict[str, float | None] | None = None,
 ) -> dict[str, Any]:
     """
     Las tres hipótesis de paso de P24h a la duración de diseño, en paralelo.
@@ -316,8 +383,19 @@ def desagregar(
         lamina = round(lamina_de_intensidad(intensidad, duracion_min), 2)
         hipotesis[f"h2_idf_{metodo}_mm"] = lamina
         if pmax24_mm > 0:
+            # Cociente MEZCLADO, contra la P24h del analisis de frecuencia. Se
+            # conserva porque hace visible la discrepancia entre las dos
+            # fuentes, pero NO es una escala temporal y el M12b no lo consume.
             hipotesis[f"h2_idf_{metodo}_sobre_p24"] = round(
                 lamina / pmax24_mm, 4)
+        razon = razon_interna_de_idf(
+            intensidad, (intensidades_24h or {}).get(metodo), duracion_min)
+        if razon is not None:
+            hipotesis[f"h2_idf_{metodo}_razon_interna"] = round(razon, 4)
+            # La lamina que de verdad consume el M12b: el NIVEL lo pone el
+            # analisis de frecuencia y la FORMA la curva.
+            hipotesis[f"h2_idf_{metodo}_escalada_mm"] = round(
+                pmax24_mm * razon, 2)
 
     adoptada = (metodologia_adoptada or "").strip().lower()
     if adoptada and hipotesis.get(f"h2_idf_{adoptada}_mm") is not None:
@@ -326,6 +404,11 @@ def desagregar(
 
     if coeficiente is not None:
         hipotesis["h3_factor_mm"] = round(pmax24_mm * coeficiente, 2)
+        # EL FACTOR SE PUBLICA, no se deja recuperar dividiendo. La lámina va
+        # redondeada a dos decimales y el cociente heredaba ese redondeo: sobre
+        # este estudio salía entre 0,5945 y 0,5947, y quien comprobase que una
+        # escala no varía con el periodo de retorno lo leería como que sí varía.
+        hipotesis["h3_factor_escala"] = round(coeficiente, 6)
 
     for clave in ("h1_directa", "h2_idf", "h3_factor"):
         valor = hipotesis.get(f"{clave}_mm")
@@ -748,24 +831,51 @@ def _resolver_desagregacion(configuracion, resultado, cuantiles,
                             duracion_min, logger) -> None:
     """Calcula las tres hipótesis de paso de P24h a la duración de diseño."""
     with registro.bloque(logger, "Desagregacion a la duracion de diseno"):
-        coeficiente = configuracion.obtener(
-            "tormenta.coeficiente_desagregacion.valor", None)
+        criterio = str(configuracion.obtener(
+            "tormenta.coeficiente_desagregacion.criterio",
+            "declarado")).strip().lower()
         fuente = str(configuracion.obtener(
             "tormenta.coeficiente_desagregacion.fuente", "") or "").strip()
-        coeficiente = float(coeficiente) if coeficiente is not None else None
+        if criterio == "escalamiento":
+            exponente = float(configuracion.obtener(
+                "tormenta.coeficiente_desagregacion.exponente_escala"))
+            coeficiente = coeficiente_de_escala(duracion_min, exponente)
+            logger.info(
+                "Coeficiente de h3_factor derivado de la duracion: "
+                "(%.0f/1440)^%.3f = %.4f", duracion_min, exponente, coeficiente)
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "desagregacion.escala_temporal",
+                f"'h3_factor' usa un factor de escala temporal de "
+                f"{coeficiente:.4f} para {duracion_min:.0f} min, derivado de "
+                f"P_d = P24h*(d/1440)^{exponente:g}. Con H = 0,25 es la "
+                f"relacion de Dyck y Peschke; la literatura de escalamiento "
+                f"simple situa H entre 0,20 y 0,35 para lluvia extrema. EL "
+                f"COEFICIENTE SE DERIVA DE LA DURACION y cambia con ella, de "
+                f"modo que una tormenta de otra duracion no hereda el de esta. "
+                f"Fuente declarada: {fuente or 'sin declarar'}.",
+            ))
+        else:
+            valor = configuracion.obtener(
+                "tormenta.coeficiente_desagregacion.valor", None)
+            coeficiente = float(valor) if valor is not None else None
 
         adoptada = str(configuracion.obtener(
             "idf.metodologia_adoptada", "") or "").strip().lower()
         for periodo, pmax in cuantiles.items():
-            fila = next((f for f in resultado.curvas
-                         if f["periodo_retorno"] == periodo
-                         and f["duracion_min"] == duracion_min), None)
-            intensidades = {
-                "invias": (fila or {}).get("i_invias_mm_h"),
-                "silva": (fila or {}).get("i_silva_mm_h"),
-            }
-            hipotesis = desagregar(pmax, duracion_min, intensidades,
-                                   coeficiente, adoptada)
+            def curva_en(duracion):
+                return next((f for f in resultado.curvas
+                             if f["periodo_retorno"] == periodo
+                             and f["duracion_min"] == duracion), None) or {}
+
+            fila = curva_en(duracion_min)
+            de_24h = curva_en(MINUTOS_EN_24H)
+            hipotesis = desagregar(
+                pmax, duracion_min,
+                {"invias": fila.get("i_invias_mm_h"),
+                 "silva": fila.get("i_silva_mm_h")},
+                coeficiente, adoptada,
+                {"invias": de_24h.get("i_invias_mm_h"),
+                 "silva": de_24h.get("i_silva_mm_h")})
             hipotesis["periodo_retorno"] = periodo
             resultado.desagregacion.append(hipotesis)
 

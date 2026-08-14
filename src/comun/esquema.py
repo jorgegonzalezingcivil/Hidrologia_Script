@@ -893,6 +893,19 @@ ESQUEMA: dict[str, Campo] = {
         "curva IDF de la que sale la razón P(d)/P24h en h2_idf",
         opciones=("invias", "silva"),
     ),
+    "tormenta.coeficiente_desagregacion.criterio": texto(
+        "cómo se obtiene el factor de escala temporal de h3_factor",
+        opciones=("escalamiento", "declarado"),
+    ),
+    # El rango admitido es más ancho que el que la literatura reporta (0,20 a
+    # 0,35) para no impedir un valor ajustado a registros locales, pero fuera de
+    # (0, 1) la relación deja de tener sentido físico.
+    "tormenta.coeficiente_desagregacion.exponente_escala": numero(
+        "exponente H de P_d = P24h*(d/1440)^H",
+        minimo=0.01, maximo=0.99,
+    ),
+    "tormenta.coeficiente_desagregacion.tabla": texto(
+        "tabla de exponentes de escala temporal y sus fuentes", no_vacio=True),
     "tormenta.coeficiente_desagregacion.valor": numero(
         "coeficiente de desagregación de h3_factor",
         permite_nulo=True, minimo=0, maximo=1,
@@ -1536,10 +1549,16 @@ def _inv_h3_factor(datos: dict) -> list[Hallazgo]:
     hallazgos: list[Hallazgo] = []
     valor = obtener(datos, "tormenta.coeficiente_desagregacion.valor")
     fuente = obtener(datos, "tormenta.coeficiente_desagregacion.fuente")
-    if valor is None:
+    criterio = obtener(datos, "tormenta.coeficiente_desagregacion.criterio")
+    # Con 'escalamiento' el coeficiente NO se declara: se deriva de la duración
+    # de diseño, que es justo lo que evita heredar el de otra tormenta. Exigirlo
+    # aquí obligaría a escribir a mano el número que el módulo va a calcular, y
+    # a mantener los dos en acuerdo.
+    if valor is None and criterio != "escalamiento":
         hallazgos.append(Hallazgo(
             BLOQUEANTE, "tormenta.coeficiente_desagregacion.valor",
-            "la hipótesis adoptada es h3_factor y el coeficiente está sin definir.",
+            "la hipótesis adoptada es h3_factor con criterio 'declarado' y el "
+            "coeficiente está sin definir.",
         ))
     if not (isinstance(fuente, str) and fuente.strip()):
         hallazgos.append(Hallazgo(

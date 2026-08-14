@@ -281,11 +281,33 @@ class PruebaEsquemaInvariantes(unittest.TestCase):
         self.datos["hec_hms"]["control"]["intervalo_min"] = 7
         self.assertIn("tormenta.duracion_h", self._claves(esquema.BLOQUEANTE))
 
-    def test_h3_factor_exige_coeficiente_y_fuente(self) -> None:
+    def test_h3_factor_declarado_exige_coeficiente_y_fuente(self) -> None:
         self.datos["tormenta"]["hipotesis_adoptada"] = "h3_factor"
+        self.datos["tormenta"]["coeficiente_desagregacion"]["criterio"] = "declarado"
+        self.datos["tormenta"]["coeficiente_desagregacion"]["valor"] = None
+        self.datos["tormenta"]["coeficiente_desagregacion"]["fuente"] = ""
         bloqueantes = self._claves(esquema.BLOQUEANTE)
         self.assertIn("tormenta.coeficiente_desagregacion.valor", bloqueantes)
         self.assertIn("tormenta.coeficiente_desagregacion.fuente", bloqueantes)
+
+    def test_h3_factor_por_escalamiento_no_exige_el_coeficiente(self) -> None:
+        # Se DERIVA de la duración de diseño, que es justo lo que evita heredar
+        # el de otra tormenta. Exigirlo obligaría a escribir a mano el número
+        # que el módulo calcula, y a mantener los dos en acuerdo.
+        self.datos["tormenta"]["hipotesis_adoptada"] = "h3_factor"
+        self.datos["tormenta"]["coeficiente_desagregacion"]["criterio"] = "escalamiento"
+        self.datos["tormenta"]["coeficiente_desagregacion"]["valor"] = None
+        self.assertNotIn("tormenta.coeficiente_desagregacion.valor",
+                         self._claves(esquema.BLOQUEANTE))
+
+    def test_la_fuente_sigue_siendo_obligatoria_con_escalamiento(self) -> None:
+        # CLAUDE.md sección 7: el criterio de toda decisión con margen queda
+        # registrado. El exponente lo es.
+        self.datos["tormenta"]["hipotesis_adoptada"] = "h3_factor"
+        self.datos["tormenta"]["coeficiente_desagregacion"]["criterio"] = "escalamiento"
+        self.datos["tormenta"]["coeficiente_desagregacion"]["fuente"] = ""
+        self.assertIn("tormenta.coeficiente_desagregacion.fuente",
+                      self._claves(esquema.BLOQUEANTE))
 
     def test_hipotesis_adoptada_debe_haber_sido_evaluada(self) -> None:
         self.datos["tormenta"]["hipotesis_p24_a_pd"] = ["h1_directa"]

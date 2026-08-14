@@ -944,8 +944,19 @@ tormenta:
   fuente_idf_desagregacion: "invias"   # invias | silva
   motivo_hipotesis: ""
   coeficiente_desagregacion:
+    # FACTOR DE ESCALA TEMPORAL de h3_factor. El nivel de la lamina lo pone el
+    # analisis de frecuencia del M07; esto solo fija que fraccion corresponde a
+    # la duracion de diseno.
+    #   escalamiento  se DERIVA de la duracion: P_d = P24h*(d/1440)^H. Con
+    #                 H = 0,25 es la relacion de Dyck y Peschke. Cambiar la
+    #                 duracion de la tormenta lo recalcula.
+    #   declarado     se usa 'valor' tal cual, con su fuente
+    # La tabla de data/referencia reune los exponentes y sus fuentes.
+    criterio: "escalamiento"
+    exponente_escala: 0.25
+    tabla: "data/referencia/escala_temporal_lluvia.csv"
     valor: null
-    fuente: ""                   # obligatorio si se usa h3_factor
+    fuente: "Dyck y Peschke, exponente 0,25"
   advertir_si_duracion_menor_tc: true
 
 # -----------------------------------------------------------------------------
