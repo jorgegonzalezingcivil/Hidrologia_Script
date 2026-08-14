@@ -1,0 +1,2 @@
+variable;coeficiente;exponente;unidad_entrada;unidad_salida;fuente;validado;observacion
+ancho_fondo;2.0;0.50;km2;m;Leopold y Maddock (1953), geometria hidraulica de aguas abajo;no;w = a * A^b con A el area de drenaje ACUMULADA en el tramo. El exponente 0,50 corresponde a ligar el ancho al caudal de banca llena con w proporcional a Q^0,5 y Q proporcional al area. El coeficiente es una regionalizacion SIN datos de campo del proyecto: si el estudio dispone de secciones levantadas, esta tabla se sustituye y se declara.

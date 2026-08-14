@@ -1079,7 +1079,7 @@ tiempo_concentracion:
   reportar_sensibilidad_caudal: true
 
 tiempo_rezago:
-  criterio: "scs"                # scs = 0.6*Tc | hechms = Δt/2 + 0.6*Tc
+  criterio: "hechms"                # scs = 0.6*Tc | hechms = Δt/2 + 0.6*Tc
   # Δt es el intervalo de cálculo (tormenta.intervalo_calculo_min),
   # NO la duración total de la tormenta.
   validar_coherencia_con_transform: true
@@ -1144,12 +1144,20 @@ hec_hms:
     muskingum_cunge:
       forma_seccion: "trapezoidal"
       n_manning: 0.04           # cauce natural; lo declara el consultor
-      # Geometria de la seccion. NO sale de la cadena: el DEM de 12,5 m no
-      # resuelve un cauce de pocos metros de ancho. Son valores que el
-      # consultor fija y el informe debe sustentar; con la seccion equivocada
-      # el amortiguamiento de la onda cambia y el caudal pico con el.
-      ancho_fondo_m: 1.0
-      talud_h_por_v: 1.0
+      # ANCHO DE FONDO. Un valor unico para toda la red no es defendible: el
+      # cauce de cierre y una quebrada de cabecera no tienen la misma seccion, y
+      # Muskingum-Cunge atenua por el almacenamiento que esa seccion ofrece.
+      # Medido con 1 m en los 62 tramos del estudio: atenuacion media del 0,25 %
+      # y 27 tramos sin desfase, es decir, traslacion pura.
+      #   fijo                   ancho_fondo_m para todos
+      #   geometria_hidraulica   w = a*A^b con A el area de drenaje ACUMULADA,
+      #                          recorriendo los enlaces de la topologia
+      criterio_ancho: "geometria_hidraulica"
+      tabla_geometria: "data/referencia/geometria_hidraulica.csv"
+      ancho_fondo_m: 1.0        # con 'fijo', el ancho; con la relacion, el minimo
+      # Talud, horizontal por vertical. Sigue siendo un valor unico declarado:
+      # el DEM de 12,5 m no resuelve la seccion de un cauce de pocos metros.
+      talud_h_por_v: 2.0
       # Celeridad indice de la onda, en m/s. HEC-HMS la pide para arrancar el
       # calculo y la ajusta despues; el valor declarado es el punto de partida.
       celeridad_indice_ms: 1.0

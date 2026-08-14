@@ -19,6 +19,7 @@ if str(_DIRECTORIO_SRC) not in sys.path:
 
 import M13_hec_hms as m13  # noqa: E402
 from comun.config import cargar  # noqa: E402
+from comun.errores import ErrorFormato, ErrorRutas  # noqa: E402
 
 _CFG = cargar(raiz=_RAIZ_REPO)
 
@@ -167,6 +168,100 @@ class PruebaActualizacion(unittest.TestCase):
         original = self._tramo()
         salida, motivo = m13.actualizar_tramo(original, {}, 0.04, 3.0, 2.0)
         self.assertEqual(salida, original)
+
+
+TOPOLOGIA = """Basin: Basin 1
+End:
+
+Subbasin: SB1
+     Area: 10.0
+     Downstream: R1
+End:
+
+Subbasin: SB2
+     Area: 5.0
+     Downstream: R1
+End:
+
+Reach: R1
+     Downstream: J1
+End:
+
+Subbasin: SB3
+     Area: 3.0
+     Downstream: J1
+End:
+
+Junction: J1
+     Downstream: Sink-1
+End:
+
+Sink: Sink-1
+End:
+"""
+
+
+class PruebaAreasAcumuladas(unittest.TestCase):
+    """
+    El ancho de cada tramo sale de SU área de drenaje, no de un valor único.
+    La suma en el cierre es la comprobación de que la red no tiene ramas sueltas.
+    """
+
+    def test_cada_tramo_reune_lo_que_tiene_aguas_arriba(self) -> None:
+        acumuladas = m13.areas_acumuladas(TOPOLOGIA)
+        self.assertAlmostEqual(acumuladas["R1"], 15.0)
+        self.assertAlmostEqual(acumuladas["J1"], 18.0)
+
+    def test_el_cierre_reune_la_cuenca_entera(self) -> None:
+        acumuladas = m13.areas_acumuladas(TOPOLOGIA)
+        self.assertAlmostEqual(acumuladas["Sink-1"], 18.0)
+
+    def test_una_subcuenca_se_cuenta_a_si_misma(self) -> None:
+        self.assertAlmostEqual(m13.areas_acumuladas(TOPOLOGIA)["SB1"], 10.0)
+
+    def test_un_enlace_circular_no_cuelga_el_modulo(self) -> None:
+        # La delimitación no debería producirlo, pero tampoco lo impide, y un
+        # recorrido sin control de visitados no terminaría nunca.
+        circular = ("Subbasin: A\n     Area: 1.0\n     Downstream: B\nEnd:\n\n"
+                    "Junction: B\n     Downstream: C\nEnd:\n\n"
+                    "Junction: C\n     Downstream: B\nEnd:\n")
+        acumuladas = m13.areas_acumuladas(circular)
+        self.assertAlmostEqual(acumuladas["B"], 1.0)
+        self.assertAlmostEqual(acumuladas["C"], 1.0)
+
+
+class PruebaAnchoDeFondo(unittest.TestCase):
+    def test_crece_con_la_raiz_del_area(self) -> None:
+        # w = 2*A^0.5: cuadruplicar el área duplica el ancho.
+        uno = m13.ancho_por_geometria_hidraulica(25.0, 2.0, 0.5)
+        otro = m13.ancho_por_geometria_hidraulica(100.0, 2.0, 0.5)
+        self.assertAlmostEqual(uno, 10.0)
+        self.assertAlmostEqual(otro, 20.0)
+
+    def test_nunca_baja_del_minimo(self) -> None:
+        # Un área nula solo puede venir de una topología rota; un ancho cero
+        # daría una sección sin área y HEC-HMS no lo resolvería.
+        self.assertEqual(
+            m13.ancho_por_geometria_hidraulica(0.0, 2.0, 0.5, minimo_m=1.0), 1.0)
+
+    def test_la_relacion_se_lee_de_la_tabla_de_doctrina(self) -> None:
+        ruta = _RAIZ_REPO / _CFG.obtener(
+            "hec_hms.transito.muskingum_cunge.tabla_geometria")
+        relacion = m13.leer_geometria_hidraulica(ruta, ";")
+        self.assertGreater(relacion["coeficiente"], 0.0)
+        self.assertGreater(relacion["exponente"], 0.0)
+        self.assertLess(relacion["exponente"], 1.0)
+        self.assertTrue(relacion["fuente"])
+
+    def test_una_variable_ausente_es_error_explicito(self) -> None:
+        ruta = _RAIZ_REPO / _CFG.obtener(
+            "hec_hms.transito.muskingum_cunge.tabla_geometria")
+        with self.assertRaises(ErrorFormato):
+            m13.leer_geometria_hidraulica(ruta, ";", variable="no_existe")
+
+    def test_tabla_ausente(self) -> None:
+        with self.assertRaises(ErrorRutas):
+            m13.leer_geometria_hidraulica(Path("no_existe.csv"), ";")
 
 
 class PruebaMeteorologia(unittest.TestCase):

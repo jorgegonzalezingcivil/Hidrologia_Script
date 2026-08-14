@@ -1076,6 +1076,12 @@ ESQUEMA: dict[str, Campo] = {
         "ancho de fondo de la seccion trapezoidal", minimo=0.1, maximo=200.0),
     "hec_hms.transito.muskingum_cunge.talud_h_por_v": numero(
         "talud de la seccion, horizontal por vertical", minimo=0.0, maximo=10.0),
+    "hec_hms.transito.muskingum_cunge.criterio_ancho": texto(
+        "cómo se asigna el ancho de fondo de cada tramo",
+        opciones=("fijo", "geometria_hidraulica"),
+    ),
+    "hec_hms.transito.muskingum_cunge.tabla_geometria": texto(
+        "tabla de la relación de geometría hidráulica", no_vacio=True),
     "hec_hms.transito.muskingum_cunge.celeridad_indice_ms": numero(
         "celeridad índice de la onda", minimo=0.1, maximo=10.0),
     "hec_hms.transito.muskingum_cunge.n_manning": numero(

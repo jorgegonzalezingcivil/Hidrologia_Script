@@ -360,6 +360,118 @@ def actualizar_subcuenca(bloque: str, parametros: dict) -> tuple[str, str]:
     return bloque, ""
 
 
+def areas_acumuladas(texto_basin: str) -> dict[str, float]:
+    """
+    Área de drenaje que llega a cada elemento, recorriendo la topología.
+
+    Cada subcuenca vierte su área a TODO lo que tiene aguas abajo, siguiendo la
+    cadena de enlaces 'Downstream:' hasta el cierre. Es la misma información que
+    produjo la delimitación asistida, sin volver a tocar el DEM.
+
+    LA SUMA EN EL CIERRE ES LA COMPROBACIÓN. Si el elemento final no acumula el
+    área total de la cuenca, la topología tiene ramas sueltas y el ancho de los
+    tramos saldría de un área que no es la suya. Medido sobre el modelo del
+    estudio: R1 acumula 220,57 km2 y la cuenca tiene 220,57 km2.
+
+    El recorrido lleva control de visitados: un enlace circular, que la
+    delimitación no debería producir pero tampoco impide, colgaría el módulo.
+    """
+    tipo: dict[str, str] = {}
+    aguas_abajo: dict[str, str] = {}
+    area: dict[str, float] = {}
+    nombre = ""
+    for linea in texto_basin.splitlines():
+        encabezado = re.match(
+            r"^(Subbasin|Reach|Junction|Sink|Reservoir|Source|Diversion): (.+)$",
+            linea)
+        if encabezado:
+            nombre = encabezado.group(2).strip()
+            tipo[nombre] = encabezado.group(1)
+            continue
+        if not nombre:
+            continue
+        enlace = re.match(r"^\s+Downstream: (.+)$", linea)
+        if enlace:
+            aguas_abajo[nombre] = enlace.group(1).strip()
+            continue
+        medida = re.match(r"^\s+Area: ([0-9.eE+-]+)\s*$", linea)
+        if medida and tipo.get(nombre) == "Subbasin":
+            try:
+                area[nombre] = float(medida.group(1))
+            except ValueError:
+                pass
+
+    acumulada = {n: 0.0 for n in tipo}
+    for subcuenca, propia in area.items():
+        visitados: set[str] = set()
+        actual = subcuenca
+        while actual and actual in acumulada and actual not in visitados:
+            visitados.add(actual)
+            acumulada[actual] += propia
+            actual = aguas_abajo.get(actual, "")
+    return acumulada
+
+
+def ancho_por_geometria_hidraulica(
+    area_km2: float, coeficiente: float, exponente: float,
+    minimo_m: float = 1.0,
+) -> float:
+    """
+    Ancho de fondo de un tramo a partir de su área de drenaje acumulada.
+
+    w = a * A^b, geometría hidráulica de aguas abajo. UN ANCHO ÚNICO PARA TODA
+    LA RED NO ES DEFENDIBLE: el cauce de cierre y el de una quebrada de cabecera
+    no tienen la misma sección, y Muskingum-Cunge atenúa por el almacenamiento
+    que esa sección ofrece. Medido con 1 m de fondo en los 62 tramos del
+    estudio: atenuación media del 0,25 % y 27 tramos sin desfase alguno, es
+    decir, traslación pura.
+
+    El mínimo evita que un área acumulada nula, que solo puede venir de una
+    topología rota, produzca un ancho cero y una sección sin área.
+    """
+    if area_km2 <= 0 or coeficiente <= 0:
+        return minimo_m
+    return max(minimo_m, coeficiente * (area_km2 ** exponente))
+
+
+def leer_geometria_hidraulica(ruta: Path, delimitador: str,
+                              variable: str = "ancho_fondo") -> dict[str, Any]:
+    """
+    Lee la relación de geometría hidráulica de la tabla de doctrina.
+
+    Es una REGIONALIZACIÓN sin datos de campo del proyecto y la tabla lo dice.
+    Vive en data/referencia porque es doctrina técnica y no código (CLAUDE.md,
+    sección 2), de modo que un estudio con secciones levantadas la sustituye.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si el archivo no está.
+    ErrorFormato
+        Si no trae la variable pedida o sus valores no son números.
+    """
+    if not ruta.is_file():
+        raise ErrorRutas(
+            f"no se encuentra la tabla de geometria hidraulica en {ruta}.")
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        for fila in csv.DictReader(manejador, delimiter=delimitador):
+            if str(fila.get("variable", "")).strip() != variable:
+                continue
+            try:
+                return {
+                    "coeficiente": float(fila["coeficiente"]),
+                    "exponente": float(fila["exponente"]),
+                    "fuente": str(fila.get("fuente", "")).strip(),
+                    "validado": str(fila.get("validado", "")).strip().lower()
+                    in ("si", "sí", "true"),
+                }
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ErrorFormato(
+                    f"{ruta.name}: la fila de {variable!r} no es legible "
+                    f"({exc}).") from exc
+    raise ErrorFormato(f"{ruta.name} no trae la variable {variable!r}.")
+
+
 def actualizar_tramo(bloque: str, geometria: dict, n_manning: float,
                      ancho_fondo: float, talud: float,
                      celeridad: float = 1.0) -> tuple[str, str]:
@@ -641,7 +753,7 @@ def ejecutar(
 
     with registro.bloque(logger, "Modelo de cuenca"):
         _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
-                           resultado, logger)
+                           resultado, logger, base)
 
     with registro.bloque(logger, "Meteorologia y escenarios"):
         _escribir_meteorologia(configuracion, proyecto, hietogramas,
@@ -650,6 +762,31 @@ def ejecutar(
     _registrar_productos(base, resultado)
     return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
                    SALIDA_CORRECTA)
+
+
+def _verificar_topologia(acumuladas, texto, resultado, logger) -> None:
+    """
+    Comprueba que el cierre acumule el area total de la cuenca.
+
+    ES LA VERIFICACION DE QUE LA RED CIERRA. Si el elemento final no reune todas
+    las subcuencas, hay ramas sueltas y el ancho de los tramos saldria de un
+    area que no es la suya, sin que nada lo senale.
+    """
+    total = sum(
+        float(m.group(1))
+        for m in re.finditer(r"^\s+Area: ([0-9.eE+-]+)\s*$", texto, re.M))
+    mayor = max(acumuladas.values()) if acumuladas else 0.0
+    logger.info("Area acumulada en el cierre: %.2f km2 de %.2f km2 de cuenca",
+                mayor, total)
+    if total <= 0 or abs(mayor - total) / total <= 0.001:
+        return
+    resultado.hallazgos.append(Hallazgo(
+        ADVERTENCIA, "transito.topologia_incompleta",
+        f"el elemento que mas area acumula reune {mayor:.2f} km2 y las "
+        f"subcuencas suman {total:.2f} km2. La red tiene ramas que no llegan al "
+        "cierre, de modo que el ancho de los tramos aguas abajo sale de un area "
+        "menor que la suya y su seccion queda subestimada.",
+    ))
 
 
 def _leer_csv(ruta: Path) -> list[dict[str, str]]:
@@ -663,7 +800,7 @@ def _leer_csv(ruta: Path) -> list[dict[str, str]]:
 
 
 def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
-                       resultado, logger) -> None:
+                       resultado, logger, base=None) -> None:
     """Reescribe los bloques de subcuenca y de tramo del modelo entregado."""
     texto = ruta_basin.read_text(encoding="utf-8", errors="replace")
 
@@ -692,6 +829,18 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
     celeridad = float(configuracion.obtener(
         "hec_hms.transito.muskingum_cunge.celeridad_indice_ms", 1.0))
 
+    criterio_ancho = str(configuracion.obtener(
+        "hec_hms.transito.muskingum_cunge.criterio_ancho", "fijo")).strip()
+    relacion, acumuladas = None, {}
+    if criterio_ancho == "geometria_hidraulica":
+        relacion = leer_geometria_hidraulica(
+            rutas.resolver(configuracion.obtener(
+                "hec_hms.transito.muskingum_cunge.tabla_geometria"), base),
+            str(configuracion.obtener("insumos_usuario.delimitador_csv")))
+        acumuladas = areas_acumuladas(texto)
+        _verificar_topologia(acumuladas, texto, resultado, logger)
+
+    anchos: dict[str, float] = {}
     nuevos: list[str] = []
     sin_parametros: list[str] = []
     sin_geometria: list[str] = []
@@ -705,13 +854,19 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
             else:
                 actualizadas += 1
         elif tipo == "Reach":
+            del_tramo = ancho
+            if relacion is not None:
+                del_tramo = ancho_por_geometria_hidraulica(
+                    acumuladas.get(nombre, 0.0), relacion["coeficiente"],
+                    relacion["exponente"], minimo_m=ancho)
             bloque, motivo = actualizar_tramo(
-                bloque, geometrias.get(nombre, {}), n_manning, ancho, talud,
+                bloque, geometrias.get(nombre, {}), n_manning, del_tramo, talud,
                 celeridad)
             if motivo:
                 sin_geometria.append(f"{nombre} ({motivo})")
             else:
                 tramos_ok += 1
+                anchos[nombre] = del_tramo
         nuevos.append(bloque)
 
     ruta_basin.write_text("".join(nuevos), encoding="utf-8")
@@ -721,16 +876,37 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
     resultado.tramos = {"actualizados": tramos_ok,
                         "sin_geometria": sin_geometria,
                         "n_manning": n_manning, "ancho_fondo_m": ancho,
-                        "talud_h_por_v": talud}
+                        "talud_h_por_v": talud,
+                        "criterio_ancho": criterio_ancho,
+                        "anchos": {n: round(a, 2) for n, a in sorted(anchos.items())}}
     logger.info("%d subcuenca(s) y %d tramo(s) actualizados",
                 actualizadas, tramos_ok)
+
+    if relacion is not None and anchos:
+        valores = sorted(anchos.values())
+        descripcion = (
+            f"ancho de fondo por geometria hidraulica, w = "
+            f"{relacion['coeficiente']:g}*A^{relacion['exponente']:g} con A el "
+            f"area de drenaje ACUMULADA del tramo: de {valores[0]:.1f} a "
+            f"{valores[-1]:.1f} m, mediana {valores[len(valores)//2]:.1f} m")
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "transito.geometria_regionalizada",
+            f"el {descripcion}. Es una REGIONALIZACION ({relacion['fuente']}) "
+            f"sin datos de campo del proyecto"
+            f"{', y la tabla no esta validada' if not relacion['validado'] else ''}"
+            ". El informe debe presentarla como tal: la seccion gobierna el "
+            "amortiguamiento de la onda y con ella cambia el caudal pico. Si el "
+            "estudio dispone de secciones levantadas, sustituyen esta tabla.",
+        ))
+    else:
+        descripcion = f"ancho de fondo {ancho:.1f} m, igual en todos los tramos"
 
     resultado.hallazgos.append(Hallazgo(
         INFORMATIVO, "modelo.actualizado",
         f"{actualizadas} subcuenca(s) pasan a SCS Curve Number y SCS Unit "
         f"Hydrograph con su CN y su rezago, y {tramos_ok} tramo(s) a "
         f"Muskingum-Cunge con seccion trapezoidal, n de Manning {n_manning:.3f}, "
-        f"ancho de fondo {ancho:.1f} m y talud {talud:.1f}H:1V. La topologia, "
+        f"{descripcion} y talud {talud:.1f}H:1V. La topologia, "
         "las coordenadas de lienzo y las conexiones aguas abajo se conservan "
         "intactas: solo se reescriben los bloques de parametros.",
     ))
