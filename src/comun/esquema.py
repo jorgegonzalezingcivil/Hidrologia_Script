@@ -1255,6 +1255,12 @@ ESQUEMA: dict[str, Campo] = {
     ),
 
     # --- M18a: temperatura ---------------------------------------------------
+    "infiltracion.tabla": texto(
+        "tabla de coeficientes de Schosinsky", no_vacio=True),
+    "infiltracion.tabla_cobertura": texto(
+        "homologación de cobertura a las clases del modelo", no_vacio=True),
+    "infiltracion.salida": texto(
+        "directorio de las tablas de infiltración", no_vacio=True),
     "balance_hidrico.ena.rendimiento_l_s_km2": numero(
         "rendimiento que el ENA publica para la subzona",
         permite_nulo=True, minimo=0, maximo=500),

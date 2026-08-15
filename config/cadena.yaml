@@ -243,10 +243,13 @@ pasos:
     estado: disponible
 
   - modulo: M18b
+    # Schosinsky y Losilla: C = Kfc + Kp + Kv. Los parametros salen del suelo
+    # de ESTE estudio, del grupo hidrologico que el M10 determino, no de un
+    # valor tomado de un estudio de otra zona.
     nombre: "Infiltración"
     script: "src/M18b_infiltracion.py"
     entorno: venv
-    estado: pendiente
+    estado: disponible
 
   - modulo: M19
     nombre: "Curva de duración, IRH y caudal ambiental"

@@ -1,0 +1,11 @@
+cobertura;clase_schosinsky;kv;validado;criterio
+pasto_limpio;pastizales;0.18;no;Pasto manejado con cobertura continua. Es la clase de pastizal de Schosinsky sin ambiguedad.
+mosaico_agropecuario;terrenos_cultivados;0.10;no;Mosaico de cultivos y pastos con predominio de laboreo. Se asigna a cultivados por ser el uso que gobierna la estructura del suelo.
+arbustal_denso;bosques;0.20;no;Cobertura lenosa continua. Schosinsky no separa arbustal de bosque; el arbustal denso se comporta como bosque en intercepcion y macroporosidad.
+mosaico_con_naturales;pastizales;0.18;no;Mezcla de pastos y relictos naturales. Queda entre cultivados y bosques; se adopta pastizales por ser el termino medio y el uso mayoritario.
+herbazal_denso;cobertura_con_zacate_mayor_75;0.21;no;Herbazal de paramo con cobertura continua por encima del 75 por ciento. Es la clase de mayor infiltracion de la tabla.
+arbustal_abierto;cobertura_con_zacate_menor_75;0.09;no;Arbustal con suelo descubierto entre matas. La fraccion desnuda gobierna, y por eso NO se asimila a bosque.
+zona_verde_urbana;pastizales;0.18;no;Cesped urbano manejado. Se asigna a pastizales aunque la compactacion por uso reduce la infiltracion real: es el punto mas debil de esta homologacion.
+bosque_denso;bosques;0.20;no;Directo.
+cultivo_hilera;terrenos_cultivados;0.10;no;Directo.
+urbano_continuo;cobertura_con_zacate_menor_75;0.09;no;Superficie impermeable. Schosinsky NO tiene clase urbana: se adopta la de menor infiltracion, que sigue sobrestimandola. Con una sola subcuenca dominada por esta clase el efecto es menor, pero si el area urbana creciera habria que salir de esta tabla.

@@ -1302,6 +1302,18 @@ temperatura:
   salida: "data/02_procesado/temperatura"
 
 # -----------------------------------------------------------------------------
+# M18b - INFILTRACION
+# -----------------------------------------------------------------------------
+# Modelo de Schosinsky y Losilla: C = Kfc + Kp + Kv, con I = C*(P - Ret).
+# LOS PARAMETROS SALEN DEL SUELO DE ESTE ESTUDIO: la infiltracion basica se
+# deriva del grupo hidrologico que el M10 determino, no de un valor tomado de
+# otra zona.
+infiltracion:
+  tabla: "data/referencia/infiltracion_schosinsky.csv"
+  tabla_cobertura: "data/referencia/kv_cobertura_schosinsky.csv"
+  salida: "data/02_procesado/infiltracion"
+
+# -----------------------------------------------------------------------------
 # M18 / M19 - BALANCE HÍDRICO
 # -----------------------------------------------------------------------------
 balance_hidrico:

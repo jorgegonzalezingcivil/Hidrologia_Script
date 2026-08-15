@@ -1,0 +1,18 @@
+tipo;clave;desde;hasta;valor;fuente;validado;observacion
+fc_por_grupo;A;;;210;Rangos de infiltracion basica por grupo hidrologico de suelo del SCS, en mm/dia;no;Grupo A: arenas y gravas, infiltracion alta. El valor es el CENTRO del rango del grupo y se declara: sin ensayos de campo, adoptar el extremo favorable o el desfavorable cambia el balance y debe quedar escrito cual se tomo.
+fc_por_grupo;B;;;120;Idem;no;Grupo B: francos arenosos, infiltracion moderada.
+fc_por_grupo;C;;;40;Idem;no;Grupo C: francos arcillosos, infiltracion lenta. Es el dominante en este estudio (89,8 por ciento del area).
+fc_por_grupo;D;;;10;Idem;no;Grupo D: arcillas y suelos someros sobre roca, infiltracion muy lenta.
+kp_pendiente;muy_plana;0.00;0.02;0.30;Schosinsky y Losilla (1999), Modelo analitico para determinar la infiltracion con base en la lluvia mensual;no;Fraccion que se infiltra por efecto de la pendiente. A menos pendiente, mas tiempo de contacto y mas infiltracion.
+kp_pendiente;plana;0.02;0.06;0.20;Idem;no;
+kp_pendiente;algo_plana;0.06;0.12;0.15;Idem;no;
+kp_pendiente;promedio;0.12;0.20;0.10;Idem;no;
+kp_pendiente;fuerte;0.20;99.0;0.06;Idem;no;Es la clase de este estudio: la pendiente mediana de las subcuencas es 0,214.
+kv_cobertura;cobertura_con_zacate_menor_75;;;0.09;Idem;no;Fraccion que se infiltra por efecto de la cobertura vegetal.
+kv_cobertura;terrenos_cultivados;;;0.10;Idem;no;
+kv_cobertura;pastizales;;;0.18;Idem;no;
+kv_cobertura;bosques;;;0.20;Idem;no;
+kv_cobertura;cobertura_con_zacate_mayor_75;;;0.21;Idem;no;
+retencion;bosque;;;0.20;Idem;no;Coeficiente de follaje: fraccion de la lluvia mensual que la vegetacion retiene y devuelve por evaporacion sin llegar al suelo.
+retencion;otras_coberturas;;;0.12;Idem;no;
+retencion;lluvia_minima_mm;;;5.0;Idem;no;Por debajo de esta lamina mensual se retiene TODA la lluvia: no alcanza a superar la intercepcion del follaje.
