@@ -127,5 +127,115 @@ class PruebaResumen(unittest.TestCase):
         self.assertEqual(m19.resumir_curva([]), {})
 
 
+class PruebaIrh(unittest.TestCase):
+    """
+    Mide cuánto del agua se entrega de forma sostenida en lugar de concentrarse
+    en unos pocos meses de crecida.
+    """
+
+    def test_un_caudal_constante_da_indice_uno(self) -> None:
+        # Todo el caudal es igual a la media: regulación perfecta.
+        curva = m19.curva_de_duracion([5.0] * 50)
+        self.assertAlmostEqual(m19.indice_de_retencion(curva)["irh"], 1.0,
+                               places=4)
+
+    def test_un_regimen_torrencial_da_indice_bajo(self) -> None:
+        # Un mes enorme y el resto casi seco: casi toda el área está por encima
+        # de la media en ese punto, y el índice cae.
+        curva = m19.curva_de_duracion([1000.0] + [1.0] * 99)
+        self.assertLess(m19.indice_de_retencion(curva)["irh"], 0.3)
+
+    def test_no_cambia_al_reescalar(self) -> None:
+        # El factor de almacenamiento multiplica numerador y denominador por
+        # igual: la regulación es una forma del régimen, no un nivel.
+        caudales = [float(v) for v in range(1, 61)]
+        uno = m19.indice_de_retencion(m19.curva_de_duracion(caudales))["irh"]
+        otro = m19.indice_de_retencion(
+            m19.curva_de_duracion([c * 0.6303 for c in caudales]))["irh"]
+        self.assertAlmostEqual(uno, otro, places=6)
+
+    def test_esta_entre_cero_y_uno(self) -> None:
+        for caudales in ([1.0, 2.0, 3.0], [100.0, 1.0, 1.0, 1.0],
+                         [5.0, 5.0, 5.1]):
+            indice = m19.indice_de_retencion(
+                m19.curva_de_duracion(caudales))["irh"]
+            self.assertGreaterEqual(indice, 0.0)
+            self.assertLessEqual(indice, 1.0)
+
+    def test_las_categorias_siguen_los_rangos_del_ideam(self) -> None:
+        self.assertEqual(m19.categoria_de_irh(0.90), "muy alta")
+        self.assertEqual(m19.categoria_de_irh(0.80), "alta")
+        self.assertEqual(m19.categoria_de_irh(0.70), "moderada")
+        self.assertEqual(m19.categoria_de_irh(0.55), "baja")
+        self.assertEqual(m19.categoria_de_irh(0.30), "muy baja")
+
+    def test_con_un_solo_punto_es_error(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m19.indice_de_retencion(m19.curva_de_duracion([1.0]))
+
+    def test_una_curva_toda_en_cero_es_error(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m19.indice_de_retencion(m19.curva_de_duracion([0.0] * 10))
+
+
+class PruebaCaudalAmbiental(unittest.TestCase):
+    """
+    Una cuenca que regula mal entrega su agua a golpes: sus estiajes son más
+    profundos y el ecosistema depende más de que se le reserve caudal.
+    """
+
+    def setUp(self) -> None:
+        self.curva = m19.curva_de_duracion([float(v) for v in range(1, 101)])
+
+    def test_un_irh_bajo_reserva_mas_caudal(self) -> None:
+        # El percentil 75 da un caudal MAYOR que el 85: menos regulación,
+        # más reserva.
+        poco = m19.caudal_ambiental(self.curva, 0.5, 0.7, 75.0, 85.0)
+        mucho = m19.caudal_ambiental(self.curva, 0.9, 0.7, 75.0, 85.0)
+        self.assertGreater(poco["qirh_m3s"], mucho["qirh_m3s"])
+        self.assertEqual(poco["percentil_aplicado"], 75.0)
+        self.assertEqual(mucho["percentil_aplicado"], 85.0)
+
+    def test_el_umbral_pertenece_al_lado_alto(self) -> None:
+        justo = m19.caudal_ambiental(self.curva, 0.7, 0.7, 75.0, 85.0)
+        self.assertEqual(justo["percentil_aplicado"], 85.0)
+
+    def test_los_dos_metodos_se_calculan_siempre(self) -> None:
+        # Adoptar uno en silencio no es defendible: la diferencia decide
+        # cuánta agua queda para el proyecto.
+        salida = m19.caudal_ambiental(self.curva, 0.5, 0.7, 75.0, 85.0)
+        self.assertIn("q95_m3s", salida)
+        self.assertIn("qirh_m3s", salida)
+
+    def test_el_adoptado_es_el_declarado(self) -> None:
+        salida = m19.caudal_ambiental(self.curva, 0.5, 0.7, 75.0, 85.0,
+                                      metodo_adoptado="q95")
+        self.assertAlmostEqual(salida["caudal_ambiental_m3s"],
+                               salida["q95_m3s"], places=6)
+
+    def test_un_metodo_desconocido_es_error(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m19.caudal_ambiental(self.curva, 0.5, 0.7, 75.0, 85.0,
+                                 metodo_adoptado="otro")
+
+
+class PruebaDisponible(unittest.TestCase):
+    def test_es_la_resta(self) -> None:
+        salida = m19.caudal_disponible(2.488, 0.7007)
+        self.assertAlmostEqual(salida["caudal_disponible_m3s"], 1.7873,
+                               places=4)
+        self.assertAlmostEqual(salida["reserva_pct"], 28.16, places=1)
+
+    def test_nunca_es_negativo_y_lo_senala(self) -> None:
+        # Un ambiental por encima del medio significa que no hay agua para el
+        # proyecto: una resta negativa lo escondería.
+        salida = m19.caudal_disponible(1.0, 1.5)
+        self.assertEqual(salida["caudal_disponible_m3s"], 0.0)
+        self.assertTrue(salida["sin_disponibilidad"])
+
+    def test_sin_caudal_medio_no_hay_porcentaje(self) -> None:
+        self.assertIsNone(m19.caudal_disponible(0.0, 0.0)["reserva_pct"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

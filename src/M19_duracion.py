@@ -9,10 +9,9 @@ CIERRA EL REGIMEN DE CAUDALES MEDIOS. Toma la serie mensual que el M18 produjo
 sobre 456 meses y ordena sus caudales por probabilidad de excedencia: cuántos
 meses de cada cien superan un caudal dado.
 
-ALCANCE DE HOY. Este módulo entrega la curva de duración y sus percentiles. El
-índice de retención y regulación hídrica y el caudal ambiental quedan
-pendientes, y el módulo lo declara en su reporte en lugar de dejar el hueco sin
-señalar. Los dos se apoyan en esta curva, de modo que el orden es este.
+DE LA CURVA SALEN LAS OTRAS DOS COSAS. El índice de retención y regulación
+hídrica es el área que queda por debajo del caudal medio dividida entre el área
+total, y el caudal ambiental se lee en un percentil que ese índice condiciona.
 
 SE LEE LA SERIE REESCALADA, no la cruda. El M18 corrige la serie mensual con el
 factor de almacenamiento derivado del balance anual, y es esa la que representa
@@ -82,6 +81,8 @@ class ResultadoM19:
     curva: list[dict[str, Any]] = field(default_factory=list)
     percentiles: list[dict[str, Any]] = field(default_factory=list)
     resumen: dict[str, Any] = field(default_factory=dict)
+    irh: dict[str, Any] = field(default_factory=dict)
+    ambiental: dict[str, Any] = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -200,6 +201,162 @@ def resumir_curva(curva: Sequence[dict[str, Any]],
     }
 
 
+
+def indice_de_retencion(curva: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Índice de retención y regulación hídrica, IRH, del IDEAM.
+
+    Es la razón entre el volumen que queda POR DEBAJO del caudal medio dentro de
+    la curva de duración y el volumen total bajo la curva:
+
+        IRH = area(min(Q, Qmedio)) / area(Q)
+
+    QUE MIDE. Cuánto del agua que la cuenca entrega lo hace de forma sostenida,
+    en lugar de concentrarse en unos pocos meses de crecida. Un IRH alto dice que
+    el caudal se mantiene cerca de su media buena parte del tiempo, es decir, que
+    la cuenca regula; uno bajo, que unos pocos meses húmedos aportan casi todo y
+    el resto del año escurre poco.
+
+    SE INTEGRA SOBRE LA PROBABILIDAD DE EXCEDENCIA Y NO SOBRE EL ORDEN. Los
+    puntos de la curva no están igualmente espaciados en probabilidad cuando la
+    muestra tiene huecos, y sumar ordenadas sin pesarlas por su intervalo daría
+    un índice que depende de cuántos meses se midieron, no de cómo se reparten.
+
+    EL RESULTADO ES ADIMENSIONAL Y NO CAMBIA CON EL REESCALADO, porque el factor
+    de almacenamiento multiplica numerador y denominador por igual. Es una
+    propiedad deseable: la regulación es una forma del régimen, no un nivel.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si la curva tiene menos de dos puntos, o si su área total es nula.
+    """
+    if len(curva) < 2:
+        raise ErrorHidrologia(
+            f"se necesitan al menos 2 puntos para integrar la curva y hay "
+            f"{len(curva)}.")
+
+    caudales = [f["caudal_m3s"] for f in curva]
+    medio = sum(caudales) / len(caudales)
+
+    total = bajo_la_media = 0.0
+    for anterior, siguiente in zip(curva, curva[1:]):
+        ancho = siguiente["excedencia_pct"] - anterior["excedencia_pct"]
+        if ancho <= 0:
+            continue
+        # Trapecios sobre la probabilidad: es el area de la curva, no la suma
+        # de sus ordenadas.
+        total += 0.5 * (anterior["caudal_m3s"] + siguiente["caudal_m3s"]) * ancho
+        bajo_la_media += 0.5 * (min(anterior["caudal_m3s"], medio)
+                                + min(siguiente["caudal_m3s"], medio)) * ancho
+
+    if total <= 0:
+        raise ErrorHidrologia(
+            "el area bajo la curva de duracion es nula: todos los caudales son "
+            "cero y no hay regimen que caracterizar.")
+
+    indice = bajo_la_media / total
+    return {
+        "irh": round(indice, 4),
+        "caudal_medio_m3s": round(medio, 5),
+        "area_total": round(total, 4),
+        "area_bajo_la_media": round(bajo_la_media, 4),
+        "categoria": categoria_de_irh(indice),
+    }
+
+
+# Rangos con que el IDEAM interpreta el indice en el Estudio Nacional del Agua.
+# Van en el codigo y no en data/referencia porque no son un parametro de
+# calculo: son la lectura cualitativa del numero, y cambiarlos no cambia ningun
+# resultado, solo su etiqueta.
+CATEGORIAS_IRH = (
+    (0.85, "muy alta"),
+    (0.75, "alta"),
+    (0.65, "moderada"),
+    (0.50, "baja"),
+    (0.00, "muy baja"),
+)
+
+
+def categoria_de_irh(indice: float) -> str:
+    """Lectura cualitativa del índice, según los rangos del IDEAM."""
+    for umbral, nombre in CATEGORIAS_IRH:
+        if indice >= umbral:
+            return nombre
+    return "muy baja"
+
+
+def caudal_ambiental(
+    curva: Sequence[dict[str, Any]], irh: float, umbral: float,
+    percentil_si_menor: float, percentil_si_mayor: float,
+    metodo_adoptado: str = "qirh",
+) -> dict[str, Any]:
+    """
+    Caudal ambiental por los dos métodos, y el adoptado.
+
+        q95    el percentil 95 de la curva, sin más
+        qirh   percentil condicionado al IRH: si la cuenca regula poco se
+               reserva un caudal MAYOR, y si regula bien uno menor
+
+    LA REGLA ES CONDICIONAL Y VA EN ESE SENTIDO POR UNA RAZÓN. Una cuenca que
+    regula mal entrega su agua a golpes: sus estiajes son más profundos y el
+    ecosistema depende más de que se le reserve caudal. Por eso un IRH bajo lleva
+    al percentil 75, que da un caudal MAYOR que el 85, y no al revés.
+
+    LOS DOS SE CALCULAN Y SE PRESENTAN. Adoptar uno en silencio no es defendible
+    cuando la diferencia entre ambos es la que decide cuánta agua queda
+    disponible para el proyecto.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si el método adoptado no es ninguno de los dos.
+    """
+    percentil = (percentil_si_menor if irh < umbral else percentil_si_mayor)
+    valores = {
+        "q95": caudal_para_excedencia(curva, 95.0),
+        "qirh": caudal_para_excedencia(curva, percentil),
+    }
+    if metodo_adoptado not in valores:
+        raise ErrorHidrologia(
+            f"el metodo {metodo_adoptado!r} no es ninguno de "
+            f"{sorted(valores)}.")
+    return {
+        "irh": round(irh, 4),
+        "umbral_irh": umbral,
+        "percentil_aplicado": percentil,
+        "regla": ("IRH por debajo del umbral: se reserva el percentil "
+                  f"{percentil_si_menor:g}, que da un caudal MAYOR"
+                  if irh < umbral else
+                  "IRH en el umbral o por encima: se reserva el percentil "
+                  f"{percentil_si_mayor:g}"),
+        "q95_m3s": round(valores["q95"], 5),
+        "qirh_m3s": round(valores["qirh"], 5),
+        "metodo_adoptado": metodo_adoptado,
+        "caudal_ambiental_m3s": round(valores[metodo_adoptado], 5),
+    }
+
+
+def caudal_disponible(caudal_medio_m3s: float,
+                      caudal_ambiental_m3s: float) -> dict[str, Any]:
+    """
+    Lo que queda para el proyecto tras reservar el caudal ambiental.
+
+    NO SE DEJA NEGATIVO. Un caudal ambiental por encima del medio significa que
+    la reserva se lleva toda la oferta, y ahí el proyecto no tiene agua
+    disponible: devolver un número negativo lo escondería tras una resta.
+    """
+    disponible = max(0.0, caudal_medio_m3s - caudal_ambiental_m3s)
+    return {
+        "caudal_medio_m3s": round(caudal_medio_m3s, 5),
+        "caudal_ambiental_m3s": round(caudal_ambiental_m3s, 5),
+        "caudal_disponible_m3s": round(disponible, 5),
+        "reserva_pct": (round(100.0 * caudal_ambiental_m3s / caudal_medio_m3s, 2)
+                        if caudal_medio_m3s > 0 else None),
+        "sin_disponibilidad": disponible <= 0,
+    }
+
+
 # =============================================================================
 # Ejecución
 # =============================================================================
@@ -274,6 +431,28 @@ def ejecutar(
                     resultado.resumen["percentiles"].get("Q95", 0),
                     resultado.resumen["indice_variabilidad_q10_q90"])
 
+    with registro.bloque(logger, "IRH y caudal ambiental"):
+        try:
+            resultado.irh = indice_de_retencion(resultado.curva)
+            resultado.ambiental = caudal_ambiental(
+                resultado.curva, resultado.irh["irh"],
+                float(configuracion.obtener("caudal_ambiental.umbral_irh")),
+                float(configuracion.obtener("caudal_ambiental.cdc_si_irh_menor")),
+                float(configuracion.obtener("caudal_ambiental.cdc_si_irh_mayor")),
+                str(configuracion.obtener("caudal_ambiental.metodo_adoptado")))
+            resultado.ambiental.update(caudal_disponible(
+                resultado.irh["caudal_medio_m3s"],
+                resultado.ambiental["caudal_ambiental_m3s"]))
+        except ErrorHidrologia as error:
+            resultado.hallazgos.append(Hallazgo(
+                BLOQUEANTE, "regimen.irh", str(error)))
+            return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
+                           SALIDA_BLOQUEANTE)
+        logger.info("IRH %.4f (%s); caudal ambiental %.4f m3/s por %s",
+                    resultado.irh["irh"], resultado.irh["categoria"],
+                    resultado.ambiental["caudal_ambiental_m3s"],
+                    resultado.ambiental["metodo_adoptado"])
+
     with registro.bloque(logger, "Tablas y figura"):
         _escribir(configuracion, base, delimitador, resultado, logger)
 
@@ -325,17 +504,53 @@ def _hallazgos(resultado, configuracion) -> None:
             ADVERTENCIA, "regimen.serie_sin_reescalar",
             "la serie no trae la columna reescalada y la curva se levanta sobre "
             "la cruda, que promedia por encima del caudal de largo plazo."))
+    irh, ambiental = resultado.irh, resultado.ambiental
+    if not irh or not ambiental:
+        return
     resultado.hallazgos.append(Hallazgo(
-        ADVERTENCIA, "regimen.alcance_pendiente",
-        "este modulo entrega HOY solo la curva de duracion y sus percentiles. "
-        "El indice de retencion y regulacion hidrica y el caudal ambiental "
-        f"quedan pendientes; la configuracion ya declara sus criterios "
-        f"(umbral de IRH {configuracion.obtener('caudal_ambiental.umbral_irh')}, "
-        f"metodo adoptado "
-        f"{configuracion.obtener('caudal_ambiental.metodo_adoptado')!r}). Los "
-        "dos se apoyan en esta curva, de modo que el orden es este y el hueco "
-        "queda senalado en lugar de callado.",
+        INFORMATIVO, "regimen.irh",
+        f"indice de retencion y regulacion hidrica de {irh['irh']:.4f}, "
+        f"categoria {irh['categoria']!r} segun los rangos del IDEAM. Mide "
+        "cuanto del agua que la cuenca entrega lo hace de forma sostenida en "
+        "lugar de concentrarse en unos pocos meses de crecida. Es adimensional "
+        "y NO cambia con el reescalado, porque el factor de almacenamiento "
+        "multiplica numerador y denominador por igual: la regulacion es una "
+        "forma del regimen y no un nivel.",
     ))
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "regimen.caudal_ambiental",
+        f"caudal ambiental de {ambiental['caudal_ambiental_m3s']:.4f} m3/s por "
+        f"el metodo {ambiental['metodo_adoptado']!r}. {ambiental['regla']}, de "
+        f"modo que se lee el percentil {ambiental['percentil_aplicado']:g} de "
+        f"la curva. El otro metodo, Q95, daria "
+        f"{ambiental['q95_m3s']:.4f} m3/s. LOS DOS SE PRESENTAN a proposito: la "
+        "diferencia entre ambos es la que decide cuanta agua queda disponible "
+        f"para el proyecto. La reserva se lleva el "
+        f"{ambiental['reserva_pct']:.1f} por ciento del caudal medio y deja "
+        f"{ambiental['caudal_disponible_m3s']:.4f} m3/s disponibles.",
+    ))
+    # LA REGLA ES UN ESCALON, y cerca del umbral el resultado depende de una
+    # cifra que la propia cadena no conoce con esa precision.
+    margen = abs(irh["irh"] - ambiental["umbral_irh"])
+    if margen < 0.05:
+        otro = caudal_para_excedencia(
+            resultado.curva,
+            float(configuracion.obtener("caudal_ambiental.cdc_si_irh_menor"))
+            if irh["irh"] >= ambiental["umbral_irh"] else
+            float(configuracion.obtener("caudal_ambiental.cdc_si_irh_mayor")))
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "regimen.irh_en_el_filo",
+            f"el IRH de {irh['irh']:.4f} queda a {margen:.4f} del umbral de "
+            f"{ambiental['umbral_irh']:g}, es decir EN EL FILO de la regla. Al "
+            f"otro lado del umbral el caudal ambiental seria {otro:.4f} m3/s en "
+            f"lugar de {ambiental['caudal_ambiental_m3s']:.4f}, una diferencia "
+            f"del {100.0 * abs(otro - ambiental['caudal_ambiental_m3s']) / ambiental['caudal_ambiental_m3s']:.0f} "
+            "por ciento. La regla es un ESCALON y aqui se decide en la tercera "
+            "cifra decimal, que la cadena no conoce con esa precision: el "
+            "indice se apoya en una serie modelada, no medida. El informe debe "
+            "presentar los dos valores y el consultor decidir con criterio, no "
+            "dejar que lo decida el redondeo.",
+        ))
 
 
 def _escribir(configuracion, base, delimitador, resultado, logger) -> None:
@@ -343,7 +558,10 @@ def _escribir(configuracion, base, delimitador, resultado, logger) -> None:
     destino = rutas.directorio("procesado", base, crear=True) / "regimen"
     destino.mkdir(parents=True, exist_ok=True)
     for nombre, filas in (("curva_de_duracion", resultado.curva),
-                          ("percentiles", resultado.percentiles)):
+                          ("percentiles", resultado.percentiles),
+                          ("irh_y_caudal_ambiental",
+                           [{**resultado.irh, **resultado.ambiental}]
+                           if resultado.irh else [])):
         ruta = destino / f"{nombre}.csv"
         _escribir_csv(ruta, filas, delimitador)
         resultado.productos.append(rutas.relativa(ruta, base))
@@ -462,6 +680,8 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "modulo": MODULO,
         "resumen": resultado.resumen,
         "percentiles": resultado.percentiles,
+        "irh": resultado.irh,
+        "caudal_ambiental": resultado.ambiental,
         "productos": resultado.productos,
         "conteo": conteo,
         "codigo_salida": codigo,
