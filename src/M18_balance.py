@@ -707,6 +707,19 @@ def reescalar_serie(serie, caudal_objetivo_m3s):
     meses promedia un 59 por ciento por encima del balance de largo plazo, y esa
     diferencia es exactamente la magnitud de la hipotesis sin almacenamiento.
 
+    ES EL FACTOR DE ALMACENAMIENTO A ESCALA MENSUAL, y asi se declara en el
+    informe: se deriva del balance anual, que es la escala en que Budyko fue
+    formulada y donde su hipotesis se cumple, y corrige la serie mensual, que es
+    la escala en que esa hipotesis no vale.
+
+    ABSORBE DOS EFECTOS Y CONVIENE NO CONFUNDIRLOS. El primero es el
+    almacenamiento: una cuenca real amortigua los meses humedos reteniendo agua
+    que despues evapora o entrega con retraso, y el modelo mensual sin memoria
+    la entrega toda de golpe. El segundo es matematico: Budyko es concava, de
+    modo que aplicarla a doce valores y promediar da distinto que aplicarla al
+    promedio, y esa parte existiria aunque el almacenamiento se modelara con
+    exactitud. Llamarlo solo almacenamiento seria sobreafirmar.
+
     SOLO SE REESCALA EL CAUDAL, y el balance mensual se deja intacto. La primera
     version devolvia el exceso a la evapotranspiracion para que P = ETR + E
     siguiera cerrando; medido sobre este estudio, eso hacia que la ETR superase
@@ -841,7 +854,8 @@ def _serie_larga(base, delimitador, resultado, logger) -> None:
         resultado.contraste["ajuste_de_serie"] = ajuste
         resultado.hallazgos.append(Hallazgo(
             INFORMATIVO, "balance.serie_reescalada",
-            f"la serie se reescala con un factor de {ajuste['factor']:.4f} para "
+            f"FACTOR DE ALMACENAMIENTO A ESCALA MENSUAL de "
+            f"{ajuste['factor']:.4f}, derivado del balance anual para "
             f"que su media reproduzca el caudal de largo plazo: pasa de "
             f"{ajuste['promedio_sin_ajustar_m3s']:.3f} a "
             f"{ajuste['objetivo_m3s']:.3f} m3/s. Budyko es CONCAVA, de modo que "
@@ -856,7 +870,11 @@ def _serie_larga(base, delimitador, resultado, logger) -> None:
             "mensuales de ETR y escorrentia siguen siendo los de Budyko sin "
             "ajustar. El factor conserva la FORMA de la variabilidad, que es lo "
             "que la curva de duracion necesita, y corrige el NIVEL, que es lo "
-            "que el balance de largo plazo fija.",
+            "que el balance de largo plazo fija. El factor absorbe DOS "
+            "efectos: el almacenamiento que el modelo mensual no tiene, y la "
+            "no linealidad de aplicar una funcion concava a doce valores en "
+            "lugar de a su promedio. El informe debe declararlo asi y no como "
+            "almacenamiento puro.",
         ))
     resultado.hallazgos.append(Hallazgo(
         INFORMATIVO, "balance.serie_larga",
