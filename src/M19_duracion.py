@@ -630,7 +630,111 @@ def _escribir(configuracion, base, delimitador, resultado, logger) -> None:
         for ruta in graficos.guardar(
                 fig, directorio / "M19_curva_de_duracion", estilo):
             resultado.productos.append(rutas.relativa(ruta, base))
-    logger.info("Figura escrita")
+    escritas = 1 + _figuras_de_regimen(configuracion, base, resultado, estilo,
+                                       directorio, graficos)
+    logger.info("%d figura(s) escritas", escritas)
+
+
+def _coma(valor: float, decimales: int) -> str:
+    """Numero con coma decimal, que es el separador del informe."""
+    return f"{valor:.{decimales}f}".replace(".", ",")
+
+
+def _figuras_de_regimen(configuracion, base, resultado, estilo, directorio,
+                        graficos) -> int:
+    """
+    Las dos figuras que hacen visible lo que los indices dicen.
+
+    UN INDICE SIN SU FIGURA NO SE REVISA. El IRH es un area, y verla dibujada es
+    lo unico que permite juzgar si el numero es razonable; el caudal ambiental es
+    una lectura sobre la curva, y su posicion dice mas que su valor.
+    """
+    if not resultado.irh or not resultado.ambiental:
+        return 0
+    escritas = 0
+    excedencias = [f["excedencia_pct"] for f in resultado.curva]
+    caudales = [f["caudal_m3s"] for f in resultado.curva]
+    medio = resultado.irh["caudal_medio_m3s"]
+
+    # 1. EL IRH ES UN AREA, y asi se dibuja: la parte de la curva que queda por
+    #    debajo del caudal medio, sobre el total. La escala es lineal a
+    #    proposito, porque en logaritmica las areas no se comparan a ojo y aqui
+    #    la figura existe justamente para eso.
+    with graficos.figura(
+            estilo, titulo="Índice de retención y regulación hídrica",
+            etiqueta_x="Probabilidad de excedencia (%)",
+            etiqueta_y="Caudal (m³/s)") as (fig, ax):
+        bajo = [min(c, medio) for c in caudales]
+        ax.fill_between(excedencias, 0, bajo, color=estilo.color(0), alpha=0.55,
+                        label="área por debajo del caudal medio")
+        ax.fill_between(excedencias, bajo, caudales, color=estilo.color(1),
+                        alpha=0.35, label="área por encima")
+        ax.plot(excedencias, caudales, color="#333333", linewidth=1.4)
+        ax.axhline(medio, color="#b03a2e", linestyle="--", linewidth=1.3,
+                   label=f"caudal medio, {_coma(medio, 3)} m³/s")
+        ax.set_xlim(0, 100)
+        ax.set_ylim(bottom=0)
+        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        indice = _coma(resultado.irh["irh"], 4)
+        fig.text(0.01, -0.08,
+                 f"IRH = área inferior / área total = {indice}"
+                 f", categoría «{resultado.irh['categoria']}» según los rangos "
+                 "del IDEAM.\nMide cuánto del agua se entrega de forma "
+                 "sostenida en lugar de concentrarse en unos pocos meses de "
+                 "crecida. Escala lineal a propósito: en logarítmica las áreas "
+                 "no se comparan a ojo.",
+                 fontsize=estilo.tamano_fuente - 2, color="#555555")
+        for ruta in graficos.guardar(fig, directorio / "M19_irh", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+        escritas += 1
+
+    # 2. El caudal ambiental sobre la curva, con los dos metodos Y el valor que
+    #    daria el otro lado del umbral. ESA TERCERA LINEA ES EL MENSAJE cuando
+    #    el IRH cae cerca del umbral: ensena de que depende la reserva.
+    ambiental = resultado.ambiental
+    otro_percentil = (
+        float(configuracion.obtener("caudal_ambiental.cdc_si_irh_menor"))
+        if ambiental["irh"] >= ambiental["umbral_irh"] else
+        float(configuracion.obtener("caudal_ambiental.cdc_si_irh_mayor")))
+    otro = caudal_para_excedencia(resultado.curva, otro_percentil)
+    with graficos.figura(
+            estilo, titulo="Caudal ambiental sobre la curva de duración",
+            etiqueta_x="Probabilidad de excedencia (%)",
+            etiqueta_y="Caudal (m³/s)") as (fig, ax):
+        ax.plot(excedencias, caudales, color=estilo.color(0), linewidth=1.8)
+        ax.fill_between(excedencias, 0,
+                        [min(c, ambiental["caudal_ambiental_m3s"])
+                         for c in caudales],
+                        color="#b03a2e", alpha=0.18,
+                        label="reserva ambiental")
+        for valor, etiqueta, color, trazo in (
+                (ambiental["caudal_ambiental_m3s"],
+                 f"adoptado, Q{ambiental['percentil_aplicado']:g}", "#b03a2e", "-"),
+                (otro, f"al otro lado del umbral, Q{otro_percentil:g}",
+                 "#7d3c98", "--"),
+                (ambiental["q95_m3s"], "Q95", "#555555", ":")):
+            ax.axhline(valor, color=color, linestyle=trazo, linewidth=1.4,
+                       label=f"{etiqueta} = {_coma(valor, 4)} m³/s")
+        ax.set_xlim(0, 100)
+        ax.set_ylim(0, medio * 2.2)
+        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        margen = abs(ambiental["irh"] - ambiental["umbral_irh"])
+        indice = _coma(ambiental["irh"], 4)
+        umbral = _coma(ambiental["umbral_irh"], 2)
+        adoptado = _coma(ambiental["caudal_ambiental_m3s"], 4)
+        fig.text(0.01, -0.10,
+                 f"IRH = {indice} contra un umbral de {umbral}: a "
+                 f"{_coma(margen, 4)} de distancia.\n"
+                 "La regla es un ESCALÓN: al otro lado, la reserva sería "
+                 f"{_coma(otro, 4)} m³/s en lugar de {adoptado}.\n"
+                 "El índice se apoya en una serie modelada, no medida: el "
+                 "informe presenta los dos y el consultor decide.",
+                 fontsize=estilo.tamano_fuente - 2, color="#555555")
+        for ruta in graficos.guardar(
+                fig, directorio / "M19_caudal_ambiental", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+        escritas += 1
+    return escritas
 
 
 def _escribir_csv(destino: Path, filas, delimitador: str) -> None:
