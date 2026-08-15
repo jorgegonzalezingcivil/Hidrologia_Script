@@ -90,6 +90,7 @@ class ResultadoM18:
     mensual_cuenca: list[dict[str, Any]] = field(default_factory=list)
     multianual: list[dict[str, Any]] = field(default_factory=list)
     mensual: list[dict[str, Any]] = field(default_factory=list)
+    serie: list[dict[str, Any]] = field(default_factory=list)
     contraste: dict[str, Any] = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
@@ -294,6 +295,9 @@ def ejecutar(
 
     with registro.bloque(logger, "Balance mensual de la cuenca"):
         _balance_mensual(base, delimitador, resultado, logger)
+
+    with registro.bloque(logger, "Serie larga mes a mes"):
+        _serie_larga(base, delimitador, resultado, logger)
 
     with registro.bloque(logger, "Tablas y figuras"):
         _escribir(configuracion, base, delimitador, resultado, logger)
@@ -691,6 +695,125 @@ def _leer_precipitacion_mensual(base, delimitador, resultado):
     return salida
 
 
+
+def _serie_larga(base, delimitador, resultado, logger) -> None:
+    """
+    Cierra el balance en CADA mes de CADA año, no solo en el ciclo medio.
+
+    ES LO QUE LA CURVA DE DURACIÓN NECESITA. Doce puntos no describen una curva
+    de duración: dan doce escalones y el percentil 95 caería fuera de todo rango
+    muestreado. Con la serie completa el Q95 se apoya en observaciones reales.
+
+    LA ETP TAMBIÉN VARÍA AÑO A AÑO, con el índice de calor de cada año, que es
+    como Thornthwaite lo define. Si se repitiera el ciclo medio, la variabilidad
+    del caudal vendría solo de la lluvia y la curva saldría más estrecha de lo
+    que corresponde.
+    """
+    ruta_etp = base / "data/02_procesado/temperatura/temperatura_etp_serie_anual.csv"
+    ruta_p = (rutas.directorio("procesado_series", base)
+              / "precipitacion_mensual_complementada.csv")
+    if not ruta_etp.is_file() or not ruta_p.is_file():
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "balance.sin_serie_larga",
+            "falta la serie ano a ano de ETP del M18a o la de precipitacion "
+            "complementada del M05: no se construye la serie larga, y sin ella "
+            "el M19 no puede levantar una curva de duracion."))
+        return
+
+    with ruta_etp.open(encoding="utf-8-sig", newline="") as manejador:
+        etp = {}
+        for fila in csv.DictReader(manejador, delimiter=delimitador):
+            try:
+                etp[(int(fila["anio"]), int(fila["mes"]))] = float(fila["etp_mm"])
+            except (KeyError, TypeError, ValueError):
+                continue
+    if not etp:
+        return
+
+    with ruta_p.open(encoding="utf-8-sig", newline="") as manejador:
+        filas = list(csv.DictReader(manejador, delimiter=delimitador))
+
+    ubicadas = {e["codigo"]: e for e in resultado.estaciones}
+    area = sum(s["area_km2"] for s in resultado.por_subcuenca)
+    if area <= 0:
+        return
+    centro = (sum(s["x"] * s["area_km2"] for s in resultado.por_subcuenca) / area,
+              sum(s["y"] * s["area_km2"] for s in resultado.por_subcuenca) / area)
+
+    sin_lluvia = sin_etp = 0
+    for fila in filas:
+        try:
+            anio, mes = int(fila["anio"]), int(fila["mes"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        fuentes = []
+        for codigo, ficha in ubicadas.items():
+            valor = fila.get(codigo)
+            if not valor:
+                continue
+            try:
+                fuentes.append((ficha["x"], ficha["y"], float(valor)))
+            except (TypeError, ValueError):
+                continue
+        if len(fuentes) < 3:
+            sin_lluvia += 1
+            continue
+        del_mes = etp.get((anio, mes))
+        if del_mes is None:
+            sin_etp += 1
+            continue
+        try:
+            lluvia = idw(centro, fuentes)["valor"]
+        except ErrorHidrologia:
+            sin_lluvia += 1
+            continue
+        dias = calendar.monthrange(anio, mes)[1]
+        cerrado = balance(lluvia, del_mes, area, dias)
+        cerrado["anio"] = anio
+        cerrado["mes"] = mes
+        cerrado["estaciones"] = len(fuentes)
+        resultado.serie.append(cerrado)
+
+    if not resultado.serie:
+        return
+    caudales = [f["caudal_budyko_m3s"] for f in resultado.serie]
+    anios = sorted({f["anio"] for f in resultado.serie})
+    resultado.contraste["serie_meses"] = len(resultado.serie)
+    resultado.contraste["serie_anios"] = len(anios)
+    resultado.contraste["serie_q_medio_m3s"] = round(
+        sum(caudales) / len(caudales), 4)
+    resultado.contraste["serie_q_min_m3s"] = round(min(caudales), 4)
+    resultado.contraste["serie_q_max_m3s"] = round(max(caudales), 4)
+    logger.info("Serie larga: %d meses en %d anios, caudal de %.3f a %.3f m3/s",
+                len(resultado.serie), len(anios), min(caudales), max(caudales))
+
+    largo = resultado.contraste.get("caudal_budyko_m3s", 0.0)
+    promedio = sum(caudales) / len(caudales)
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "balance.serie_larga",
+        f"{len(resultado.serie)} mes(es) de balance en {len(anios)} anio(s), de "
+        f"{anios[0]} a {anios[-1]}, con caudal de {min(caudales):.3f} a "
+        f"{max(caudales):.3f} m3/s y media {promedio:.3f}. Es la serie que el "
+        f"M19 necesita: doce puntos del ciclo medio no describen una curva de "
+        "duracion, y el percentil 95 caeria fuera de todo rango muestreado. LA "
+        "ETP TAMBIEN VARIA ANIO A ANIO, con el indice de calor de cada uno, de "
+        "modo que la variabilidad no viene solo de la lluvia."
+        + (f" El promedio de la serie difiere un "
+           f"{100.0 * (promedio - largo) / largo:+.1f} por ciento del caudal de "
+           "largo plazo por subcuenca." if largo else ""),
+    ))
+    if sin_lluvia or sin_etp:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "balance.meses_omitidos",
+            f"{sin_lluvia} mes(es) sin lluvia suficiente (menos de 3 "
+            f"estaciones) y {sin_etp} sin ETP, por caer en anios que no "
+            "completaron los doce meses de temperatura. Se omiten en lugar de "
+            "rellenarse: un mes inventado en la serie desplaza la curva de "
+            "duracion justo en las colas, que es donde se lee el caudal "
+            "ambiental.",
+        ))
+
+
 def _escribir(configuracion, base, delimitador, resultado, logger) -> None:
     """Tablas, libro de Excel y figuras del balance."""
     destino_p = rutas.directorio("procesado", base, crear=True) / "precipitacion"
@@ -701,6 +824,7 @@ def _escribir(configuracion, base, delimitador, resultado, logger) -> None:
         ("estaciones_del_balance", resultado.estaciones, destino_p),
         ("balance_multianual", resultado.multianual, destino_b),
         ("balance_mensual", resultado.mensual, destino_b),
+        ("balance_mensual_serie", resultado.serie, destino_b),
     )
     for nombre, filas, carpeta in tablas:
         carpeta.mkdir(parents=True, exist_ok=True)

@@ -94,6 +94,7 @@ class ResultadoM18a:
     gradientes: list[dict[str, Any]] = field(default_factory=list)
     mensuales: list[dict[str, Any]] = field(default_factory=list)
     serie_cuenca: list[dict[str, Any]] = field(default_factory=list)
+    serie_anual: list[dict[str, Any]] = field(default_factory=list)
     isotermas: list[dict[str, Any]] = field(default_factory=list)
     subcuencas: list[dict[str, Any]] = field(default_factory=list)
     cobertura: dict[str, Any] = field(default_factory=dict)
@@ -671,6 +672,86 @@ def caudal_medio(lamina_mm: float, area_km2: float, dias: float) -> float:
     return (lamina_mm / 1000.0) * (area_km2 * 1.0e6) / (dias * 86400.0)
 
 
+def serie_de_cuenca_por_anio(
+    mensual: Sequence[dict[str, Any]], alturas: dict[str, float],
+    gradientes: Sequence[dict[str, Any]], cota_cuenca: float,
+    estaciones_min: int = 3,
+) -> list[dict[str, Any]]:
+    """
+    Temperatura de la cuenca en CADA mes de CADA año, no solo en el ciclo medio.
+
+    LA PENDIENTE ES LA DEL MES Y EL NIVEL EL DE ESE AÑO. El gradiente mensual se
+    ajustó sobre todo el registro y es estable; lo que cambia de un año a otro es
+    cuánto más frío o cálido fue ese mes concreto. Se toma por tanto la pendiente
+    del mes y se recalcula el intercepto con las estaciones que ese año-mes tuvo
+    dato, de modo que la serie varía año a año sin heredar el ruido de ajustar
+    doce rectas por año con tres o cuatro estaciones.
+
+    Un año-mes con menos estaciones de las pedidas se omite: interpolar el nivel
+    con una sola estación devolvería su temperatura, no la de la cuenca.
+    """
+    pendiente_de_mes = {int(g["mes"]): g["pendiente_c_por_m"]
+                        for g in gradientes if g.get("mes")}
+    por_clave: dict[tuple[int, int], list[tuple[float, float]]] = {}
+    for fila in mensual:
+        altura = alturas.get(fila["codigo"])
+        if altura is None:
+            continue
+        por_clave.setdefault((fila["anio"], fila["mes"]), []).append(
+            (altura, fila["t_media_c"]))
+
+    salida: list[dict[str, Any]] = []
+    for (anio, mes), puntos in sorted(por_clave.items()):
+        pendiente = pendiente_de_mes.get(mes)
+        if pendiente is None or len(puntos) < estaciones_min:
+            continue
+        media_h = sum(p[0] for p in puntos) / len(puntos)
+        media_t = sum(p[1] for p in puntos) / len(puntos)
+        intercepto = media_t - pendiente * media_h
+        salida.append({
+            "anio": anio, "mes": mes,
+            "estaciones": len(puntos),
+            "t_media_cuenca_c": round(intercepto + pendiente * cota_cuenca, 3),
+        })
+    return salida
+
+
+def etp_por_anio(serie: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Thornthwaite año a año, con el índice de calor de CADA año.
+
+    EL ÍNDICE DE CALOR ES ANUAL POR DEFINICIÓN: se acumula sobre los doce meses
+    del año, y el exponente sale de él. Usar el índice del ciclo medio para todos
+    los años haría que la ETP variase solo por la temperatura del mes, y no por
+    lo cálido que fue el año entero, que es justo lo que se quiere capturar.
+
+    UN AÑO INCOMPLETO SE OMITE. Con once meses el índice sale bajo y el exponente
+    con él, de modo que la ETP de ese año saldría alta sin ninguna razón física.
+    """
+    por_anio: dict[int, dict[int, float]] = {}
+    for fila in serie:
+        por_anio.setdefault(fila["anio"], {})[fila["mes"]] = fila["t_media_cuenca_c"]
+
+    salida: list[dict[str, Any]] = []
+    for anio, meses in sorted(por_anio.items()):
+        if len(meses) < 12:
+            continue
+        temperaturas = [meses[m] for m in range(1, 13)]
+        try:
+            ajuste = etp_thornthwaite(temperaturas)
+        except ErrorHidrologia:
+            continue
+        for mes, valor in zip(range(1, 13), ajuste["etp_mensual_mm"]):
+            salida.append({
+                "anio": anio, "mes": mes,
+                "t_media_cuenca_c": meses[mes],
+                "etp_mm": valor,
+                "indice_calor": ajuste["indice_calor"],
+                "exponente_a": ajuste["exponente_a"],
+            })
+    return salida
+
+
 def contrastar_con_referencia(
     ajuste: dict[str, Any], referencias: Sequence[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -1086,6 +1167,29 @@ def _resolver_mensual(configuracion, base, delimitador, alturas, resultado,
                 "t_media_cuenca_c": round(evaluar(ajuste, cota_cuenca), 2),
             })
 
+    if cota_cuenca is not None:
+        estaciones_min = int(configuracion.obtener(
+            "temperatura.estaciones_min_por_mes"))
+        serie = serie_de_cuenca_por_anio(
+            resultado.mensual, alturas, resultado.mensuales, cota_cuenca,
+            max(3, estaciones_min // 2))
+        resultado.serie_anual = etp_por_anio(serie)
+        if resultado.serie_anual:
+            anios = sorted({f["anio"] for f in resultado.serie_anual})
+            logger.info("Serie ano a ano: %d mes(es) en %d anio(s) completos",
+                        len(resultado.serie_anual), len(anios))
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "temperatura.serie_anual",
+                f"{len(resultado.serie_anual)} mes(es) de temperatura y ETP en "
+                f"{len(anios)} anio(s) completos, de {anios[0]} a {anios[-1]}. "
+                "La PENDIENTE es la del mes, ajustada sobre todo el registro, y "
+                "el NIVEL el de ese anio concreto: asi la serie varia anio a "
+                "anio sin heredar el ruido de ajustar doce rectas por anio con "
+                "tres o cuatro estaciones. El indice de calor de Thornthwaite "
+                "se recalcula CADA anio, que es como esta definido, y un anio "
+                "incompleto se omite en lugar de dar una ETP alta sin razon.",
+            ))
+
     franjas = _leer_franjas(base, delimitador)
     paso = float(configuracion.obtener("temperatura.paso_isoterma_c"))
     resultado.isotermas = isotermas_por_franja(compuesto, franjas, paso)
@@ -1254,6 +1358,7 @@ def _escribir_tablas(configuracion, base, resultado, delimitador, logger) -> Non
         ("temperatura_mensual_cuenca", resultado.serie_cuenca),
         ("isotermas", resultado.isotermas),
         ("temperatura_por_subcuenca", resultado.subcuencas),
+        ("temperatura_etp_serie_anual", resultado.serie_anual),
     )
     for nombre, filas in tablas:
         ruta = destino / f"{nombre}.csv"
