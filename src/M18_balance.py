@@ -829,26 +829,75 @@ def _figuras(configuracion, base, resultado, logger) -> None:
                     resultado.productos.append(rutas.relativa(ruta, base))
                 escritas += 1
 
-    # 4. Isoyetas: la lluvia interpolada sobre las subcuencas.
-    if resultado.por_subcuenca:
-        ruta_shp = _ruta_subcuencas(base)
-        if ruta_shp is not None:
-            entidades = shapefile.leer_geometrias(ruta_shp)
-            if len(entidades) == len(resultado.por_subcuenca):
-                with graficos.figura(
-                        estilo, titulo="Precipitación media anual por subcuenca",
-                        etiqueta_x="Este (m)",
-                        etiqueta_y="Norte (m)") as (fig, ax):
-                    mapeador = graficos.coropleta(
-                        ax, entidades,
-                        [s["p_anual_mm"] for s in resultado.por_subcuenca],
-                        estilo)
-                    graficos.barra_de_color(fig, ax, mapeador, estilo,
-                                            "Precipitación (mm/año)")
-                    for ruta in graficos.guardar(
-                            fig, directorio / "M18_mapa_precipitacion", estilo):
-                        resultado.productos.append(rutas.relativa(ruta, base))
-                    escritas += 1
+    # 4 y 5. ETP y ETR mensuales POR SEPARADO, que es como el informe de
+    # referencia las presenta (Grafico 6-9 y 6-10). Juntas en la figura del
+    # balance la de menor magnitud queda aplastada contra el eje y no se lee.
+    if resultado.mensual:
+        meses = [f["mes"] for f in resultado.mensual]
+        for clave, titulo, nombre, color in (
+                ("etp_mm", "Evapotranspiración potencial mensual",
+                 "M18_serie_etp", "#b03a2e"),
+                ("etr_budyko_mm", "Evapotranspiración real mensual, Budyko",
+                 "M18_serie_etr", "#7d3c98")):
+            valores = [f[clave] for f in resultado.mensual]
+            with graficos.figura(
+                    estilo, titulo=titulo, etiqueta_x="Mes",
+                    etiqueta_y="Lámina (mm/mes)") as (fig, ax):
+                ax.bar(meses, valores, color=color, width=0.7)
+                media = sum(valores) / len(valores)
+                ax.axhline(media, color="#555555", linestyle=":", linewidth=1.2,
+                           label=f"media {media:.1f} mm")
+                ax.set_xticks(meses)
+                ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+                fig.text(0.01, -0.04,
+                         f"Máximo {max(valores):.1f} mm y mínimo "
+                         f"{min(valores):.1f} mm. Total anual "
+                         f"{sum(valores):.0f} mm.",
+                         fontsize=estilo.tamano_fuente - 2, color="#555555")
+                for ruta in graficos.guardar(fig, directorio / nombre, estilo):
+                    resultado.productos.append(rutas.relativa(ruta, base))
+                escritas += 1
+
+    # 6 a 9. Los cuatro terminos del balance sobre el mapa. LA TABLA NO CONTESTA
+    # LA PRIMERA PREGUNTA de quien revisa: si el agua se produce arriba o abajo.
+    # Con 125 subcuencas ordenadas por nombre eso no se ve; en el mapa, si.
+    ruta_shp = _ruta_subcuencas(base)
+    entidades = shapefile.leer_geometrias(ruta_shp) if ruta_shp else []
+    por_nombre = {f["subcuenca"]: f for f in resultado.multianual}
+    capas = [
+        ("M18_mapa_precipitacion", "Precipitación media anual por subcuenca",
+         "Precipitación (mm/año)",
+         [s["p_anual_mm"] for s in resultado.por_subcuenca]),
+        ("M18_mapa_etp", "Evapotranspiración potencial por subcuenca",
+         "ETP (mm/año)",
+         [s.get("etp_mm_anio") for s in resultado.por_subcuenca]),
+        ("M18_mapa_etr", "Evapotranspiración real por subcuenca, Budyko",
+         "ETR (mm/año)",
+         [(por_nombre.get(s["subcuenca"]) or {}).get("etr_budyko_mm")
+          for s in resultado.por_subcuenca]),
+        ("M18_mapa_escorrentia", "Escorrentía por subcuenca, Budyko",
+         "Escorrentía (mm/año)",
+         [(por_nombre.get(s["subcuenca"]) or {}).get("escorrentia_budyko_mm")
+          for s in resultado.por_subcuenca]),
+    ]
+    if len(entidades) != len(resultado.por_subcuenca):
+        if entidades:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "balance.mapas_descuadrados",
+                f"el shapefile trae {len(entidades)} entidad(es) y la tabla "
+                f"{len(resultado.por_subcuenca)}: no se dibujan los mapas, "
+                "porque cada poligono recibiria el valor de otro."))
+    else:
+        for nombre, titulo, leyenda, valores in capas:
+            if not any(v is not None for v in valores):
+                continue
+            with graficos.figura(estilo, titulo=titulo, etiqueta_x="Este (m)",
+                                 etiqueta_y="Norte (m)") as (fig, ax):
+                mapeador = graficos.coropleta(ax, entidades, valores, estilo)
+                graficos.barra_de_color(fig, ax, mapeador, estilo, leyenda)
+                for ruta in graficos.guardar(fig, directorio / nombre, estilo):
+                    resultado.productos.append(rutas.relativa(ruta, base))
+                escritas += 1
     logger.info("%d figura(s) escritas", escritas)
 
 
