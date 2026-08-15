@@ -1255,6 +1255,12 @@ ESQUEMA: dict[str, Campo] = {
     ),
 
     # --- M18a: temperatura ---------------------------------------------------
+    "balance_hidrico.idw.exponente": numero(
+        "exponente del inverso de la distancia", minimo=0.5, maximo=6.0),
+    "balance_hidrico.idw.radio_max_km": numero(
+        "radio máximo de búsqueda; 0 sin límite", minimo=0, maximo=500),
+    "balance_hidrico.idw.estaciones_min": entero(
+        "estaciones mínimas para interpolar", minimo=1, maximo=50),
     "temperatura.etiqueta_maxima": texto(
         "etiqueta IDEAM de la temperatura máxima", no_vacio=True),
     "temperatura.etiqueta_minima": texto(

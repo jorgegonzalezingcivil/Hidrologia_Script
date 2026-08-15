@@ -1311,6 +1311,12 @@ balance_hidrico:
     metodo: "turc"               # turc | thornthwaite | penman_monteith | cenicafe
   infiltracion:
     metodo: "scs"
+  # IDW para la lluvia: se interpola por PROXIMIDAD y no por elevacion, y
+  # eso esta medido, no supuesto. Ver M18_balance.py.
+  idw:
+    exponente: 2.0
+    radio_max_km: 0            # 0 = sin limite
+    estaciones_min: 3
   contrastar_con_ena: true
   ena_anio: 2022
 

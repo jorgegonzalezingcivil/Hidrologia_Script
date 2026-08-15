@@ -225,10 +225,13 @@ pasos:
 
   # --- Balance y régimen ----------------------------------------------------
   - modulo: M18
+    # DOS ESCALAS: multianual por subcuenca y mensual por cuenca, que se
+    # comparan entre si. La lluvia se interpola por PROXIMIDAD y no por
+    # elevacion, y eso esta medido sobre el estudio, no supuesto.
     nombre: "Balance hídrico a largo plazo (Budyko)"
     script: "src/M18_balance.py"
     entorno: venv
-    estado: pendiente
+    estado: disponible
 
   - modulo: M18a
     # Ajusta el campo termico contra la ELEVACION, no por distancia: en montana
