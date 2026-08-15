@@ -696,6 +696,53 @@ def _leer_precipitacion_mensual(base, delimitador, resultado):
 
 
 
+
+def reescalar_serie(serie, caudal_objetivo_m3s):
+    """
+    Lleva la media de la serie mensual al caudal de largo plazo.
+
+    POR QUE HACE FALTA. Budyko es concava, de modo que aplicarla mes a mes y
+    promediar da MAS escorrentia que aplicarla al promedio: los meses humedos
+    producen desproporcionadamente. Medido en este estudio, la serie de 456
+    meses promedia un 59 por ciento por encima del balance de largo plazo, y esa
+    diferencia es exactamente la magnitud de la hipotesis sin almacenamiento.
+
+    SOLO SE REESCALA EL CAUDAL, y el balance mensual se deja intacto. La primera
+    version devolvia el exceso a la evapotranspiracion para que P = ETR + E
+    siguiera cerrando; medido sobre este estudio, eso hacia que la ETR superase
+    a la potencial en 292 de 456 meses, el 64 por ciento. No es un caso de
+    borde: el exceso del 59 por ciento es demasiado grande para que la energia
+    disponible lo absorba.
+
+    Lo que fisicamente ocurre con ese agua es ALMACENARSE, y el estudio decidio
+    de forma declarada no modelar almacenamiento. Reasignarla a evaporacion
+    seria sustituir una simplificacion declarada por un imposible fisico.
+
+    La serie ajustada es por tanto una serie de CAUDAL reescalada, no un balance
+    reconstruido: los terminos mensuales de ETR y escorrentia siguen siendo los
+    de Budyko sin ajustar, y asi se declaran. El factor conserva la FORMA de la
+    variabilidad, que es lo que la curva de duracion necesita, y corrige el
+    nivel, que es lo que el balance de largo plazo fija.
+    """
+    caudales = [f["caudal_budyko_m3s"] for f in serie]
+    if not caudales or caudal_objetivo_m3s <= 0:
+        return {}
+    promedio = sum(caudales) / len(caudales)
+    if promedio <= 0:
+        return {}
+    factor = caudal_objetivo_m3s / promedio
+    for fila in serie:
+        fila["escorrentia_ajustada_mm"] = round(
+            fila["escorrentia_budyko_mm"] * factor, 3)
+        fila["caudal_ajustado_m3s"] = round(
+            fila["caudal_budyko_m3s"] * factor, 5)
+    return {
+        "factor": round(factor, 5),
+        "promedio_sin_ajustar_m3s": round(promedio, 4),
+        "objetivo_m3s": round(caudal_objetivo_m3s, 4),
+    }
+
+
 def _serie_larga(base, delimitador, resultado, logger) -> None:
     """
     Cierra el balance en CADA mes de CADA año, no solo en el ciclo medio.
@@ -789,6 +836,28 @@ def _serie_larga(base, delimitador, resultado, logger) -> None:
 
     largo = resultado.contraste.get("caudal_budyko_m3s", 0.0)
     promedio = sum(caudales) / len(caudales)
+    ajuste = reescalar_serie(resultado.serie, largo)
+    if ajuste:
+        resultado.contraste["ajuste_de_serie"] = ajuste
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "balance.serie_reescalada",
+            f"la serie se reescala con un factor de {ajuste['factor']:.4f} para "
+            f"que su media reproduzca el caudal de largo plazo: pasa de "
+            f"{ajuste['promedio_sin_ajustar_m3s']:.3f} a "
+            f"{ajuste['objetivo_m3s']:.3f} m3/s. Budyko es CONCAVA, de modo que "
+            "aplicarla mes a mes y promediar da mas escorrentia que aplicarla "
+            "al promedio, y esa diferencia es la magnitud de la hipotesis sin "
+            "almacenamiento. SOLO SE REESCALA EL CAUDAL: devolver ese "
+            "exceso a la evapotranspiracion hacia que la ETR superase a la "
+            "potencial en el 64 por ciento de los meses, es decir un imposible "
+            "fisico. El agua sobrante se almacenaria, y el estudio decidio no "
+            "modelar almacenamiento. La serie ajustada es por tanto una serie "
+            "de CAUDAL reescalada y no un balance reconstruido: los terminos "
+            "mensuales de ETR y escorrentia siguen siendo los de Budyko sin "
+            "ajustar. El factor conserva la FORMA de la variabilidad, que es lo "
+            "que la curva de duracion necesita, y corrige el NIVEL, que es lo "
+            "que el balance de largo plazo fija.",
+        ))
     resultado.hallazgos.append(Hallazgo(
         INFORMATIVO, "balance.serie_larga",
         f"{len(resultado.serie)} mes(es) de balance en {len(anios)} anio(s), de "
