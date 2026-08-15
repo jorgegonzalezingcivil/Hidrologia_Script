@@ -252,10 +252,12 @@ pasos:
     estado: disponible
 
   - modulo: M19
+    # HOY entrega solo la curva de duracion y sus percentiles; el IRH y el
+    # caudal ambiental quedan pendientes y el modulo lo declara en su reporte.
     nombre: "Curva de duración, IRH y caudal ambiental"
     script: "src/M19_duracion.py"
     entorno: venv
-    estado: pendiente
+    estado: disponible
 
   # --- Entrega --------------------------------------------------------------
   - modulo: M15
