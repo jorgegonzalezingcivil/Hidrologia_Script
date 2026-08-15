@@ -1267,6 +1267,11 @@ ESQUEMA: dict[str, Campo] = {
     "temperatura.anios_min": entero(
         "años completos para considerar suficiente una serie",
         minimo=1, maximo=100),
+    "temperatura.estaciones_min_por_mes": entero(
+        "estaciones para ajustar un gradiente propio del mes",
+        minimo=3, maximo=100),
+    "temperatura.paso_isoterma_c": numero(
+        "amplitud de cada franja de isoterma", minimo=0.1, maximo=10.0),
     "temperatura.tabla_gradiente": texto(
         "tabla de gradientes térmicos de referencia", no_vacio=True),
     "temperatura.salida": texto(

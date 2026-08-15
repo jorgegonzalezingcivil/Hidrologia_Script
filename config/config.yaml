@@ -1286,6 +1286,11 @@ temperatura:
   completitud_mensual_min: 0.8
   meses_min_por_anio: 10
   anios_min: 20
+  # Doce ajustes reparten las mismas estaciones entre doce meses. Por
+  # debajo de este numero, el mes hereda el gradiente compuesto y queda
+  # marcado, en lugar de publicar una recta que no se sostiene.
+  estaciones_min_por_mes: 5
+  paso_isoterma_c: 1.0
   tabla_gradiente: "data/referencia/gradiente_termico.csv"
   salida: "data/02_procesado/temperatura"
 

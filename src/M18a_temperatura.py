@@ -92,6 +92,9 @@ class ResultadoM18a:
     mensual: list[dict[str, Any]] = field(default_factory=list)
     estaciones: list[dict[str, Any]] = field(default_factory=list)
     gradientes: list[dict[str, Any]] = field(default_factory=list)
+    mensuales: list[dict[str, Any]] = field(default_factory=list)
+    serie_cuenca: list[dict[str, Any]] = field(default_factory=list)
+    isotermas: list[dict[str, Any]] = field(default_factory=list)
     subcuencas: list[dict[str, Any]] = field(default_factory=list)
     cobertura: dict[str, Any] = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
@@ -300,6 +303,130 @@ def cobertura_altitudinal(
     }
 
 
+def ajustar_gradientes_mensuales(
+    mensual: Sequence[dict[str, Any]], alturas: dict[str, float],
+    compuesto: dict[str, Any], estaciones_min: int = 5,
+) -> list[dict[str, Any]]:
+    """
+    Un gradiente por mes, con caída al compuesto cuando el mes no lo sostiene.
+
+    EL GRADIENTE CAMBIA A LO LARGO DEL AÑO y no es un refinamiento cosmético: en
+    temporada seca la radiación calienta más las partes bajas y la recta se
+    empina, mientras que en temporada húmeda la nubosidad la aplana. Un solo
+    gradiente anual reparte ese efecto por igual entre todos los meses.
+
+    PERO DOCE AJUSTES REPARTEN LOS MISMOS DATOS ENTRE DOCE. Si un mes queda con
+    pocas estaciones, o si su intervalo de confianza incluye el cero (es decir,
+    no se puede afirmar que la temperatura baje con la altura), ese mes hereda
+    el gradiente compuesto y queda marcado. Publicar una recta que no se
+    sostiene sería peor que usar la de todo el año.
+    """
+    por_mes: dict[int, dict[str, list[float]]] = {}
+    for fila in mensual:
+        por_mes.setdefault(fila["mes"], {}).setdefault(
+            fila["codigo"], []).append(fila["t_media_c"])
+
+    salida: list[dict[str, Any]] = []
+    for mes in range(1, 13):
+        del_mes = por_mes.get(mes, {})
+        puntos = [(alturas[c], sum(v) / len(v))
+                  for c, v in del_mes.items() if c in alturas]
+        ajuste: dict[str, Any]
+        motivo = ""
+        if len(puntos) < estaciones_min:
+            motivo = (f"solo {len(puntos)} estacion(es) con dato en el mes, "
+                      f"por debajo de {estaciones_min}")
+        else:
+            try:
+                ajuste = ajustar_gradiente([p[0] for p in puntos],
+                                           [p[1] for p in puntos])
+            except ErrorHidrologia as error:
+                motivo = str(error)
+            else:
+                # Que el intervalo cruce el cero significa que con estos datos
+                # no se puede afirmar que la temperatura baje con la altura.
+                if ajuste["gradiente_min_c_por_km"] <= 0:
+                    motivo = ("el intervalo de confianza incluye el cero: el "
+                              "mes no sostiene una pendiente")
+        if motivo:
+            ajuste = dict(compuesto)
+            ajuste["heredado"] = True
+            ajuste["motivo_herencia"] = motivo
+        else:
+            ajuste["heredado"] = False
+            ajuste["motivo_herencia"] = ""
+        ajuste = dict(ajuste)
+        ajuste["mes"] = mes
+        ajuste["estaciones_del_mes"] = len(puntos)
+        salida.append(ajuste)
+    return salida
+
+
+def isotermas_por_franja(
+    ajuste: dict[str, Any], franjas: Sequence[dict[str, Any]],
+    paso_c: float = 1.0,
+) -> list[dict[str, Any]]:
+    """
+    Reparto del área de la cuenca por franja de temperatura.
+
+    LAS ISOTERMAS SON LAS CURVAS DE NIVEL. Con el campo térmico ajustado contra
+    la elevación, la isoterma de un valor es exactamente la curva de nivel de la
+    cota que la recta le asigna. No hace falta interpolar en el plano ni
+    construir un ráster: basta convertir la distribución altimétrica que el M10
+    calculó celda a celda, que es más fina que cualquier ráster intermedio y no
+    introduce una resolución nueva.
+
+    El área de cada franja se reparte de forma proporcional entre las de
+    temperatura que la cruzan, que es lo que la propia distribución supone
+    dentro de cada intervalo de cota.
+    """
+    pendiente = ajuste.get("pendiente_c_por_m", 0.0)
+    if not pendiente:
+        return []
+
+    acumulado: dict[float, float] = {}
+    total = 0.0
+    for franja in franjas:
+        try:
+            inferior = float(franja["cota_inf"])
+            superior = float(franja["cota_sup"])
+            area = float(franja["area_km2"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        espesor = superior - inferior
+        if espesor <= 0 or area <= 0:
+            continue
+        total += area
+        # La cota alta da la temperatura baja: se ordena el intervalo termico.
+        t_alta = evaluar(ajuste, inferior)
+        t_baja = evaluar(ajuste, superior)
+        if t_baja > t_alta:
+            t_baja, t_alta = t_alta, t_baja
+        piso = math.floor(t_baja / paso_c) * paso_c
+        while piso < t_alta:
+            techo = piso + paso_c
+            solape = min(techo, t_alta) - max(piso, t_baja)
+            if solape > 0:
+                acumulado[round(piso, 6)] = acumulado.get(round(piso, 6), 0.0) \
+                    + area * solape / (t_alta - t_baja)
+            piso = techo
+
+    salida = []
+    for piso in sorted(acumulado):
+        area = acumulado[piso]
+        salida.append({
+            "t_inferior_c": round(piso, 2),
+            "t_superior_c": round(piso + paso_c, 2),
+            "cota_superior_m": round(
+                (piso - ajuste["intercepto_c"]) / pendiente, 1),
+            "cota_inferior_m": round(
+                (piso + paso_c - ajuste["intercepto_c"]) / pendiente, 1),
+            "area_km2": round(area, 4),
+            "area_pct": round(100.0 * area / total, 3) if total else 0.0,
+        })
+    return salida
+
+
 def contrastar_con_referencia(
     ajuste: dict[str, Any], referencias: Sequence[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -411,6 +538,10 @@ def ejecutar(
 
     with registro.bloque(logger, "Temperatura por subcuenca"):
         _resolver_subcuencas(base, delimitador, resultado, logger)
+
+    with registro.bloque(logger, "Escala mensual e isotermas"):
+        _resolver_mensual(configuracion, base, delimitador, alturas, resultado,
+                          logger)
 
     with registro.bloque(logger, "Figuras"):
         _escribir_figuras(configuracion, base, resultado, logger)
@@ -675,6 +806,86 @@ def _resolver_subcuencas(base, delimitador, resultado, logger) -> None:
         ))
 
 
+def _resolver_mensual(configuracion, base, delimitador, alturas, resultado,
+                      logger) -> None:
+    """
+    Escala mensual: doce gradientes, serie de la cuenca e isotermas.
+
+    LA SERIE ES DE LA CUENCA HASTA EL PUNTO DE DESCARGA, no de una estación por
+    cercanía. Con el gradiente ajustado se puede llevar la temperatura al cierre
+    en lugar de suponer que la estación más próxima lo representa, que es lo que
+    obliga a hacer un método de estación única.
+    """
+    compuesto = next((g for g in resultado.gradientes if g["adoptado"]), None)
+    if compuesto is None:
+        return
+
+    estaciones_min = int(configuracion.obtener(
+        "temperatura.estaciones_min_por_mes"))
+    resultado.mensuales = ajustar_gradientes_mensuales(
+        resultado.mensual, alturas, compuesto, estaciones_min)
+
+    # Cota media de la cuenca: la que pondera el area de todas las subcuencas.
+    area_total = sum(s["area_km2"] for s in resultado.subcuencas)
+    cota_cuenca = (sum(s["cota_media_m"] * s["area_km2"]
+                       for s in resultado.subcuencas) / area_total
+                   if area_total else None)
+    if cota_cuenca is not None:
+        resultado.cobertura["cota_media_cuenca_m"] = round(cota_cuenca, 1)
+        for ajuste in resultado.mensuales:
+            resultado.serie_cuenca.append({
+                "mes": ajuste["mes"],
+                "gradiente_c_por_km": ajuste["gradiente_c_por_km"],
+                "heredado": ajuste["heredado"],
+                "estaciones": ajuste["estaciones_del_mes"],
+                "cota_media_cuenca_m": round(cota_cuenca, 1),
+                "t_media_cuenca_c": round(evaluar(ajuste, cota_cuenca), 2),
+            })
+
+    franjas = _leer_franjas(base, delimitador)
+    paso = float(configuracion.obtener("temperatura.paso_isoterma_c"))
+    resultado.isotermas = isotermas_por_franja(compuesto, franjas, paso)
+
+    heredados = [a["mes"] for a in resultado.mensuales if a["heredado"]]
+    logger.info("%d gradiente(s) mensual(es) propios y %d heredados; "
+                "%d franja(s) de isoterma",
+                12 - len(heredados), len(heredados), len(resultado.isotermas))
+
+    if resultado.serie_cuenca:
+        temperaturas = [f["t_media_cuenca_c"] for f in resultado.serie_cuenca]
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "temperatura.serie_de_cuenca",
+            f"serie mensual de la cuenca en su cota media ponderada "
+            f"({resultado.cobertura['cota_media_cuenca_m']:.0f} m): de "
+            f"{min(temperaturas):.2f} a {max(temperaturas):.2f} C, media "
+            f"{sum(temperaturas)/len(temperaturas):.2f} C. Se obtiene "
+            "evaluando el gradiente en el cierre y NO tomando la estacion mas "
+            "cercana, que es lo que obliga a suponer un metodo de estacion "
+            "unica. Es la serie que alimenta la evapotranspiracion potencial.",
+        ))
+    if heredados:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "temperatura.gradientes_heredados",
+            f"{len(heredados)} mes(es) no sostienen un gradiente propio y "
+            f"heredan el compuesto: {heredados}. Doce ajustes reparten las "
+            "mismas estaciones entre doce, y un mes con pocas o con un "
+            "intervalo que incluye el cero no permite afirmar que la "
+            "temperatura baje con la altura. Heredar es preferible a publicar "
+            "una recta que no se sostiene, y queda marcado en la tabla.",
+        ))
+    if resultado.isotermas:
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "temperatura.isotermas",
+            f"{len(resultado.isotermas)} franja(s) de isoterma de {paso:g} C "
+            f"entre {resultado.isotermas[0]['t_inferior_c']:.1f} y "
+            f"{resultado.isotermas[-1]['t_superior_c']:.1f} C. LAS ISOTERMAS "
+            "SON LAS CURVAS DE NIVEL: con el campo ajustado contra la "
+            "elevacion, la isoterma de un valor es la curva de nivel de la cota "
+            "que la recta le asigna, de modo que el reparto sale de la "
+            "distribucion altimetrica del M10 sin ningun raster de por medio.",
+        ))
+
+
 def _leer_franjas(base, delimitador):
     """Distribución altimétrica del M10, para medir la extrapolación."""
     ruta = base / "data/02_procesado/morfometria/distribucion_altimetrica.csv"
@@ -688,14 +899,40 @@ def _escribir_tablas(configuracion, base, resultado, delimitador, logger) -> Non
     """Escribe las cuatro tablas del módulo."""
     destino = rutas.resolver(configuracion.obtener("temperatura.salida"), base)
     destino.mkdir(parents=True, exist_ok=True)
-    for nombre, filas in (("temperatura_mensual", resultado.mensual),
-                          ("temperatura_por_estacion", resultado.estaciones),
-                          ("gradiente", resultado.gradientes),
-                          ("temperatura_por_subcuenca", resultado.subcuencas)):
+    tablas = (
+        ("temperatura_mensual", resultado.mensual),
+        ("temperatura_por_estacion", resultado.estaciones),
+        ("gradiente", resultado.gradientes),
+        ("gradiente_mensual", resultado.mensuales),
+        ("temperatura_mensual_cuenca", resultado.serie_cuenca),
+        ("isotermas", resultado.isotermas),
+        ("temperatura_por_subcuenca", resultado.subcuencas),
+    )
+    for nombre, filas in tablas:
         ruta = destino / f"{nombre}.csv"
         _escribir_csv(ruta, filas, delimitador)
         resultado.productos.append(rutas.relativa(ruta, base))
     logger.info("Tablas escritas en %s", rutas.relativa(destino, base))
+
+    # EL LIBRO ES PARA QUIEN REVISA; el CSV sigue siendo lo que la cadena lee.
+    # La serie mensual diaria por estacion se deja fuera del libro: son decenas
+    # de miles de filas que hacen el archivo inmanejable sin aportar a la
+    # revision, y estan integras en su CSV.
+    try:
+        import excel
+        detalle = excel.escribir_libro(
+            rutas.directorio("resultados_excel", base, crear=True)
+            / "M18a_temperatura.xlsx",
+            [(n, f) for n, f in tablas if n != "temperatura_mensual" and f])
+        resultado.productos.append(rutas.relativa(
+            Path(detalle["archivo"]), base))
+        logger.info("Libro de Excel con %d hoja(s), %s KB",
+                    len(detalle["hojas"]), detalle["kb"])
+    except Exception as error:  # noqa: BLE001 - depende del entorno
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "temperatura.excel",
+            f"no se pudo escribir el libro de Excel: {error}. Las tablas estan "
+            "completas en CSV, que es lo que la cadena consume."))
 
 
 def _escribir_csv(destino: Path, filas, delimitador: str) -> None:
@@ -829,7 +1066,90 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
                 resultado.productos.append(rutas.relativa(ruta, base))
             escritas += 1
 
-    # 4. Representacion geografica del campo termico por subcuenca.
+    # 4. Serie mensual de la CUENCA, que es la tabla del informe de referencia.
+    if resultado.serie_cuenca:
+        meses = [f["mes"] for f in resultado.serie_cuenca]
+        with graficos.figura(
+                estilo, titulo="Temperatura media mensual de la cuenca",
+                etiqueta_x="Mes",
+                etiqueta_y="Temperatura (°C)") as (fig, ax):
+            propios = [f for f in resultado.serie_cuenca if not f["heredado"]]
+            heredados = [f for f in resultado.serie_cuenca if f["heredado"]]
+            ax.plot(meses, [f["t_media_cuenca_c"] for f in resultado.serie_cuenca],
+                    color=estilo.color(0), linewidth=1.6, zorder=2)
+            for grupo, etiqueta, color in (
+                    (propios, "gradiente propio del mes", estilo.color(0)),
+                    (heredados, "gradiente compuesto heredado", "#b03a2e")):
+                if grupo:
+                    ax.scatter([f["mes"] for f in grupo],
+                               [f["t_media_cuenca_c"] for f in grupo],
+                               s=36, color=color, label=etiqueta, zorder=3)
+            ax.set_xticks(meses)
+            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            fig.text(0.01, -0.04,
+                     f"Gradiente evaluado en la cota media ponderada de la "
+                     f"cuenca, {resultado.cobertura.get('cota_media_cuenca_m')} "
+                     "m s. n. m. No procede de la estación más cercana.",
+                     fontsize=estilo.tamano_fuente - 2, color="#555555")
+            for ruta in graficos.guardar(
+                    fig, directorio / "M18a_serie_mensual_cuenca", estilo):
+                resultado.productos.append(rutas.relativa(ruta, base))
+            escritas += 1
+
+    # 5. Ciclo anual del gradiente con su banda de confianza.
+    if resultado.mensuales:
+        meses = [a["mes"] for a in resultado.mensuales]
+        with graficos.figura(
+                estilo, titulo="Gradiente térmico a lo largo del año",
+                etiqueta_x="Mes",
+                etiqueta_y="Gradiente (°C/km)") as (fig, ax):
+            ax.fill_between(
+                meses, [a["gradiente_min_c_por_km"] for a in resultado.mensuales],
+                [a["gradiente_max_c_por_km"] for a in resultado.mensuales],
+                color=estilo.color(0), alpha=0.18,
+                label="intervalo de confianza al 95 %")
+            ax.plot(meses, [a["gradiente_c_por_km"] for a in resultado.mensuales],
+                    color=estilo.color(0), linewidth=1.6, marker="o",
+                    markersize=4, label="gradiente del mes")
+            if adoptado:
+                ax.axhline(adoptado["gradiente_c_por_km"], color="#555555",
+                           linestyle=":", linewidth=1.2, label="compuesto")
+            ax.set_xticks(meses)
+            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            for ruta in graficos.guardar(
+                    fig, directorio / "M18a_gradiente_mensual", estilo):
+                resultado.productos.append(rutas.relativa(ruta, base))
+            escritas += 1
+
+    # 6. Isotermas multianuales: reparto del area por franja de temperatura.
+    if resultado.isotermas:
+        colores = graficos.rampa(len(resultado.isotermas), estilo, invertir=True)
+        with graficos.figura(
+                estilo, titulo="Isotermas multianuales sobre la cuenca",
+                etiqueta_x="Área (km²)",
+                etiqueta_y="Temperatura (°C)") as (fig, ax):
+            etiquetas = [f"{f['t_inferior_c']:.0f} a {f['t_superior_c']:.0f}"
+                         for f in resultado.isotermas]
+            posiciones = range(len(resultado.isotermas))
+            ax.barh(list(posiciones),
+                    [f["area_km2"] for f in resultado.isotermas], color=colores)
+            ax.set_yticks(list(posiciones))
+            ax.set_yticklabels(etiquetas, fontsize=estilo.tamano_fuente - 1)
+            for indice, franja in enumerate(resultado.isotermas):
+                ax.text(franja["area_km2"], indice,
+                        f"  {franja['area_pct']:.1f} %", va="center",
+                        fontsize=estilo.tamano_fuente - 2, color="#555555")
+            fig.text(0.01, -0.04,
+                     "Las isotermas coinciden con las curvas de nivel: el campo "
+                     "térmico se ajustó contra la elevación, de modo que el "
+                     "reparto sale de la distribución altimétrica de la cuenca.",
+                     fontsize=estilo.tamano_fuente - 2, color="#555555")
+            for ruta in graficos.guardar(
+                    fig, directorio / "M18a_isotermas", estilo):
+                resultado.productos.append(rutas.relativa(ruta, base))
+            escritas += 1
+
+    # 7. Representacion geografica del campo termico por subcuenca.
     if resultado.subcuencas:
         escritas += _mapa_de_temperatura(configuracion, base, resultado,
                                          estilo, directorio, graficos)

@@ -217,5 +217,89 @@ class PruebaConfiguracion(unittest.TestCase):
         self.assertIn("adiabatico_seco", criterios)
 
 
+class PruebaGradientesMensuales(unittest.TestCase):
+    """
+    Doce ajustes reparten las mismas estaciones entre doce meses: un mes que no
+    sostiene una pendiente hereda el compuesto en lugar de publicar una recta
+    que no se puede afirmar.
+    """
+
+    ALTURAS = {"A": 2500.0, "B": 2700.0, "C": 2900.0, "D": 3100.0, "E": 3300.0}
+    COMPUESTO = {"intercepto_c": 30.0, "pendiente_c_por_m": -0.0065,
+                 "gradiente_c_por_km": 6.5, "gradiente_min_c_por_km": 5.5,
+                 "gradiente_max_c_por_km": 7.5, "r2": 0.9, "n": 5}
+
+    def _mensual(self, meses, codigos):
+        return [{"codigo": c, "anio": 2020, "mes": m,
+                 "t_media_c": 30.0 - 0.0065 * self.ALTURAS[c]}
+                for m in meses for c in codigos]
+
+    def test_devuelve_los_doce_meses(self) -> None:
+        salida = m18a.ajustar_gradientes_mensuales(
+            self._mensual(range(1, 13), self.ALTURAS), self.ALTURAS,
+            self.COMPUESTO, estaciones_min=5)
+        self.assertEqual([a["mes"] for a in salida], list(range(1, 13)))
+
+    def test_un_mes_con_datos_ajusta_lo_suyo(self) -> None:
+        salida = m18a.ajustar_gradientes_mensuales(
+            self._mensual(range(1, 13), self.ALTURAS), self.ALTURAS,
+            self.COMPUESTO, estaciones_min=5)
+        self.assertFalse(salida[0]["heredado"])
+        self.assertAlmostEqual(salida[0]["gradiente_c_por_km"], 6.5, places=3)
+
+    def test_un_mes_con_pocas_estaciones_hereda_y_lo_dice(self) -> None:
+        salida = m18a.ajustar_gradientes_mensuales(
+            self._mensual([1], ["A", "B", "C"]), self.ALTURAS,
+            self.COMPUESTO, estaciones_min=5)
+        enero = salida[0]
+        self.assertTrue(enero["heredado"])
+        self.assertIn("estacion", enero["motivo_herencia"])
+        self.assertEqual(enero["estaciones_del_mes"], 3)
+
+    def test_un_mes_sin_datos_hereda(self) -> None:
+        salida = m18a.ajustar_gradientes_mensuales(
+            self._mensual([1], self.ALTURAS), self.ALTURAS,
+            self.COMPUESTO, estaciones_min=5)
+        self.assertTrue(all(a["heredado"] for a in salida[1:]))
+
+
+class PruebaIsotermas(unittest.TestCase):
+    """
+    Con el campo ajustado contra la elevación, la isoterma de un valor ES la
+    curva de nivel de la cota que la recta le asigna.
+    """
+
+    AJUSTE = {"intercepto_c": 30.0, "pendiente_c_por_m": -0.0065}
+    FRANJAS = [
+        {"cota_inf": "2000", "cota_sup": "2500", "area_km2": "50"},
+        {"cota_inf": "2500", "cota_sup": "3000", "area_km2": "50"},
+    ]
+
+    def test_el_area_se_conserva(self) -> None:
+        franjas = m18a.isotermas_por_franja(self.AJUSTE, self.FRANJAS, 1.0)
+        self.assertAlmostEqual(sum(f["area_km2"] for f in franjas), 100.0,
+                               places=3)
+        self.assertAlmostEqual(sum(f["area_pct"] for f in franjas), 100.0,
+                               places=2)
+
+    def test_las_franjas_van_de_frio_a_caliente(self) -> None:
+        franjas = m18a.isotermas_por_franja(self.AJUSTE, self.FRANJAS, 1.0)
+        temperaturas = [f["t_inferior_c"] for f in franjas]
+        self.assertEqual(temperaturas, sorted(temperaturas))
+
+    def test_la_cota_de_cada_isoterma_es_la_de_la_recta(self) -> None:
+        franjas = m18a.isotermas_por_franja(self.AJUSTE, self.FRANJAS, 1.0)
+        for franja in franjas:
+            self.assertAlmostEqual(
+                m18a.evaluar(self.AJUSTE, franja["cota_superior_m"]),
+                franja["t_inferior_c"], places=2)
+
+    def test_sin_pendiente_no_hay_isotermas(self) -> None:
+        # Una recta horizontal no define curvas de nivel de temperatura.
+        self.assertEqual(m18a.isotermas_por_franja(
+            {"intercepto_c": 15.0, "pendiente_c_por_m": 0.0},
+            self.FRANJAS, 1.0), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
