@@ -345,5 +345,68 @@ class PruebaEvapotranspiracionPotencial(unittest.TestCase):
             m18a.factor_de_ajuste(937.0, 0.0)
 
 
+class PruebaEvapotranspiracionReal(unittest.TestCase):
+    """
+    Las tres formulaciones comparten dos límites físicos: no se puede devolver a
+    la atmósfera más agua de la que cayó, ni más de la que la energía permite.
+    """
+
+    def test_budyko_no_supera_la_lluvia_ni_la_potencial(self) -> None:
+        for lluvia, potencial in ((100.0, 2000.0), (2000.0, 100.0),
+                                  (800.0, 900.0)):
+            etr = m18a.etr_budyko(lluvia, potencial)
+            self.assertLessEqual(etr, lluvia + 1e-9)
+            self.assertLessEqual(etr, potencial + 1e-9)
+
+    def test_dekop_tampoco(self) -> None:
+        for lluvia, potencial in ((100.0, 2000.0), (2000.0, 100.0)):
+            etr = m18a.etr_dekop(lluvia, potencial)
+            self.assertLessEqual(etr, min(lluvia, potencial) + 1e-9)
+
+    def test_sin_lluvia_no_hay_evapotranspiracion(self) -> None:
+        self.assertEqual(m18a.etr_budyko(0.0, 900.0), 0.0)
+        self.assertEqual(m18a.etr_dekop(0.0, 900.0), 0.0)
+        self.assertEqual(m18a.etr_turc(0.0, 15.0), 0.0)
+
+    def test_budyko_crece_con_la_lluvia(self) -> None:
+        seco = m18a.etr_budyko(400.0, 900.0)
+        humedo = m18a.etr_budyko(1200.0, 900.0)
+        self.assertGreater(humedo, seco)
+
+    def test_una_lamina_negativa_es_error(self) -> None:
+        # No es ruido: es un fallo de la cadena que alimenta.
+        with self.assertRaises(ErrorHidrologia):
+            m18a.etr_budyko(-10.0, 900.0)
+        with self.assertRaises(ErrorHidrologia):
+            m18a.etr_dekop(100.0, -5.0)
+        with self.assertRaises(ErrorHidrologia):
+            m18a.etr_turc(-1.0, 15.0)
+
+    def test_budyko_no_desborda_con_etp_muy_alta(self) -> None:
+        # cosh y sinh crecen como exponenciales: sin el corte, desbordan.
+        self.assertAlmostEqual(m18a.etr_budyko(1.0, 1.0e6), 1.0, places=6)
+
+    def test_turc_por_debajo_del_umbral_evapora_toda_la_lluvia(self) -> None:
+        # L con 15 C vale unos 844 mm; 100 mm dan una razon de 0,12.
+        self.assertAlmostEqual(m18a.etr_turc(100.0, 15.0), 100.0, places=6)
+
+    def test_turc_por_encima_del_umbral_deja_escorrentia(self) -> None:
+        etr = m18a.etr_turc(1500.0, 15.0)
+        self.assertLess(etr, 1500.0)
+        self.assertGreater(etr, 0.0)
+
+    def test_la_escorrentia_es_el_residuo_y_nunca_negativa(self) -> None:
+        self.assertAlmostEqual(m18a.escorrentia(1200.0, 800.0), 400.0)
+        self.assertEqual(m18a.escorrentia(800.0, 900.0), 0.0)
+
+    def test_el_caudal_convierte_lamina_y_area(self) -> None:
+        # 1000 mm sobre 1 km2 en un ano son 1e6 m3, es decir 0,0317 m3/s.
+        self.assertAlmostEqual(m18a.caudal_medio(1000.0, 1.0, 365.25),
+                               1.0e6 / (365.25 * 86400.0), places=9)
+
+    def test_sin_area_no_hay_caudal(self) -> None:
+        self.assertEqual(m18a.caudal_medio(1000.0, 0.0, 365.25), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

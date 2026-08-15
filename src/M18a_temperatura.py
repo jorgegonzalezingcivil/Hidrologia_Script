@@ -534,6 +534,143 @@ def factor_de_ajuste(etp_multianual_mm: float, etp_anual_mm: float) -> dict[str,
     }
 
 
+def etr_budyko(precipitacion_mm: float, etp_mm: float) -> float:
+    """
+    Evapotranspiración real por Budyko (1974), formulación hiperbólica completa.
+
+        ETR = √[ ETP·P·tanh(P/ETP) · (1 - cosh(ETP/P) + sinh(ETP/P)) ]
+
+    Es la que el ENA del IDEAM adoptó para la oferta hídrica en Colombia y la
+    que usa el informe de referencia del consultor.
+
+    SU HIPÓTESIS ES DE LARGO PLAZO: supone que el cambio de almacenamiento es
+    despreciable frente a P, ETR y escorrentía. Eso es cierto sobre años y no
+    sobre un mes, en el que la cuenca entrega o retiene agua almacenada.
+    Aplicarla mensual es decisión declarada del consultor y subestima la
+    variabilidad: estiajes menos profundos y crecidas menos marcadas.
+
+    DOS LÍMITES QUE LA FORMULACIÓN IMPONE Y AQUÍ SE RESPETAN. Sin lluvia no hay
+    nada que evaporar, y la evapotranspiración real nunca supera ni la potencial
+    ni la precipitación: no se puede devolver a la atmósfera más agua de la que
+    cayó ni más de la que la energía disponible permite.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si alguna entrada es negativa. Una lámina negativa no es un dato con
+        ruido: es un error de la cadena que lo alimenta.
+    """
+    if precipitacion_mm < 0 or etp_mm < 0:
+        raise ErrorHidrologia(
+            f"Budyko no admite valores negativos y recibio P={precipitacion_mm} "
+            f"y ETP={etp_mm} mm.")
+    if precipitacion_mm == 0 or etp_mm == 0:
+        return 0.0
+    razon = etp_mm / precipitacion_mm
+    # cosh y sinh crecen como exponenciales: con ETP muy por encima de P el
+    # termino desborda antes de que el resultado deje de tener sentido. En ese
+    # regimen el limite de la formulacion es toda la lluvia evaporada.
+    if razon > 700:
+        return precipitacion_mm
+    factor = 1.0 - math.cosh(razon) + math.sinh(razon)
+    interno = (etp_mm * precipitacion_mm
+               * math.tanh(precipitacion_mm / etp_mm) * factor)
+    if interno <= 0:
+        return 0.0
+    return min(math.sqrt(interno), precipitacion_mm, etp_mm)
+
+
+def etr_dekop(precipitacion_mm: float, etp_mm: float) -> float:
+    """
+    Evapotranspiración real por Dekop, forma simplificada de Budyko.
+
+        ETR = ETP · tanh(P/ETP)
+
+    Sirve de contraste: donde Budyko y Dekop se separan, el punto está en la
+    zona en que la formulación es más sensible, y esa separación mide cuánto
+    depende el resultado de la variante elegida.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si alguna entrada es negativa.
+    """
+    if precipitacion_mm < 0 or etp_mm < 0:
+        raise ErrorHidrologia(
+            f"Dekop no admite valores negativos y recibio P={precipitacion_mm} "
+            f"y ETP={etp_mm} mm.")
+    if precipitacion_mm == 0 or etp_mm == 0:
+        return 0.0
+    return min(etp_mm * math.tanh(precipitacion_mm / etp_mm),
+               precipitacion_mm, etp_mm)
+
+
+def etr_turc(precipitacion_mm: float, temperatura_c: float,
+             umbral: float = 0.316) -> float:
+    """
+    Evapotranspiración real por Turc, con L en función de la temperatura.
+
+        L = 300 + 25·T + 0,05·T³
+        ETR = P / √(0,9 + (P/L)²)   si P/L > umbral
+        ETR = P                     en caso contrario
+
+    SOLO A ESCALA ANUAL. El polinomio de L está calibrado con precipitación y
+    temperatura ANUALES; alimentarlo con una lámina mensual mezcla unidades y
+    devuelve un número con aspecto correcto y sin significado. El módulo que
+    llame debe garantizar la escala, porque la fórmula no puede saberlo.
+
+    Por debajo del umbral toda la lluvia se evapora, que es lo que la
+    formulación define para regímenes secos.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si la precipitación es negativa, o si L sale nulo o negativo: con
+        temperaturas muy bajas el polinomio puede hacerlo y la división no
+        tendría sentido.
+    """
+    if precipitacion_mm < 0:
+        raise ErrorHidrologia(
+            f"Turc no admite precipitacion negativa y recibio "
+            f"{precipitacion_mm} mm.")
+    if precipitacion_mm == 0:
+        return 0.0
+    ele = 300.0 + 25.0 * temperatura_c + 0.05 * temperatura_c ** 3
+    if ele <= 0:
+        raise ErrorHidrologia(
+            f"el parametro L de Turc vale {ele:.2f} con una temperatura de "
+            f"{temperatura_c} C: por debajo de cero la formulacion no aplica.")
+    razon = precipitacion_mm / ele
+    if razon <= umbral:
+        return precipitacion_mm
+    return min(precipitacion_mm / math.sqrt(0.9 + razon ** 2), precipitacion_mm)
+
+
+def escorrentia(precipitacion_mm: float, etr_mm: float) -> float:
+    """
+    Lámina de escorrentía como residuo del balance, P - ETR.
+
+    NO SE DEJA NEGATIVA. Un residuo por debajo de cero significa que la ETR
+    calculada supera la lluvia, lo que ninguna de las formulaciones admite y
+    aquí no puede ocurrir porque todas se acotan; si aun así llegara, devolver
+    un caudal negativo propagaría el error hasta la curva de duración.
+    """
+    return max(0.0, precipitacion_mm - etr_mm)
+
+
+def caudal_medio(lamina_mm: float, area_km2: float, dias: float) -> float:
+    """
+    Caudal medio en m3/s que representa una lámina sobre un área en un periodo.
+
+    Es la conversión que cierra el balance: la lámina de escorrentía se reparte
+    de forma uniforme en el tiempo del periodo. Con 'dias' igual a 365,25 da el
+    caudal medio anual; con los días del mes, el medio de ese mes.
+    """
+    if area_km2 <= 0 or dias <= 0:
+        return 0.0
+    return (lamina_mm / 1000.0) * (area_km2 * 1.0e6) / (dias * 86400.0)
+
+
 def contrastar_con_referencia(
     ajuste: dict[str, Any], referencias: Sequence[dict[str, Any]],
 ) -> list[dict[str, Any]]:
