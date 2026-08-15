@@ -1291,6 +1291,13 @@ temperatura:
   # marcado, en lugar de publicar una recta que no se sostiene.
   estaciones_min_por_mes: 5
   paso_isoterma_c: 1.0
+  # ETP: cada metodo en su escala. Cenicafe da el NIVEL multianual y
+  # Thornthwaite el REPARTO mensual. Con el ajuste, la serie mensual
+  # conserva su forma y toma el nivel de la multianual, de modo que las
+  # dos escalas cierran; sin el, cada una conserva el suyo y el informe
+  # debe explicar por que no coinciden.
+  tabla_etp: "data/referencia/evapotranspiracion_potencial.csv"
+  ajustar_etp_mensual: true
   tabla_gradiente: "data/referencia/gradiente_termico.csv"
   salida: "data/02_procesado/temperatura"
 

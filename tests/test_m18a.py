@@ -7,6 +7,7 @@ Pruebas del M18a: temperatura por gradiente altitudinal.
 
 from __future__ import annotations
 
+import math
 import sys
 import unittest
 from pathlib import Path
@@ -299,6 +300,49 @@ class PruebaIsotermas(unittest.TestCase):
         self.assertEqual(m18a.isotermas_por_franja(
             {"intercepto_c": 15.0, "pendiente_c_por_m": 0.0},
             self.FRANJAS, 1.0), [])
+
+
+class PruebaEvapotranspiracionPotencial(unittest.TestCase):
+    """
+    Cada método aporta lo que sabe: Cenicafé el nivel multianual, Thornthwaite
+    el reparto en el año. Ninguno hace lo del otro.
+    """
+
+    def test_cenicafe_baja_con_la_elevacion(self) -> None:
+        baja = m18a.etp_cenicafe(1000.0, 1700.17, -0.0002)
+        alta = m18a.etp_cenicafe(3000.0, 1700.17, -0.0002)
+        self.assertGreater(baja, alta)
+        self.assertAlmostEqual(baja, 1700.17 * math.exp(-0.2), places=6)
+
+    def test_thornthwaite_necesita_los_doce_meses(self) -> None:
+        # El índice de calor es anual: con menos meses no es el mismo número.
+        with self.assertRaises(ErrorHidrologia):
+            m18a.etp_thornthwaite([15.0] * 6)
+
+    def test_thornthwaite_devuelve_el_ciclo_y_su_anual(self) -> None:
+        salida = m18a.etp_thornthwaite([12.0] * 12)
+        self.assertEqual(len(salida["etp_mensual_mm"]), 12)
+        self.assertAlmostEqual(salida["etp_anual_mm"],
+                               sum(salida["etp_mensual_mm"]), places=1)
+        self.assertGreater(salida["indice_calor"], 0)
+
+    def test_un_mes_bajo_cero_no_evapora(self) -> None:
+        # Elevar un negativo a un exponente fraccionario no da un número.
+        salida = m18a.etp_thornthwaite([15.0] * 11 + [-3.0])
+        self.assertEqual(salida["etp_mensual_mm"][-1], 0.0)
+
+    def test_con_todo_bajo_cero_es_error(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m18a.etp_thornthwaite([-1.0] * 12)
+
+    def test_el_factor_lleva_el_anual_al_multianual(self) -> None:
+        ajuste = m18a.factor_de_ajuste(937.0, 610.0)
+        self.assertAlmostEqual(610.0 * ajuste["factor"], 937.0, places=2)
+        self.assertLess(ajuste["discrepancia_pct"], 0)
+
+    def test_un_valor_nulo_no_produce_factor(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m18a.factor_de_ajuste(937.0, 0.0)
 
 
 if __name__ == "__main__":

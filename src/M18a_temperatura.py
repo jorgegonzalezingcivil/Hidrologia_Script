@@ -427,6 +427,113 @@ def isotermas_por_franja(
     return salida
 
 
+def etp_cenicafe(altura_m: float, coeficiente: float, exponente: float) -> float:
+    """
+    Evapotranspiración potencial anual por la ecuación de Cenicafé.
+
+    ETP = a · exp(b · h), en mm/año, función ÚNICAMENTE de la elevación. Es una
+    regionalización para Colombia y por eso no tiene ciclo anual: entrega el
+    total del año y no sabe repartirlo entre meses. De ahí que la escala mensual
+    necesite otro método.
+
+    OJO CON EL COEFICIENTE. El procedimiento de referencia enuncia 1017,17 en su
+    texto y aplica 1700,17 en su implementación; la ecuación publicada es la
+    segunda. Por eso el valor vive en la tabla de doctrina y no en el código: se
+    transcribe una vez, con su fuente, y se revisa una vez.
+    """
+    return coeficiente * math.exp(exponente * float(altura_m))
+
+
+def etp_thornthwaite(
+    temperaturas: Sequence[float], correccion: Sequence[float] | None = None,
+) -> dict[str, Any]:
+    """
+    Evapotranspiración potencial mensual por Thornthwaite (1948).
+
+        i = (T/5)^1,514                 índice de calor de cada mes
+        I = suma de los doce i
+        a = 6,75e-7·I³ - 7,71e-5·I² + 1,792e-2·I + 0,49239
+        ETP = 16 · (10·T/I)^a           mm/mes, sin corregir
+
+    SU VALOR ESTÁ EN EL REPARTO, NO EN EL NIVEL. Solo ve la temperatura, de modo
+    que en montaña fría subestima: no tiene forma de saber cuánta radiación
+    llega. Lo que sí aporta, y Cenicafé no puede dar, es el ciclo anual.
+
+    UN MES CON TEMPERATURA NEGATIVA DA CERO, que es lo que la formulación
+    define: por debajo de cero no hay evapotranspiración que estimar con este
+    método, y elevar un negativo a un exponente fraccionario no da un número.
+
+    La corrección por horas de sol depende de la latitud y del mes; se recibe ya
+    calculada para no meter aquí una tabla astronómica. Sin ella el resultado es
+    el de Thornthwaite sin corregir, que cerca del ecuador se aparta poco.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si no se reciben doce meses, o si el índice de calor sale nulo: con
+        todas las temperaturas en cero o por debajo no hay nada que estimar.
+    """
+    if len(temperaturas) != 12:
+        raise ErrorHidrologia(
+            f"Thornthwaite necesita los doce meses y recibio "
+            f"{len(temperaturas)}: el indice de calor es anual.")
+
+    indices = [(t / 5.0) ** 1.514 if t > 0 else 0.0 for t in temperaturas]
+    calor = sum(indices)
+    if calor <= 0:
+        raise ErrorHidrologia(
+            "el indice de calor anual es nulo: todas las temperaturas estan en "
+            "cero o por debajo y Thornthwaite no aplica.")
+    exponente = (6.75e-7 * calor ** 3 - 7.71e-5 * calor ** 2
+                 + 1.792e-2 * calor + 0.49239)
+    sin_corregir = [16.0 * (10.0 * t / calor) ** exponente if t > 0 else 0.0
+                    for t in temperaturas]
+    factores = list(correccion) if correccion else [1.0] * 12
+    mensual = [e * f for e, f in zip(sin_corregir, factores)]
+    return {
+        "indice_calor": round(calor, 4),
+        "exponente_a": round(exponente, 6),
+        "etp_mensual_mm": [round(v, 3) for v in mensual],
+        "etp_anual_mm": round(sum(mensual), 2),
+        "corregida": bool(correccion),
+    }
+
+
+def factor_de_ajuste(etp_multianual_mm: float, etp_anual_mm: float) -> dict[str, Any]:
+    """
+    Factor que lleva la ETP mensual al nivel de la multianual.
+
+    CADA MÉTODO APORTA LO QUE SABE. Thornthwaite da el REPARTO en el año, que
+    Cenicafé no puede dar porque solo ve la elevación; Cenicafé da el NIVEL, que
+    procede de una regionalización con datos de campo y no de una fórmula de
+    temperatura. El factor conserva la forma del ciclo y corrige la escala, de
+    modo que las dos vías cierran entre sí en lugar de contradecirse en el
+    informe.
+
+    NO ES UN ARREGLO NEUTRO. Traslada al mensual cualquier sesgo del multianual,
+    y por eso se devuelve junto a la discrepancia que corrige: lo que hay que
+    declarar en el informe es la magnitud, no solo el hecho.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si alguna de las dos es nula o negativa: un factor infinito o negativo
+        no corrige nada.
+    """
+    if etp_anual_mm <= 0 or etp_multianual_mm <= 0:
+        raise ErrorHidrologia(
+            f"no se puede ajustar con ETP multianual {etp_multianual_mm} y "
+            f"anual {etp_anual_mm}: ambas deben ser positivas.")
+    factor = etp_multianual_mm / etp_anual_mm
+    return {
+        "factor": round(factor, 5),
+        "etp_multianual_mm": round(etp_multianual_mm, 2),
+        "etp_sin_ajustar_mm": round(etp_anual_mm, 2),
+        "discrepancia_pct": round(100.0 * (etp_anual_mm - etp_multianual_mm)
+                                  / etp_multianual_mm, 2),
+    }
+
+
 def contrastar_con_referencia(
     ajuste: dict[str, Any], referencias: Sequence[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -846,6 +953,8 @@ def _resolver_mensual(configuracion, base, delimitador, alturas, resultado,
     paso = float(configuracion.obtener("temperatura.paso_isoterma_c"))
     resultado.isotermas = isotermas_por_franja(compuesto, franjas, paso)
 
+    _resolver_etp(configuracion, base, delimitador, resultado, logger)
+
     heredados = [a["mes"] for a in resultado.mensuales if a["heredado"]]
     logger.info("%d gradiente(s) mensual(es) propios y %d heredados; "
                 "%d franja(s) de isoterma",
@@ -884,6 +993,107 @@ def _resolver_mensual(configuracion, base, delimitador, alturas, resultado,
             "que la recta le asigna, de modo que el reparto sale de la "
             "distribucion altimetrica del M10 sin ningun raster de por medio.",
         ))
+
+
+def _resolver_etp(configuracion, base, delimitador, resultado, logger) -> None:
+    """
+    Las dos evapotranspiraciones potenciales, cada una en su escala, y su ajuste.
+
+    LA MULTIANUAL DE LA CUENCA ES LA MEDIA PONDERADA DE LAS SUBCUENCAS, no la
+    ecuación evaluada en la cota media. Cenicafé es exponencial, y para una
+    función no lineal la media de f(h) no es f de la media de h. Es justo lo
+    contrario de lo que pasa con la temperatura, donde la linealidad hace que
+    evaluar en la cota media sea exacto.
+    """
+    if not resultado.serie_cuenca or not resultado.subcuencas:
+        return
+    ruta = rutas.resolver(configuracion.obtener("temperatura.tabla_etp"), base)
+    if not ruta.is_file():
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "etp.sin_tabla",
+            f"no se encuentra {ruta.name}: sin ella no se calcula la "
+            "evapotranspiracion potencial."))
+        return
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        metodos = {f["metodo"]: f for f in csv.DictReader(
+            manejador, delimiter=delimitador)}
+    cenicafe = metodos.get("cenicafe")
+    if cenicafe is None:
+        return
+
+    coeficiente = float(cenicafe["coeficiente"])
+    exponente = float(cenicafe["exponente"])
+    area_total = sum(s["area_km2"] for s in resultado.subcuencas)
+    for fila in resultado.subcuencas:
+        fila["etp_cenicafe_mm_anio"] = round(
+            etp_cenicafe(fila["cota_media_m"], coeficiente, exponente), 1)
+    multianual = sum(s["etp_cenicafe_mm_anio"] * s["area_km2"]
+                     for s in resultado.subcuencas) / area_total
+
+    temperaturas = [f["t_media_cuenca_c"] for f in resultado.serie_cuenca]
+    try:
+        thornthwaite = etp_thornthwaite(temperaturas)
+    except ErrorHidrologia as error:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "etp.thornthwaite", str(error)))
+        return
+
+    ajustar = bool(configuracion.obtener("temperatura.ajustar_etp_mensual"))
+    try:
+        ajuste = factor_de_ajuste(multianual, thornthwaite["etp_anual_mm"])
+    except ErrorHidrologia as error:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "etp.ajuste", str(error)))
+        return
+    factor = ajuste["factor"] if ajustar else 1.0
+
+    for fila, sin_ajustar in zip(resultado.serie_cuenca,
+                                 thornthwaite["etp_mensual_mm"]):
+        fila["etp_thornthwaite_mm"] = round(sin_ajustar, 2)
+        fila["etp_ajustada_mm"] = round(sin_ajustar * factor, 2)
+    resultado.cobertura["etp"] = {
+        "cenicafe_multianual_mm_anio": round(multianual, 1),
+        "cenicafe_en_cota_media_mm_anio": round(
+            etp_cenicafe(resultado.cobertura["cota_media_cuenca_m"],
+                         coeficiente, exponente), 1),
+        "thornthwaite_anual_mm": thornthwaite["etp_anual_mm"],
+        "indice_calor": thornthwaite["indice_calor"],
+        "exponente_a": thornthwaite["exponente_a"],
+        "factor_aplicado": factor,
+        "ajustada": ajustar,
+        **ajuste,
+    }
+    logger.info("ETP Cenicafe %.0f mm/ano, Thornthwaite %.0f mm/ano, "
+                "factor %.4f", multianual, thornthwaite["etp_anual_mm"], factor)
+
+    detalle = resultado.cobertura["etp"]
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "etp.calculada",
+        f"ETP multianual por Cenicafe de {multianual:.0f} mm/ano, media "
+        f"PONDERADA POR AREA de las subcuencas. Evaluar la ecuacion en la cota "
+        f"media daria {detalle['cenicafe_en_cota_media_mm_anio']:.0f}: como es "
+        "exponencial, la media de f(h) no es f de la media de h, al reves que "
+        "con la temperatura, donde la linealidad lo hace exacto. Thornthwaite "
+        f"da {thornthwaite['etp_anual_mm']:.0f} mm/ano con indice de calor "
+        f"{thornthwaite['indice_calor']:.1f} y exponente "
+        f"{thornthwaite['exponente_a']:.4f}.",
+    ))
+    resultado.hallazgos.append(Hallazgo(
+        ADVERTENCIA, "etp.discrepancia",
+        f"las dos vias difieren un {ajuste['discrepancia_pct']:+.0f} por "
+        f"ciento. Cenicafe se regionalizo entre {cenicafe['rango_calibracion_msnm']} "
+        f"m y aqui se aplica a {resultado.cobertura['cota_media_cuenca_m']:.0f} "
+        "m, fuera de su calibracion; Thornthwaite solo ve la temperatura y en "
+        "montana fria subestima porque no conoce la radiacion. Probablemente "
+        "NINGUNA de las dos describe bien esta cuenca y el valor esta entre "
+        + (f"ambas. Se aplica un factor de {factor:.4f} a la serie mensual, que "
+           "conserva el reparto de Thornthwaite y toma el nivel de Cenicafe: "
+           "el informe debe declararlo, porque traslada al mensual cualquier "
+           "sesgo del multianual."
+           if ajustar else
+           "ambas. NO se aplica factor: cada escala conserva su nivel y el "
+           "informe debe explicar por que no cierran."),
+    ))
 
 
 def _leer_franjas(base, delimitador):
@@ -1149,7 +1359,87 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
                 resultado.productos.append(rutas.relativa(ruta, base))
             escritas += 1
 
-    # 7. Representacion geografica del campo termico por subcuenca.
+    # 7. Las dos evapotranspiraciones potenciales, y el efecto del ajuste.
+    etp = resultado.cobertura.get("etp")
+    if etp and resultado.serie_cuenca and "etp_thornthwaite_mm" in resultado.serie_cuenca[0]:
+        meses = [f["mes"] for f in resultado.serie_cuenca]
+        with graficos.figura(
+                estilo, titulo="Evapotranspiración potencial, las dos vías",
+                etiqueta_x="Mes",
+                etiqueta_y="ETP (mm/mes)") as (fig, ax):
+            ax.bar(meses, [f["etp_thornthwaite_mm"] for f in resultado.serie_cuenca],
+                   color=estilo.color(1), width=0.42, align="edge",
+                   label="Thornthwaite, sin ajustar")
+            ax.bar([m - 0.42 for m in meses],
+                   [f["etp_ajustada_mm"] for f in resultado.serie_cuenca],
+                   color=estilo.color(0), width=0.42, align="edge",
+                   label=f"ajustada, factor {etp['factor_aplicado']:.3f}")
+            # Cenicafe no tiene ciclo: su nivel se dibuja como el mensual medio
+            # equivalente, que es lo unico comparable en este eje.
+            ax.axhline(etp["cenicafe_multianual_mm_anio"] / 12.0,
+                       color="#b03a2e", linestyle="--", linewidth=1.4,
+                       label="Cenicafé, mensual equivalente")
+            ax.set_xticks(meses)
+            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            fig.text(0.01, -0.04,
+                     f"Cenicafé {etp['cenicafe_multianual_mm_anio']:.0f} mm/año "
+                     f"contra Thornthwaite {etp['thornthwaite_anual_mm']:.0f}: "
+                     f"{etp['discrepancia_pct']:+.0f} %. Cenicafé aporta el "
+                     "nivel y Thornthwaite el reparto; el ajuste conserva la "
+                     "forma y corrige la escala.",
+                     fontsize=estilo.tamano_fuente - 2, color="#555555")
+            for ruta in graficos.guardar(
+                    fig, directorio / "M18a_etp_comparacion", estilo):
+                resultado.productos.append(rutas.relativa(ruta, base))
+            escritas += 1
+
+    # 8. Las dos ETP contra la elevacion, que es donde se ve por que difieren.
+    if etp and resultado.subcuencas and adoptado:
+        cotas = sorted(s["cota_media_m"] for s in resultado.subcuencas)
+        factor = etp["factor_aplicado"]
+        with graficos.figura(
+                estilo, titulo="Evapotranspiración potencial contra elevación",
+                etiqueta_x="Elevación (m s. n. m.)",
+                etiqueta_y="ETP (mm/año)") as (fig, ax):
+            ax.plot(cotas, [s["etp_cenicafe_mm_anio"] for s in
+                            sorted(resultado.subcuencas,
+                                   key=lambda x: x["cota_media_m"])],
+                    color="#b03a2e", linewidth=1.8, label="Cenicafé")
+            # Thornthwaite se evalua a lo largo de la cuenca usando el mismo
+            # gradiente termico, que es lo que la hace comparable con Cenicafe.
+            anual = []
+            for cota in cotas:
+                desplazamiento = evaluar(adoptado, cota) - sum(
+                    f["t_media_cuenca_c"] for f in resultado.serie_cuenca) / 12.0
+                try:
+                    perfil = etp_thornthwaite(
+                        [f["t_media_cuenca_c"] + desplazamiento
+                         for f in resultado.serie_cuenca])
+                except ErrorHidrologia:
+                    anual.append(None)
+                else:
+                    anual.append(perfil["etp_anual_mm"])
+            validos = [(c, v) for c, v in zip(cotas, anual) if v is not None]
+            if validos:
+                ax.plot([c for c, _ in validos], [v for _, v in validos],
+                        color=estilo.color(0), linewidth=1.8,
+                        label="Thornthwaite")
+                ax.plot([c for c, _ in validos],
+                        [v * factor for _, v in validos],
+                        color=estilo.color(0), linewidth=1.4, linestyle="--",
+                        label=f"Thornthwaite ajustada, ×{factor:.3f}")
+            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            fig.text(0.01, -0.04,
+                     "Las dos acaban dependiendo solo de la elevación: Cenicafé "
+                     "de forma directa, y Thornthwaite a través del gradiente "
+                     "térmico. Por eso se pueden contrastar punto a punto.",
+                     fontsize=estilo.tamano_fuente - 2, color="#555555")
+            for ruta in graficos.guardar(
+                    fig, directorio / "M18a_etp_contra_elevacion", estilo):
+                resultado.productos.append(rutas.relativa(ruta, base))
+            escritas += 1
+
+    # 9. Representacion geografica del campo termico por subcuenca.
     if resultado.subcuencas:
         escritas += _mapa_de_temperatura(configuracion, base, resultado,
                                          estilo, directorio, graficos)

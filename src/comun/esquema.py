@@ -1272,6 +1272,10 @@ ESQUEMA: dict[str, Campo] = {
         minimo=3, maximo=100),
     "temperatura.paso_isoterma_c": numero(
         "amplitud de cada franja de isoterma", minimo=0.1, maximo=10.0),
+    "temperatura.tabla_etp": texto(
+        "tabla de métodos de evapotranspiración potencial", no_vacio=True),
+    "temperatura.ajustar_etp_mensual": booleano(
+        "llevar la ETP mensual al nivel de la multianual"),
     "temperatura.tabla_gradiente": texto(
         "tabla de gradientes térmicos de referencia", no_vacio=True),
     "temperatura.salida": texto(
