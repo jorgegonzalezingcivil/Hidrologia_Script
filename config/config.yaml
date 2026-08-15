@@ -1334,6 +1334,8 @@ balance_hidrico:
     # Rendimiento que el ENA publica para la subzona hidrografica. NO se
     # deduce: lo declara el consultor leyendolo del estudio. Es la unica
     # verificacion externa del balance.
+    szh: ""
+    tabla: "data/referencia/ena_rendimiento_subzonas.csv"
     rendimiento_l_s_km2: null
   ena_anio: 2022
 

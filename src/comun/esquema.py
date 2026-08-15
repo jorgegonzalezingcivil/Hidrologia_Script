@@ -1261,6 +1261,11 @@ ESQUEMA: dict[str, Campo] = {
         "homologación de cobertura a las clases del modelo", no_vacio=True),
     "infiltracion.salida": texto(
         "directorio de las tablas de infiltración", no_vacio=True),
+    "balance_hidrico.ena.szh": texto(
+        "subzona hidrográfica del estudio, para buscar su fila en la tabla",
+        requerido=False),
+    "balance_hidrico.ena.tabla": texto(
+        "tabla de oferta del ENA por subzona", no_vacio=True),
     "balance_hidrico.ena.rendimiento_l_s_km2": numero(
         "rendimiento que el ENA publica para la subzona",
         permite_nulo=True, minimo=0, maximo=500),

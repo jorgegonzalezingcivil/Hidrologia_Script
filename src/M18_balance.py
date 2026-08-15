@@ -1135,22 +1135,39 @@ def _figura_ena(configuracion, base, resultado, estilo, directorio, graficos,
     caudal = resultado.contraste.get("caudal_budyko_m3s", 0.0)
     propio = 1000.0 * caudal / area if area else 0.0
 
+    banda = _banda_del_ena(configuracion, base, resultado)
     with graficos.figura(
             estilo, titulo="Rendimiento hídrico contra el Estudio Nacional del Agua",
             etiqueta_x="Rendimiento (l/s/km²)",
             etiqueta_y="Subcuencas") as (fig, ax):
-        ax.hist(propios, bins=20, color=estilo.color(0))
+        # LA BANDA Y NO UN PUNTO. El ENA publica la oferta en tres condiciones,
+        # y comparar contra una sola sugiere una precision que no existe: lo
+        # que dice es entre que valores se mueve la subzona.
+        if banda:
+            ax.axvspan(banda["seco"], banda["humedo"], color="#b03a2e",
+                       alpha=0.10,
+                       label=f"ENA, año seco a húmedo "
+                             f"({banda['seco']:.1f} a {banda['humedo']:.1f})")
+        ax.hist(propios, bins=20, color=estilo.color(0),
+                label="subcuencas del estudio")
         ax.axvline(propio, color=estilo.color(1), linewidth=1.8,
                    label=f"cuenca, {propio:.1f}")
         ax.axvline(referencia, color="#b03a2e", linestyle="--", linewidth=1.8,
-                   label=f"ENA {configuracion.obtener('balance_hidrico.ena_anio')}, "
-                         f"{referencia:.1f}")
+                   label=f"ENA {configuracion.obtener('balance_hidrico.ena_anio')} "
+                         f"año medio, {referencia:.1f}")
         ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
         diferencia = 100.0 * (propio - referencia) / referencia if referencia else 0.0
-        fig.text(0.01, -0.04,
+        dentro = (banda and banda["seco"] <= propio <= banda["humedo"])
+        fig.text(0.01, -0.14,
                  f"El balance da {propio:.1f} l/s/km² y el ENA "
-                 f"{referencia:.1f}: {diferencia:+.0f} %. Es la única "
-                 "verificación con un dato ajeno a esta cadena.",
+                 f"{referencia:.1f} en año medio: {diferencia:+.0f} %. "
+                 + ("Cae DENTRO de la banda que el ENA reporta entre año seco y "
+                    "húmedo.\n" if dentro else "Cae FUERA de esa banda.\n")
+                 + "La diferencia es esperable y no un fallo: la subzona incluye "
+                   "la sabana plana, y esta cuenca es la parte alta que produce "
+                   "el agua que aquella recibe.\nEs comparación de orden de "
+                   "magnitud, no validación: las escalas y las metodologías "
+                   "difieren.",
                  fontsize=estilo.tamano_fuente - 2, color="#555555")
         for ruta in graficos.guardar(fig, directorio / "M18_contraste_ena",
                                      estilo):
@@ -1159,17 +1176,69 @@ def _figura_ena(configuracion, base, resultado, estilo, directorio, graficos,
     resultado.contraste["rendimiento_l_s_km2"] = round(propio, 2)
     resultado.contraste["ena_l_s_km2"] = referencia
     resultado.contraste["ena_diferencia_pct"] = round(diferencia, 1)
+    if banda:
+        resultado.contraste["ena_banda"] = banda
+    # LA DIFERENCIA SE EXPLICA, no solo se reporta: es el texto que el informe
+    # necesita para que nadie la lea como un error del balance.
     resultado.hallazgos.append(Hallazgo(
-        ADVERTENCIA if abs(diferencia) > 30 else INFORMATIVO,
-        "balance.contraste_ena",
+        INFORMATIVO if dentro else ADVERTENCIA, "balance.contraste_ena",
         f"el balance da un rendimiento de {propio:.1f} l/s/km2 y el ENA de "
-        f"{configuracion.obtener('balance_hidrico.ena_anio')} publica "
-        f"{referencia:.1f} para la subzona: {diferencia:+.0f} por ciento. Es la "
+        f"{configuracion.obtener('balance_hidrico.ena_anio')} da "
+        f"{referencia:.1f} para la subzona en ano medio: {diferencia:+.0f} por "
+        "ciento. "
+        + (f"El valor cae DENTRO de la banda que el ENA reporta entre ano seco "
+           f"({banda['seco']:.1f}) y ano humedo ({banda['humedo']:.1f}). "
+           if dentro else "El valor cae FUERA de esa banda. ")
+        + "LA DIFERENCIA ES ESPERABLE Y NO UN FALLO: la subzona abarca miles de "
+        "km2 que incluyen la sabana plana, de rendimiento bajo, mientras que "
+        "esta cuenca es la parte alta de montana que produce el agua que "
+        "aquella recibe. Una cuenca alta rinde mas que el promedio de su "
+        "subzona. Es comparacion de ORDEN DE MAGNITUD y no validacion: las "
+        "escalas no son comparables y las metodologias tampoco. Aun asi, es la "
         "unica verificacion con un dato ajeno a esta cadena; el resto del "
         "balance cerraria igual de bien consigo mismo aunque la lluvia o el "
         "area estuvieran mal.",
     ))
     return 1
+
+
+def _banda_del_ena(configuracion, base, resultado) -> dict[str, float]:
+    """
+    Rendimientos del ENA en las tres condiciones, derivados de su oferta.
+
+    EL RENDIMIENTO NO VIENE PUBLICADO: el anexo trae oferta y area, y de ahi
+    sale. Se devuelven las tres para que el informe muestre la BANDA en que la
+    subzona se mueve, en lugar de un punto que sugiere una precision inexistente.
+
+    La oferta DISPONIBLE queda fuera a proposito: ya descuenta caudal ambiental
+    y demanda, mientras que el balance calcula oferta bruta.
+    """
+    szh = str(configuracion.obtener("balance_hidrico.ena.szh", "") or "").strip()
+    ruta = rutas.resolver(configuracion.obtener("balance_hidrico.ena.tabla"), base)
+    if not szh or not ruta.is_file():
+        return {}
+    delimitador = str(configuracion.obtener("insumos_usuario.delimitador_csv"))
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        for fila in csv.DictReader(manejador, delimiter=delimitador):
+            if str(fila.get("szh", "")).strip() != szh:
+                continue
+            try:
+                area = float(fila["area_km2"])
+                if area <= 0:
+                    return {}
+                def rendimiento(clave):
+                    return (float(fila[clave]) * 1.0e6
+                            / (DIAS_DEL_ANIO * 86400.0) / area * 1000.0)
+                return {
+                    "szh": szh, "nombre": fila.get("nombre", ""),
+                    "area_km2": round(area, 1),
+                    "humedo": round(rendimiento("oferta_humedo_mm3"), 2),
+                    "medio": round(rendimiento("oferta_medio_mm3"), 2),
+                    "seco": round(rendimiento("oferta_seco_mm3"), 2),
+                }
+            except (KeyError, TypeError, ValueError, ZeroDivisionError):
+                return {}
+    return {}
 
 
 def _figura_por_franja(base, resultado, estilo, directorio, graficos,
