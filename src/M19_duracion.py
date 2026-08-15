@@ -371,11 +371,34 @@ def _escribir(configuracion, base, delimitador, resultado, logger) -> None:
         # magnitud, en escala lineal la cola de estiaje queda pegada al eje y el
         # Q95 no se puede leer, que es justo el valor que el informe usa.
         ax.set_yscale("log")
+        # EL LOGARITMO ES DE LA ESCALA, NO DE LA ETIQUETA. Por defecto
+        # matplotlib rotula un eje logaritmico en notacion cientifica, y un
+        # caudal de 2,3e-01 no se lee: quien revisa el informe quiere ver
+        # 0,23 m3/s. Se fuerza formato decimal y coma, como el resto del
+        # documento.
+        from matplotlib.ticker import FuncFormatter, LogLocator
+
+        def decimal(valor, _posicion):
+            if valor <= 0:
+                return ""
+            decimales = 0 if valor >= 10 else (1 if valor >= 1 else
+                                               (2 if valor >= 0.1 else 3))
+            return f"{valor:.{decimales}f}".replace(".", ",")
+
+        ax.yaxis.set_major_locator(LogLocator(base=10.0, numticks=12))
+        ax.yaxis.set_minor_locator(
+            LogLocator(base=10.0, subs=(2.0, 5.0), numticks=24))
+        ax.yaxis.set_major_formatter(FuncFormatter(decimal))
+        ax.yaxis.set_minor_formatter(FuncFormatter(decimal))
+        ax.tick_params(axis="y", which="minor",
+                       labelsize=estilo.tamano_fuente - 2)
         for nombre, color in (("Q50", "#555555"), ("Q95", "#b03a2e")):
             valor = percentiles.get(nombre)
             if valor:
-                ax.axhline(valor, color=color, linestyle="--", linewidth=1.2,
-                           label=f"{nombre} = {valor:.4f} m³/s")
+                ax.axhline(
+                    valor, color=color, linestyle="--", linewidth=1.2,
+                    label=f"{nombre} = "
+                          f"{f'{valor:.4f}'.replace('.', ',')} m³/s")
         ax.set_xlim(0, 100)
         ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
         fig.text(0.01, -0.06,
