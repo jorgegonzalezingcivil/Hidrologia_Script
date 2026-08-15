@@ -1254,6 +1254,23 @@ ESQUEMA: dict[str, Campo] = {
         texto("nombre", no_vacio=True),
     ),
 
+    # --- M18a: temperatura ---------------------------------------------------
+    "temperatura.etiqueta_maxima": texto(
+        "etiqueta IDEAM de la temperatura máxima", no_vacio=True),
+    "temperatura.etiqueta_minima": texto(
+        "etiqueta IDEAM de la temperatura mínima", no_vacio=True),
+    "temperatura.completitud_mensual_min": numero(
+        "fracción de días del mes con dato para aceptarlo",
+        minimo=0.5, maximo=1.0),
+    "temperatura.meses_min_por_anio": entero(
+        "meses con dato para contar un año como completo", minimo=1, maximo=12),
+    "temperatura.anios_min": entero(
+        "años completos para considerar suficiente una serie",
+        minimo=1, maximo=100),
+    "temperatura.tabla_gradiente": texto(
+        "tabla de gradientes térmicos de referencia", no_vacio=True),
+    "temperatura.salida": texto(
+        "directorio de las tablas de temperatura", no_vacio=True),
     "informe.plantilla": ruta("plantilla .dotx del informe"),
     "informe.estructura": ruta("declaración del árbol de capítulos"),
     "informe.texto": ruta("narrativa del informe, con sus huecos"),

@@ -1,0 +1,4 @@
+criterio;gradiente_c_por_km;tolerancia_c_por_km;fuente;validado;observacion
+adiabatico_ambiental;6.5;2.0;Atmosfera estandar internacional (ISA), gradiente termico de la troposfera;si;Valor de referencia con que se CONTRASTA el gradiente ajustado a las estaciones del estudio. No sustituye al ajuste: solo advierte cuando este se aparta. La tolerancia acota lo que se considera compatible.
+adiabatico_seco;9.8;0.0;Termodinamica de una parcela de aire seco sin intercambio de calor;si;Limite fisico superior. Un gradiente ajustado por encima de este valor no describe un campo termico atmosferico y apunta a un sesgo en la muestra de estaciones.
+adiabatico_saturado;5.0;1.5;Termodinamica de una parcela saturada, valor tipico en troposfera baja tropical;si;Limite inferior habitual en ambientes humedos de montana tropical.

@@ -231,10 +231,13 @@ pasos:
     estado: pendiente
 
   - modulo: M18a
+    # Ajusta el campo termico contra la ELEVACION, no por distancia: en montana
+    # la cota lo explica mucho mejor que la vecindad horizontal. Los
+    # coeficientes se recalculan siempre con las estaciones del estudio.
     nombre: "Temperatura y evapotranspiración"
     script: "src/M18a_temperatura.py"
     entorno: venv
-    estado: pendiente
+    estado: disponible
 
   - modulo: M18b
     nombre: "Infiltración"

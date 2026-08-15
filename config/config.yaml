@@ -1268,6 +1268,28 @@ calibracion:
   metricas: [nash_sutcliffe, rmse, pbias, r2]
 
 # -----------------------------------------------------------------------------
+# M18a - TEMPERATURA
+# -----------------------------------------------------------------------------
+# El campo termico se ajusta contra la ELEVACION y no se interpola por
+# distancia: en montana la cota explica la temperatura mucho mejor que la
+# vecindad horizontal.
+#
+# Los coeficientes se recalculan SIEMPRE con las estaciones del estudio. La
+# tabla de referencia no aporta un gradiente que se aplique, sino los valores
+# fisicos con que se contrasta el ajustado.
+temperatura:
+  etiqueta_maxima: "TMX_CON"
+  etiqueta_minima: "TMN_CON"
+  # Fraccion de los dias del mes con dato para aceptarlo. Con temperatura un mes
+  # incompleto no subestima el total como en la lluvia: sesga la media hacia los
+  # dias que quedaron.
+  completitud_mensual_min: 0.8
+  meses_min_por_anio: 10
+  anios_min: 20
+  tabla_gradiente: "data/referencia/gradiente_termico.csv"
+  salida: "data/02_procesado/temperatura"
+
+# -----------------------------------------------------------------------------
 # M18 / M19 - BALANCE HÍDRICO
 # -----------------------------------------------------------------------------
 balance_hidrico:
