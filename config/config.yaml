@@ -1318,6 +1318,11 @@ balance_hidrico:
     radio_max_km: 0            # 0 = sin limite
     estaciones_min: 3
   contrastar_con_ena: true
+  ena:
+    # Rendimiento que el ENA publica para la subzona hidrografica. NO se
+    # deduce: lo declara el consultor leyendolo del estudio. Es la unica
+    # verificacion externa del balance.
+    rendimiento_l_s_km2: null
   ena_anio: 2022
 
 caudal_ambiental:

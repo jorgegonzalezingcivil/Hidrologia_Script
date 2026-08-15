@@ -1255,6 +1255,9 @@ ESQUEMA: dict[str, Campo] = {
     ),
 
     # --- M18a: temperatura ---------------------------------------------------
+    "balance_hidrico.ena.rendimiento_l_s_km2": numero(
+        "rendimiento que el ENA publica para la subzona",
+        permite_nulo=True, minimo=0, maximo=500),
     "balance_hidrico.idw.exponente": numero(
         "exponente del inverso de la distancia", minimo=0.5, maximo=6.0),
     "balance_hidrico.idw.radio_max_km": numero(

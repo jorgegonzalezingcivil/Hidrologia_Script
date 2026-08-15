@@ -898,7 +898,333 @@ def _figuras(configuracion, base, resultado, logger) -> None:
                 for ruta in graficos.guardar(fig, directorio / nombre, estilo):
                     resultado.productos.append(rutas.relativa(ruta, base))
                 escritas += 1
+    escritas += _figuras_de_contraste(configuracion, base, resultado, estilo,
+                                      directorio, graficos, logger)
     logger.info("%d figura(s) escritas", escritas)
+
+
+def _figuras_de_contraste(configuracion, base, resultado, estilo, directorio,
+                          graficos, logger) -> int:
+    """
+    Las figuras que sostienen el capítulo del balance ante una revisión.
+
+    NO SON ADORNO. Cada una contesta una pregunta que la tabla no contesta: si
+    la elección de formulación cambia el resultado, si la cuenca cae donde la
+    formulación es fiable, si el caudal se parece a lo que la región produce, y
+    de qué parte de la cuenca sale el agua.
+    """
+    if not resultado.multianual:
+        return 0
+    import math
+
+    escritas = 0
+    filas = resultado.multianual
+    metodos = [m for m in ("budyko", "dekop", "turc")
+               if f"etr_{m}_mm" in filas[0]]
+    etiquetas = {"budyko": "Budyko", "dekop": "Dekop", "turc": "Turc"}
+
+    # 1. Las tres ETR contra la precipitacion. LA DISPERSION ES EL MENSAJE: si
+    #    las curvas se separan, adoptar una en silencio no es defendible.
+    with graficos.figura(
+            estilo, titulo="Evapotranspiración real, las tres formulaciones",
+            etiqueta_x="Precipitación (mm/año)",
+            etiqueta_y="ETR (mm/año)") as (fig, ax):
+        for indice, metodo in enumerate(metodos):
+            ax.scatter([f["precipitacion_mm"] for f in filas],
+                       [f[f"etr_{metodo}_mm"] for f in filas],
+                       s=16, alpha=0.75, color=estilo.color(indice),
+                       label=etiquetas[metodo])
+        medias = {m: sum(f[f"etr_{m}_mm"] for f in filas) / len(filas)
+                  for m in metodos}
+        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        fig.text(0.01, -0.04,
+                 "Media por subcuenca: "
+                 + ", ".join(f"{etiquetas[m]} {medias[m]:.0f}" for m in metodos)
+                 + " mm/año. Turc solo es válida a escala ANUAL: su polinomio "
+                 "está calibrado con valores anuales.",
+                 fontsize=estilo.tamano_fuente - 2, color="#555555")
+        for ruta in graficos.guardar(fig, directorio / "M18_etr_comparacion",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+        escritas += 1
+
+    # 2. El diagrama adimensional de Budyko con sus dos limites fisicos. Es la
+    #    figura canonica de la formulacion: dice si la cuenca cae donde el
+    #    metodo es fiable o en el codo, donde es mas sensible.
+    aridez = [f["etp_mm"] / f["precipitacion_mm"] for f in filas]
+    evaporada = [f["etr_budyko_mm"] / f["precipitacion_mm"] for f in filas]
+    with graficos.figura(
+            estilo, titulo="Diagrama de Budyko",
+            etiqueta_x="Índice de aridez, ETP / P",
+            etiqueta_y="Fracción evaporada, ETR / P") as (fig, ax):
+        tope = max(2.0, max(aridez) * 1.2)
+        malla = [i * tope / 200.0 for i in range(201)]
+        # Limite de AGUA: no se puede evaporar mas de lo que llueve.
+        ax.plot([0, tope], [1, 1], color="#b03a2e", linestyle="--",
+                linewidth=1.3, label="límite de agua disponible")
+        # Limite de ENERGIA: no se puede evaporar mas de lo que la energia da.
+        ax.plot(malla, [min(x, 1.0) for x in malla], color="#7d3c98",
+                linestyle="--", linewidth=1.3,
+                label="límite de energía disponible")
+        curva = [math.sqrt(x * math.tanh(1.0 / x) * (1 - math.exp(-x)))
+                 if x > 0 else 0.0 for x in malla]
+        ax.plot(malla, curva, color="#555555", linewidth=1.4,
+                label="curva de Budyko")
+        ax.scatter(aridez, evaporada, s=22, color=estilo.color(0), zorder=3,
+                   label="subcuencas")
+        ax.set_xlim(0, tope)
+        ax.set_ylim(0, 1.15)
+        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        fig.text(0.01, -0.06,
+                 f"Las {len(filas)} subcuencas caen entre índices de aridez de "
+                 f"{min(aridez):.2f} y {max(aridez):.2f}, en el CODO de la "
+                 "curva, donde la formulación es más sensible a la lámina de "
+                 "entrada.\nQue los puntos se posen sobre la curva NO valida el "
+                 "modelo: la ETR se calculó con ella, de modo que es una "
+                 "comprobación de implementación. Validarlo exigiría caudal "
+                 "observado.",
+                 fontsize=estilo.tamano_fuente - 2, color="#555555")
+        for ruta in graficos.guardar(fig, directorio / "M18_diagrama_budyko",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+        escritas += 1
+
+    # 3. Contraste con el Estudio Nacional del Agua: la UNICA verificacion
+    #    externa que tiene el balance. Sin ella el resultado solo se sostiene
+    #    sobre si mismo.
+    escritas += _figura_ena(configuracion, base, resultado, estilo, directorio,
+                            graficos, filas)
+
+    # 4. De donde sale el agua: balance de cierre por franja de elevacion.
+    escritas += _figura_por_franja(base, resultado, estilo, directorio,
+                                   graficos, filas)
+
+    # 5 y 6. Coeficiente de escorrentia y rendimiento sobre el mapa. El
+    #    coeficiente quita el efecto de que llueva mas o menos; el rendimiento
+    #    es la unidad con que se compara entre cuencas.
+    ruta_shp = _ruta_subcuencas(base)
+    entidades = shapefile.leer_geometrias(ruta_shp) if ruta_shp else []
+    if len(entidades) == len(filas):
+        por_nombre = {f["subcuenca"]: f for f in filas}
+        orden = [por_nombre.get(s["subcuenca"], {})
+                 for s in resultado.por_subcuenca]
+        capas = [
+            ("M18_mapa_coef_escorrentia", "Coeficiente de escorrentía",
+             "E / P", [(f.get("escorrentia_budyko_mm", 0)
+                        / f["precipitacion_mm"]) if f.get("precipitacion_mm")
+                       else None for f in orden]),
+            ("M18_mapa_rendimiento", "Rendimiento hídrico por subcuenca",
+             "Rendimiento (l/s/km²)",
+             [(1000.0 * f["caudal_budyko_m3s"] / f["area_km2"])
+              if f.get("area_km2") else None for f in orden]),
+        ]
+        for nombre, titulo, leyenda, valores in capas:
+            if not any(v is not None for v in valores):
+                continue
+            with graficos.figura(estilo, titulo=titulo, etiqueta_x="Este (m)",
+                                 etiqueta_y="Norte (m)") as (fig, ax):
+                mapeador = graficos.coropleta(ax, entidades, valores, estilo)
+                graficos.barra_de_color(fig, ax, mapeador, estilo, leyenda)
+                for ruta in graficos.guardar(fig, directorio / nombre, estilo):
+                    resultado.productos.append(rutas.relativa(ruta, base))
+                escritas += 1
+
+    # 7. Dispersion contra Budyko: dice si la diferencia entre formulaciones es
+    #    un sesgo constante o crece con la lamina.
+    otras = [m for m in metodos if m != "budyko"]
+    if otras:
+        with graficos.figura(
+                estilo, titulo="Las otras formulaciones contra Budyko",
+                etiqueta_x="ETR por Budyko (mm/año)",
+                etiqueta_y="ETR por la otra formulación (mm/año)") as (fig, ax):
+            base_x = [f["etr_budyko_mm"] for f in filas]
+            for indice, metodo in enumerate(otras, start=1):
+                ax.scatter(base_x, [f[f"etr_{metodo}_mm"] for f in filas],
+                           s=18, alpha=0.75, color=estilo.color(indice),
+                           label=etiquetas[metodo])
+            extremos = [min(base_x) * 0.9, max(base_x) * 1.1]
+            ax.plot(extremos, extremos, color="#555555", linestyle=":",
+                    linewidth=1.2, label="igualdad")
+            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            for ruta in graficos.guardar(
+                    fig, directorio / "M18_etr_dispersion", estilo):
+                resultado.productos.append(rutas.relativa(ruta, base))
+            escritas += 1
+
+    # 8. Si el gradiente termico se propaga hasta la evapotranspiracion real.
+    with graficos.figura(
+            estilo, titulo="Evapotranspiración real contra elevación",
+            etiqueta_x="Elevación (m s. n. m.)",
+            etiqueta_y="ETR (mm/año)") as (fig, ax):
+        for indice, metodo in enumerate(metodos):
+            ax.scatter([f["cota_media_m"] for f in filas],
+                       [f[f"etr_{metodo}_mm"] for f in filas],
+                       s=16, alpha=0.75, color=estilo.color(indice),
+                       label=etiquetas[metodo])
+        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        for ruta in graficos.guardar(fig, directorio / "M18_etr_elevacion",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+        escritas += 1
+
+    # 9. Ciclo anual adimensional: compara FORMAS y no magnitudes, que es lo
+    #    que dice si la ETR sigue a la lluvia o a la energia.
+    if resultado.mensual:
+        meses = [f["mes"] for f in resultado.mensual]
+        series = {}
+        for clave, etiqueta in (("precipitacion_mm", "precipitación"),
+                                ("etp_mm", "ETP"),
+                                ("etr_budyko_mm", "ETR")):
+            valores = [f[clave] for f in resultado.mensual]
+            media = sum(valores) / len(valores)
+            if media > 0:
+                series[etiqueta] = (meses, [v / media for v in valores])
+        if series:
+            with graficos.figura(
+                    estilo, titulo="Ciclo anual adimensional",
+                    etiqueta_x="Mes",
+                    etiqueta_y="Valor dividido por su media") as (fig, ax):
+                graficos.lineas(ax, series, estilo)
+                ax.axhline(1.0, color="#555555", linestyle=":", linewidth=1.0)
+                ax.set_xticks(meses)
+                fig.text(0.01, -0.04,
+                         "Cada serie va dividida por su propia media, de modo "
+                         "que se comparan formas y no magnitudes: dice si la "
+                         "ETR sigue a la lluvia o a la energía disponible.",
+                         fontsize=estilo.tamano_fuente - 2, color="#555555")
+                for ruta in graficos.guardar(
+                        fig, directorio / "M18_ciclo_adimensional", estilo):
+                    resultado.productos.append(rutas.relativa(ruta, base))
+                escritas += 1
+    return escritas
+
+
+def _figura_ena(configuracion, base, resultado, estilo, directorio, graficos,
+                filas) -> int:
+    """
+    Contrasta el rendimiento calculado con el del Estudio Nacional del Agua.
+
+    ES LA ÚNICA VERIFICACIÓN EXTERNA DEL BALANCE. Todo lo demás sale de la misma
+    cadena: si la lluvia, la evapotranspiración o el área estuvieran mal, el
+    balance cerraría igual de bien consigo mismo. El ENA es un dato ajeno y con
+    otra metodología, de modo que un parecido razonable respalda el resultado y
+    una diferencia grande obliga a explicarla.
+
+    EL VALOR NO SE PUEDE DEDUCIR: lo publica el IDEAM por subzona hidrográfica y
+    lo declara el consultor. Sin él no se dibuja nada y se advierte, en lugar de
+    inventar una referencia.
+    """
+    rendimiento = configuracion.obtener(
+        "balance_hidrico.ena.rendimiento_l_s_km2", None)
+    if rendimiento is None:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "balance.sin_ena",
+            "balance_hidrico.contrastar_con_ena esta activo pero "
+            "balance_hidrico.ena.rendimiento_l_s_km2 esta sin declarar. Es la "
+            "UNICA verificacion externa del balance: sin ella el resultado solo "
+            "se sostiene sobre si mismo. El valor lo publica el IDEAM por "
+            "subzona hidrografica y lo declara el consultor."))
+        return 0
+
+    propios = sorted(1000.0 * f["caudal_budyko_m3s"] / f["area_km2"]
+                     for f in filas if f.get("area_km2"))
+    if not propios:
+        return 0
+    referencia = float(rendimiento)
+    area = resultado.contraste.get("area_km2", 0.0)
+    caudal = resultado.contraste.get("caudal_budyko_m3s", 0.0)
+    propio = 1000.0 * caudal / area if area else 0.0
+
+    with graficos.figura(
+            estilo, titulo="Rendimiento hídrico contra el Estudio Nacional del Agua",
+            etiqueta_x="Rendimiento (l/s/km²)",
+            etiqueta_y="Subcuencas") as (fig, ax):
+        ax.hist(propios, bins=20, color=estilo.color(0))
+        ax.axvline(propio, color=estilo.color(1), linewidth=1.8,
+                   label=f"cuenca, {propio:.1f}")
+        ax.axvline(referencia, color="#b03a2e", linestyle="--", linewidth=1.8,
+                   label=f"ENA {configuracion.obtener('balance_hidrico.ena_anio')}, "
+                         f"{referencia:.1f}")
+        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        diferencia = 100.0 * (propio - referencia) / referencia if referencia else 0.0
+        fig.text(0.01, -0.04,
+                 f"El balance da {propio:.1f} l/s/km² y el ENA "
+                 f"{referencia:.1f}: {diferencia:+.0f} %. Es la única "
+                 "verificación con un dato ajeno a esta cadena.",
+                 fontsize=estilo.tamano_fuente - 2, color="#555555")
+        for ruta in graficos.guardar(fig, directorio / "M18_contraste_ena",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+    resultado.contraste["rendimiento_l_s_km2"] = round(propio, 2)
+    resultado.contraste["ena_l_s_km2"] = referencia
+    resultado.contraste["ena_diferencia_pct"] = round(diferencia, 1)
+    resultado.hallazgos.append(Hallazgo(
+        ADVERTENCIA if abs(diferencia) > 30 else INFORMATIVO,
+        "balance.contraste_ena",
+        f"el balance da un rendimiento de {propio:.1f} l/s/km2 y el ENA de "
+        f"{configuracion.obtener('balance_hidrico.ena_anio')} publica "
+        f"{referencia:.1f} para la subzona: {diferencia:+.0f} por ciento. Es la "
+        "unica verificacion con un dato ajeno a esta cadena; el resto del "
+        "balance cerraria igual de bien consigo mismo aunque la lluvia o el "
+        "area estuvieran mal.",
+    ))
+    return 1
+
+
+def _figura_por_franja(base, resultado, estilo, directorio, graficos,
+                       filas) -> int:
+    """
+    Balance de cierre por franja de elevación: de dónde sale el agua.
+
+    Reparte P, ETR y escorrentía entre franjas de cota agrupando las subcuencas
+    por su cota media y ponderando por área. Es la lectura que el mapa plantea
+    y no termina de contestar, porque el ojo no integra áreas.
+    """
+    if not filas:
+        return 0
+    cotas = [f["cota_media_m"] for f in filas]
+    piso, techo = min(cotas), max(cotas)
+    if techo - piso <= 0:
+        return 0
+    paso = 100.0
+    grupos: dict[float, list[dict]] = {}
+    for fila in filas:
+        clave = math.floor(fila["cota_media_m"] / paso) * paso
+        grupos.setdefault(clave, []).append(fila)
+
+    ordenadas = sorted(grupos)
+    etr, escorrentia_, areas = [], [], []
+    for clave in ordenadas:
+        grupo = grupos[clave]
+        area = sum(f["area_km2"] for f in grupo)
+        areas.append(area)
+        etr.append(sum(f["etr_budyko_mm"] * f["area_km2"] for f in grupo) / area)
+        escorrentia_.append(
+            sum(f["escorrentia_budyko_mm"] * f["area_km2"] for f in grupo) / area)
+
+    with graficos.figura(
+            estilo, titulo="Balance de cierre por franja de elevación",
+            etiqueta_x="Franja de elevación (m s. n. m.)",
+            etiqueta_y="Lámina (mm/año)") as (fig, ax):
+        posiciones = range(len(ordenadas))
+        ax.bar(list(posiciones), etr, color=estilo.color(1), label="ETR")
+        ax.bar(list(posiciones), escorrentia_, bottom=etr,
+               color=estilo.color(0), label="escorrentía")
+        ax.set_xticks(list(posiciones))
+        ax.set_xticklabels([f"{int(c)}" for c in ordenadas],
+                           rotation=45, ha="right",
+                           fontsize=estilo.tamano_fuente - 2)
+        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        fig.text(0.01, -0.06,
+                 "La suma de cada barra es la precipitación de esa franja. "
+                 "Ponderado por área dentro de cada una, de modo que compara "
+                 "láminas y no volúmenes.",
+                 fontsize=estilo.tamano_fuente - 2, color="#555555")
+        for ruta in graficos.guardar(fig, directorio / "M18_balance_por_franja",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+    return 1
 
 
 def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
