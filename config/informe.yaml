@@ -41,171 +41,440 @@ capitulos:
     nivel: 1
     texto: introduccion
     pendiente: >
-      Describir el alcance del contrato, la entidad contratante y el objeto
-      especifico del estudio hidrologico.
+      Describir el alcance del contrato, la entidad contratante y el objeto especifico del estudio.
 
   - titulo: "DESCRIPCIÓN DEL SISTEMA HÍDRICO EN EL SITIO DE PROYECTO"
     nivel: 1
-    texto: sistema_hidrico
+    texto: descripcion_del_sistema_hidrico_en_el_sitio_de_proyecto
     pendiente: >
-      Describir el sistema hidrico con conocimiento de campo: corrientes
-      receptoras, obras existentes, usos del agua y condiciones observadas en
-      la visita.
+      Describir el sistema hidrico con conocimiento de campo: corrientes receptoras, obras existentes, usos del agua y lo observado en visita.
 
   - titulo: "INFORMACIÓN BASE"
     nivel: 1
     texto: informacion_base
-    hijos:
-      - titulo: "Información Hidroclimatológica"
-        nivel: 2
-        texto: informacion_hidroclimatologica
-        tablas:
-          - archivo: "data/02_procesado/estaciones/inventario_estaciones.csv"
-            titulo: "Identificación de estaciones IDEAM"
-            columnas:
-              Código de la estación: "Código"
-              Nombre de la estación: "Nombre"
-              Categoría: "Categoría"
-              Altitud: "Altitud (m s. n. m.)"
-              Corriente asociada: "Corriente"
-              Municipio: "Municipio"
-            orden: "Código de la estación"
-            filas_max: 40
-      - titulo: "Información Cartográfica"
-        nivel: 2
-        texto: informacion_cartografica
-      - titulo: "Información Topográfica"
-        nivel: 2
-        texto: informacion_topografica
-      - titulo: "Información de Suelos y Coberturas"
-        nivel: 2
-        texto: informacion_suelos
+
+  - titulo: "Información Hidroclimatológica"
+    nivel: 2
+    texto: informacion_hidroclimatologica
+    tablas:
+      - archivo: "data/02_procesado/estaciones/inventario_estaciones.csv"
+        titulo: "Identificación de estaciones IDEAM"
+        orden: "Código de la estación"
+        filas_max: 40
+        columnas:
+          Código de la estación: "Código"
+          Nombre de la estación: "Nombre"
+          Categoría: "Categoría"
+          Altitud: "Altitud (m s. n. m.)"
+          Corriente asociada: "Corriente"
+          Municipio: "Municipio"
+    figuras:
+      - archivo: "M04b_cobertura.png"
+        titulo: "Cobertura temporal de las series"
+
+  - titulo: "Análisis de sensibilidad de longitud de series"
+    nivel: 3
+    texto: analisis_de_sensibilidad_de_longitud_de_series
+
+  - titulo: "Información Cartográfica"
+    nivel: 2
+    texto: informacion_cartografica
+
+  - titulo: "Información Topográfica y Batimétrica"
+    nivel: 2
+    texto: informacion_topografica_y_batimetrica
+
+  - titulo: "Información Estudio de Suelos"
+    nivel: 2
+    texto: informacion_estudio_de_suelos
 
   - titulo: "CARACTERIZACIÓN MORFOMÉTRICA DE LA CUENCA"
     nivel: 1
-    texto: morfometria_intro
-    hijos:
-      - titulo: "Delimitación de la cuenca"
-        nivel: 2
-        texto: delimitacion
-      - titulo: "Parámetros morfométricos"
-        nivel: 2
-        texto: parametros_morfometricos
-        tablas:
-          - archivo: "data/02_procesado/morfometria/parametros.csv"
-            titulo: "Parámetros morfométricos de la cuenca"
-            columnas:
-              area_km2: "Área (km²)"
-              perimetro_km: "Perímetro (km)"
-              long_cauce_principal_km: "Longitud del cauce principal (km)"
-              longitud_axial_km: "Longitud axial (km)"
-              coef_forma: "Coeficiente de forma"
-              coef_compacidad: "Coeficiente de compacidad"
-              indice_sinuosidad: "Índice de sinuosidad"
-              pendiente_media_cauce_pct: "Pendiente media del cauce (%)"
-              pendiente_media_pct: "Pendiente media de la cuenca (%)"
-              cota_min: "Cota mínima (m s. n. m.)"
-              cota_max: "Cota máxima (m s. n. m.)"
-              cota_media: "Cota media (m s. n. m.)"
-        figuras:
-          - archivo: "M10_curva_hipsometrica.png"
-            titulo: "Curva hipsométrica de la cuenca"
-          - archivo: "M10_distribucion_altimetrica.png"
-            titulo: "Distribución altimétrica de la cuenca"
-      - titulo: "Tipo de suelo hidrológico y número de curva"
-        nivel: 2
-        texto: numero_curva
-        figuras:
-          - archivo: "M10_mapa_cn.png"
-            titulo: "Número de curva por subcuenca"
-      - titulo: "Tiempos de concentración y rezago"
-        nivel: 2
-        texto: tiempos
-        figuras:
-          - archivo: "M10_mapa_rezago.png"
-            titulo: "Tiempo de rezago por subcuenca"
+    texto: caracterizacion_morfometrica_de_la_cuenca
+
+  - titulo: "Delimitación de la cuenca"
+    nivel: 2
+    texto: delimitacion_de_la_cuenca
+
+  - titulo: "Zonificación hidrográfica"
+    nivel: 2
+    texto: zonificacion_hidrografica
+
+  - titulo: "Área de drenaje de la cuenca"
+    nivel: 2
+    texto: area_de_drenaje_de_la_cuenca
+    tablas:
+      - archivo: "data/02_procesado/morfometria/parametros.csv"
+        titulo: "Parámetros morfométricos de la cuenca"
+        columnas:
+          area_km2: "Área (km²)"
+          perimetro_km: "Perímetro (km)"
+          long_cauce_principal_km: "Longitud del cauce principal (km)"
+          longitud_axial_km: "Longitud axial (km)"
+          coef_forma: "Coeficiente de forma"
+          coef_compacidad: "Coeficiente de compacidad"
+          indice_sinuosidad: "Índice de sinuosidad"
+          cota_min: "Cota mínima (m s. n. m.)"
+          cota_max: "Cota máxima (m s. n. m.)"
+          cota_media: "Cota media (m s. n. m.)"
+
+  - titulo: "Perímetro de la cuenca"
+    nivel: 2
+    texto: perimetro_de_la_cuenca
+
+  - titulo: "Longitud del cauce principal"
+    nivel: 2
+    texto: longitud_del_cauce_principal
+
+  - titulo: "Longitud axial de la cuenca"
+    nivel: 2
+    texto: longitud_axial_de_la_cuenca
+
+  - titulo: "Coeficiente de forma"
+    nivel: 2
+    texto: coeficiente_de_forma
+
+  - titulo: "Coeficiente de compacidad"
+    nivel: 2
+    texto: coeficiente_de_compacidad
+
+  - titulo: "Índice de sinuosidad"
+    nivel: 2
+    texto: indice_de_sinuosidad
+
+  - titulo: "Desnivel altitudinal"
+    nivel: 2
+    texto: desnivel_altitudinal
+    figuras:
+      - archivo: "M10_curva_hipsometrica.png"
+        titulo: "Curva hipsométrica"
+      - archivo: "M10_distribucion_altimetrica.png"
+        titulo: "Distribución altimétrica"
+
+  - titulo: "Pendiente media del cauce principal"
+    nivel: 2
+    texto: pendiente_media_del_cauce_principal
+
+  - titulo: "Pendiente media de la cuenca"
+    nivel: 2
+    texto: pendiente_media_de_la_cuenca
+
+  - titulo: "Tipo de suelo hidrológico"
+    nivel: 2
+    texto: tipo_de_suelo_hidrologico
+
+  - titulo: "Número de curva"
+    nivel: 2
+    texto: numero_de_curva
+    figuras:
+      - archivo: "M10_mapa_cn.png"
+        titulo: "Número de curva por subcuenca"
+
+  - titulo: "Tiempos de concentración"
+    nivel: 2
+    texto: tiempos_de_concentracion
+    figuras:
+      - archivo: "M10_mapa_rezago.png"
+        titulo: "Tiempo de rezago por subcuenca"
 
   - titulo: "ANÁLISIS DE PRECIPITACIONES"
     nivel: 1
-    texto: precipitacion_intro
-    hijos:
-      - titulo: "Precipitación total mensual"
-        nivel: 2
-        texto: precipitacion_mensual
-      - titulo: "Precipitación máxima en 24 horas"
-        nivel: 2
-        texto: pmax24
-        hijos:
-          - titulo: "Análisis estadístico de eventos máximos"
-            nivel: 3
-            texto: analisis_frecuencia
-          - titulo: "Hietograma de diseño"
-            nivel: 3
-            texto: hietograma
-            figuras:
-              - archivo: "M12b_hietograma_T500.png"
-                titulo: "Hietograma de diseño, periodo de retorno de 500 años"
-      - titulo: "Influencia del cambio climático"
-        nivel: 2
-        texto: cambio_climatico
-      - titulo: "Curvas IDF"
-        nivel: 2
-        texto: idf
-        figuras:
-          - archivo: "M12a_idf_comparacion.png"
-            titulo: "Comparación de metodologías de curvas IDF"
+    texto: analisis_de_precipitaciones
+
+  - titulo: "Precipitación total mensual"
+    nivel: 2
+    texto: precipitacion_total_mensual
+
+  - titulo: "Análisis de consistencia"
+    nivel: 3
+    texto: analisis_de_consistencia
+
+  - titulo: "Análisis de datos dudosos"
+    nivel: 3
+    texto: analisis_de_datos_dudosos
+
+  - titulo: "Análisis de dobles masas"
+    nivel: 3
+    texto: analisis_de_dobles_masas
+
+  - titulo: "Complemento de datos faltantes"
+    nivel: 3
+    texto: complemento_de_datos_faltantes
+
+  - titulo: "Anomalías ENSO"
+    nivel: 3
+    texto: anomalias_enso
+
+  - titulo: "Análisis espacial de la precipitación"
+    nivel: 3
+    texto: analisis_espacial_de_la_precipitacion
+    figuras:
+      - archivo: "M11_mapa_precipitacion_T100.png"
+        titulo: "Precipitación media por subcuenca, T = 100 años"
+
+  - titulo: "Precipitación Máxima en 24 horas"
+    nivel: 2
+    texto: precipitacion_maxima_en_24_horas
+
+  - titulo: "Análisis estadístico de eventos máximos"
+    nivel: 3
+    texto: analisis_estadistico_de_eventos_maximos
+
+  - titulo: "Hietograma de diseño"
+    nivel: 3
+    texto: hietograma_de_diseno
+    figuras:
+      - archivo: "M12b_hietograma_T500.png"
+        titulo: "Hietograma de diseño, T = 500 años"
+
+  - titulo: "Influencia del cambio climático"
+    nivel: 2
+    texto: influencia_del_cambio_climatico
+    figuras:
+      - archivo: "M12a_cambio_climatico.png"
+        titulo: "Factores de cambio climático"
+
+  - titulo: "Series de Precipitación Diaria"
+    nivel: 2
+    texto: series_de_precipitacion_diaria
+
+  - titulo: "Curvas IDF"
+    nivel: 2
+    texto: curvas_idf
+
+  - titulo: "Metodología INVIAS"
+    nivel: 3
+    texto: metodologia_invias
+
+  - titulo: "Metodología Registro Pluviométrico de Silva"
+    nivel: 3
+    texto: metodologia_registro_pluviometrico_de_silva
+
+  - titulo: "Comparación de Metodologías"
+    nivel: 3
+    texto: comparacion_de_metodologias
+    figuras:
+      - archivo: "M12a_idf_comparacion.png"
+        titulo: "Comparación de metodologías de curvas IDF"
 
   - titulo: "ANÁLISIS HIDROLÓGICO"
     nivel: 1
-    texto: hidrologico_intro
-    hijos:
-      - titulo: "Análisis de crecientes"
-        nivel: 2
-        texto: crecientes_intro
-        hijos:
-          - titulo: "Modelo lluvia - escorrentía"
-            nivel: 3
-            texto: modelo_lluvia_escorrentia
-          - titulo: "Factor de reducción por área"
-            nivel: 3
-            texto: arf
-            figuras:
-              - archivo: "M11c_curvas_arf.png"
-                titulo: "Factor de reducción por área"
-          - titulo: "Tránsito de crecientes"
-            nivel: 3
-            texto: transito
-          - titulo: "Resultados"
-            nivel: 3
-            texto: resultados_crecientes
-            tablas:
-              - archivo: "data/02_procesado/hidrologia/qmax_por_periodo.csv"
-                titulo: "Caudal máximo contra periodo de retorno en el sitio de proyecto"
-                filtro:
-                  columna: tipo
-                  valor: Sink
-                columnas:
-                  elemento: "Elemento"
-                  q_T2_33_m3s: "T = 2.33 años"
-                  q_T5_m3s: "T = 5 años"
-                  q_T10_m3s: "T = 10 años"
-                  q_T25_m3s: "T = 25 años"
-                  q_T50_m3s: "T = 50 años"
-                  q_T100_m3s: "T = 100 años"
-                  q_T500_m3s: "T = 500 años"
-            figuras:
-              - archivo: "M14_qmax_vs_periodo.png"
-                titulo: "Caudal máximo contra periodo de retorno"
-              - archivo: "M14_hidrograma_Sink-1.png"
-                titulo: "Hidrograma de creciente en el sitio de proyecto"
+    texto: analisis_hidrologico
+
+  - titulo: "Análisis de caudales medios (Balance Hídrico a Largo Plazo)"
+    nivel: 2
+    texto: analisis_de_caudales_medios_balance_hidrico_a_largo_plazo
+
+  - titulo: "Rendimiento Hídrico"
+    nivel: 3
+    texto: rendimiento_hidrico
+    figuras:
+      - archivo: "M18_mapa_rendimiento.png"
+        titulo: "Rendimiento hídrico por subcuenca"
+
+  - titulo: "Contraste con el Estudio Nacional del Agua"
+    nivel: 4
+    texto: contraste_con_el_estudio_nacional_del_agua
+    figuras:
+      - archivo: "M18_contraste_ena.png"
+        titulo: "Rendimiento contra el Estudio Nacional del Agua"
+
+  - titulo: "Modelo lluvia – escorrentía"
+    nivel: 3
+    texto: modelo_lluvia_escorrentia
+
+  - titulo: "Precipitación"
+    nivel: 4
+    texto: precipitacion
+    figuras:
+      - archivo: "M18_mapa_precipitacion.png"
+        titulo: "Precipitación media anual por subcuenca"
+      - archivo: "M18_lluvia_contra_elevacion.png"
+        titulo: "Precipitación anual contra elevación"
+
+  - titulo: "Infiltración"
+    nivel: 4
+    texto: infiltracion
+
+  - titulo: "Modelo de Schosinsky y Losilla"
+    nivel: 4
+    texto: infiltracion_por_schosinsky
+    figuras:
+      - archivo: "M18b_reparto_mensual.png"
+        titulo: "Reparto mensual de la precipitación"
+      - archivo: "M18b_mapa_coeficiente.png"
+        titulo: "Coeficiente de infiltración por subcuenca"
+
+  - titulo: "Temperatura"
+    nivel: 4
+    texto: temperatura
+    figuras:
+      - archivo: "M18a_gradiente_altitudinal.png"
+        titulo: "Temperatura media contra elevación"
+      - archivo: "M18a_serie_mensual_cuenca.png"
+        titulo: "Temperatura media mensual de la cuenca"
+
+  - titulo: "Isotermas"
+    nivel: 4
+    texto: isotermas
+    figuras:
+      - archivo: "M18a_isotermas.png"
+        titulo: "Isotermas multianuales sobre la cuenca"
+      - archivo: "M18a_mapa_temperatura.png"
+        titulo: "Temperatura media por subcuenca"
+
+  - titulo: "Evapotranspiración"
+    nivel: 4
+    texto: evapotranspiracion
+
+  - titulo: "Evapotranspiración Potencial"
+    nivel: 4
+    texto: evapotranspiracion_potencial
+    figuras:
+      - archivo: "M18_serie_etp.png"
+        titulo: "Evapotranspiración potencial mensual"
+      - archivo: "M18a_etp_comparacion.png"
+        titulo: "Evapotranspiración potencial, las dos vías"
+      - archivo: "M18_mapa_etp.png"
+        titulo: "Evapotranspiración potencial por subcuenca"
+
+  - titulo: "Evapotranspiración Real"
+    nivel: 4
+    texto: evapotranspiracion_real
+    figuras:
+      - archivo: "M18_serie_etr.png"
+        titulo: "Evapotranspiración real mensual"
+      - archivo: "M18_etr_comparacion.png"
+        titulo: "Las tres formulaciones de ETR"
+      - archivo: "M18_mapa_etr.png"
+        titulo: "Evapotranspiración real por subcuenca"
+
+  - titulo: "Diagrama de Budyko"
+    nivel: 4
+    texto: diagrama_de_budyko
+    figuras:
+      - archivo: "M18_diagrama_budyko.png"
+        titulo: "Diagrama de Budyko"
+
+  - titulo: "Resultados"
+    nivel: 4
+    texto: resultados
+    tablas:
+      - archivo: "data/02_procesado/hidrologia/qmax_por_periodo.csv"
+        titulo: "Caudal máximo contra periodo de retorno en el sitio de proyecto"
+        filtro:
+          columna: tipo
+          valor: Sink
+        columnas:
+          elemento: "Elemento"
+          q_T2_33_m3s: "T = 2.33 años"
+          q_T5_m3s: "T = 5 años"
+          q_T10_m3s: "T = 10 años"
+          q_T25_m3s: "T = 25 años"
+          q_T50_m3s: "T = 50 años"
+          q_T100_m3s: "T = 100 años"
+          q_T500_m3s: "T = 500 años"
+    figuras:
+      - archivo: "M14_qmax_vs_periodo.png"
+        titulo: "Caudal máximo contra periodo de retorno"
+      - archivo: "M14_hidrograma_Sink-1.png"
+        titulo: "Hidrograma de creciente en el sitio de proyecto"
+
+  - titulo: "Curva de Duración de Caudales"
+    nivel: 3
+    texto: curva_de_duracion_de_caudales
+    tablas:
+      - archivo: "data/02_procesado/regimen/percentiles.csv"
+        titulo: "Percentiles de la curva de duración"
+        orden: "excedencia_pct"
+        columnas:
+          percentil: "Percentil"
+          excedencia_pct: "Excedencia (%)"
+          caudal_m3s: "Caudal (m³/s)"
+    figuras:
+      - archivo: "M19_curva_de_duracion.png"
+        titulo: "Curva de duración de caudales medios mensuales"
+      - archivo: "M18_caudal_mensual.png"
+        titulo: "Caudal medio mensual de la cuenca"
+
+  - titulo: "Índice de Retención y Regulación Hídrica"
+    nivel: 3
+    texto: indice_de_retencion_y_regulacion_hidrica
+    figuras:
+      - archivo: "M19_irh.png"
+        titulo: "Índice de retención y regulación hídrica"
+
+  - titulo: "Caudal Ambiental"
+    nivel: 3
+    texto: caudal_ambiental
+    figuras:
+      - archivo: "M19_caudal_ambiental.png"
+        titulo: "Caudal ambiental sobre la curva de duración"
+
+  - titulo: "Verificación cruzada de resultados"
+    nivel: 3
+    texto: verificacion_de_resultados
+
+  - titulo: "Análisis de Crecientes"
+    nivel: 2
+    texto: analisis_de_crecientes
+
+  - titulo: "Modelo lluvia – escorrentía"
+    nivel: 3
+    texto: modelo_lluvia_escorrentia
+
+  - titulo: "Descripción del modelo"
+    nivel: 4
+    texto: descripcion_del_modelo
+
+  - titulo: "Tiempo de concentración y rezago"
+    nivel: 4
+    texto: tiempo_de_concentracion_y_rezago
+
+  - titulo: "Factor de reducción de precipitación"
+    nivel: 4
+    texto: factor_de_reduccion_por_area
+    figuras:
+      - archivo: "M11c_curvas_arf.png"
+        titulo: "Factor de reducción por área"
+
+  - titulo: "Tránsito de Crecientes"
+    nivel: 4
+    texto: transito_de_crecientes
+
+  - titulo: "Construcción del Modelo"
+    nivel: 4
+    texto: construccion_del_modelo
+
+  - titulo: "Resultados"
+    nivel: 3
+    texto: resultados
+    tablas:
+      - archivo: "data/02_procesado/hidrologia/qmax_por_periodo.csv"
+        titulo: "Caudal máximo contra periodo de retorno en el sitio de proyecto"
+        filtro:
+          columna: tipo
+          valor: Sink
+        columnas:
+          elemento: "Elemento"
+          q_T2_33_m3s: "T = 2.33 años"
+          q_T5_m3s: "T = 5 años"
+          q_T10_m3s: "T = 10 años"
+          q_T25_m3s: "T = 25 años"
+          q_T50_m3s: "T = 50 años"
+          q_T100_m3s: "T = 100 años"
+          q_T500_m3s: "T = 500 años"
+    figuras:
+      - archivo: "M14_qmax_vs_periodo.png"
+        titulo: "Caudal máximo contra periodo de retorno"
+      - archivo: "M14_hidrograma_Sink-1.png"
+        titulo: "Hidrograma de creciente en el sitio de proyecto"
 
   - titulo: "CONCLUSIONES"
     nivel: 1
     texto: conclusiones
     pendiente: >
-      Redactar las conclusiones del estudio y las recomendaciones de diseno.
-      Dependen del uso que la obra dara a los caudales y del criterio del
-      consultor.
+      Redactar las conclusiones y recomendaciones de diseno. Dependen del uso que la obra dara a los caudales.
 
   - titulo: "BIBLIOGRAFÍA"
     nivel: 1
@@ -214,3 +483,57 @@ capitulos:
   - titulo: "ANEXOS"
     nivel: 1
     texto: anexos
+
+# =============================================================================
+# REPARTO DE HALLAZGOS
+# =============================================================================
+# LOS HALLAZGOS SON EL ANALISIS, y ya estan escritos: cada modulo los emitio en
+# el momento en que midio cada cosa, con su severidad y su porque. Aqui solo se
+# declara a que apartado pertenece cada familia.
+#
+# La asignacion va por PREFIJO DE CLAVE y no por modulo: un mismo modulo emite
+# hallazgos de capitulos distintos, y la clave dice de que trata mejor que el
+# modulo que la produjo.
+#
+# Un prefijo sin apartado deja su hallazgo fuera del informe, de modo que
+# anadir un modulo obliga a decidir donde va lo que dice.
+# -----------------------------------------------------------------------------
+
+hallazgos:
+  informacion_hidroclimatologica: [estaciones, ingesta, catalogo, dhime, series]
+  analisis_de_sensibilidad_de_longitud_de_series: [sensibilidad, longitud]
+  informacion_cartografica: [punto, subzona, cartografia]
+  informacion_topografica_y_batimetrica: [dem, terreno]
+  tipo_de_suelo_hidrologico: [suelos, cobertura]
+  delimitacion_de_la_cuenca: [cuenca, red, drenaje, importar, exportar]
+  area_de_drenaje_de_la_cuenca: [morfometria, subcuencas, parametros, hipsometrica]
+  numero_de_curva: [numero_curva, cn]
+  tiempos_de_concentracion: [tiempo_concentracion, tiempo_rezago, rezago]
+  analisis_de_datos_dudosos: [anomalos, dudosos, outlier]
+  analisis_de_consistencia: [consistencia]
+  analisis_de_dobles_masas: [dobles_masas, doble_masa]
+  complemento_de_datos_faltantes: [complemento, imputacion, faltantes]
+  anomalias_enso: [enso, oni, fase]
+  analisis_espacial_de_la_precipitacion: [isoyetas, zonificacion, interpolacion]
+  analisis_estadistico_de_eventos_maximos: [frecuencia, distribucion, pmax]
+  factor_de_reduccion_por_area: [arf]
+  hietograma_de_diseno: [hietograma, tormenta, huff]
+  influencia_del_cambio_climatico: [cambio_climatico]
+  curvas_idf: [idf, desagregacion, silva, invias]
+  descripcion_del_modelo: [modelo, hec_hms, proyecto]
+  transito_de_crecientes: [transito]
+  construccion_del_modelo: [meteorologia, escenarios, computo]
+  resultados: [resultados]
+  temperatura: [temperatura]
+  isotermas: [isoterma]
+  evapotranspiracion_potencial: [etp]
+  evapotranspiracion_real: [etr]
+  precipitacion: [balance.precipitacion, balance.cobertura]
+  infiltracion_por_schosinsky: [infiltracion]
+  diagrama_de_budyko: [budyko]
+  contraste_con_el_estudio_nacional_del_agua: [balance.contraste_ena, ena]
+  verificacion_de_resultados: [balance, verificacion, contraste]
+  curva_de_duracion_de_caudales: [regimen.curva, regimen.variabilidad, regimen.serie]
+  indice_de_retencion_y_regulacion_hidrica: [regimen.irh]
+  caudal_ambiental: [regimen.caudal_ambiental, caudal_ambiental]
+  anexos: [informe, graficos, producto]

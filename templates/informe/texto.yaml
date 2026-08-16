@@ -1,246 +1,2266 @@
 # =============================================================================
 # NARRATIVA DEL INFORME (M15)
 # =============================================================================
-# El texto vive AQUI y no en el codigo. Redactarlo de otra manera, corregir una
-# frase o adaptar el registro a otra entidad es editar este archivo.
+# EL TEXTO ES DEL CONSULTOR. Procede de sus informes de referencia, que son de
+# su autoria, y este archivo solo lo ordena por apartado y le da una clave para
+# que el M15 lo inserte donde corresponde.
 #
-# Cada clave es una lista de parrafos. Las llaves marcan valores que el modulo
-# sustituye con lo que la cadena calculo: {area_km2}, {q_100}, etc. Un valor que
-# el modulo no sepa resolver se sustituye por una marca visible y se reporta,
-# nunca se deja la llave cruda ni se calla.
+# Las llaves marcan valores que el modulo sustituye con lo que la cadena
+# calculo. Un valor que no sepa resolver se sustituye por una marca visible y
+# se reporta, nunca se deja la llave cruda ni se calla.
 #
-# El registro sigue el del informe de referencia: tercera persona, tecnico, sin
-# adjetivos de valoracion.
+# Editar aqui cambia la redaccion del informe sin tocar Python.
 # -----------------------------------------------------------------------------
 
-version: 1
+version: 2
 
 introduccion:
   - >
-    El presente documento contiene el estudio hidrologico de la cuenca aferente
-    al sitio de proyecto. Su objeto es establecer los caudales maximos asociados
-    a distintos periodos de retorno, que constituyen el insumo para el diseno de
-    las obras hidraulicas.
+    Constructora AMARILO SAS mediante orden de servicio AOC71597 solicitó a 
+    INCOHISA SAS el desarrollo de los estudios hidrológicos y modelación 
+    hidráulica del cauce del proyecto Plan Parcial Juanambú dentro del cual 
+    se encuentran cuatro cuerpos de agua: Caño Maizaro, Caño Calatrava, 
+    Caño Danubio y el léntico que se denominará para este estudio Lago 
+    Juananmbú.
   - >
-    El estudio parte de la informacion hidroclimatologica del IDEAM disponible
-    en el area de influencia, de la cartografia oficial y del modelo digital de
-    elevacion, y aplica el modelo lluvia-escorrentia del Soil Conservation
-    Service implementado en HEC-HMS.
+    El proyecto se encuentra en el sector suroccidental de la ciudad de 
+    Villavicencio, específicamente en las coordenadas Este 1053521.88 y 
+    Norte 948935.64.
+  - >
+    En primera medida este informe corresponde a la actualización parcial 
+    del estudio hidrológico desarrollado previamente para la totalidad del 
+    proyecto y se enmarca como punto de partida los cambios en el lecho de 
+    los cauces y la ampliación de las series históricas de precipitación; 
+    con la información topo batimétrica actualizada en el sitio de proyecto 
+    de realiza la modelación hidráulica de cada cauce para definir los 
+    niveles de lámina de agua para las crecientes estimadas en la 
+    actualización del estudio hidrológico y en la definición de la 
+    extensión de la mancha de inundación.
+  - >
+    Por último, se presenta las recomendaciones técnicas pertinentes para 
+    el diseño de detalle de las estructuras de cruce de quebradas y control 
+    de las inundaciones para no afectar las manzanas de vivienda.
+  - >
+    En los anexos del informe se encuentra toda la información base 
+    utilizada, mapas temáticos, modelos construidos y memorias generadas 
+    para el objeto de la Consultoría.
 
-sistema_hidrico:
+descripcion_del_sistema_hidrico_en_el_sitio_de_proyecto:
   - >
-    La cuenca aferente al sitio de proyecto tiene un area de {area_km2} km2 y un
-    perimetro de {perimetro_km} km. Su cauce principal recorre
-    {longitud_cauce_km} km entre las cotas {cota_max} y {cota_min} m s. n. m.,
-    con una elevacion media de {cota_media} m s. n. m.
+    El sistema hídrico en el área de proyecto del Plan Parcial Juanambú se 
+    compone de cinco elementos que se describen a continuación:
+  - >
+    Caño Maizaro: Es el cuerpo de agua de mayor magnitud dentro del área de 
+    estudio, se encuentra ubicado en el sector norte y fluye en dirección 
+    occidente – oriente. La longitud del cauce dentro del proyecto es de 
+    1370 m. En el límite de intervención del proyecto recibe las aguas que 
+    descargan por el Descole 1 y 2 del Lago Juanambú; en este sentido se 
+    convierte en el punto de control de estas corrientes. Actualmente 
+    cuenta con un pontón que permite el cruce por el cauce en las 
+    coordenadas E 1053598.11 N 949334.42.
+  - >
+    Caño Danubio: Es el cuerpo de agua que en magnitud le sigue al Caño 
+    Maizaro dentro del área de estudio, se encuentra ubicado en el sector 
+    sur y fluye en dirección occidente – oriente. La longitud del cauce 
+    dentro del proyecto es de 743 m. Descarga su caudal en el Lago 
+    Juanambú; en este sentido está controlado por el nivel del agua de este 
+    cuerpo de agua léntico. Actualmente cuenta con un box culvert de 
+    dimensiones 2.50x2.56x14.30m que permite el cruce por el cauce en las 
+    coordenadas E 1053433.38 N 948795.101.
+  - >
+    Caño Calatrava: Es el cuerpo de menor magnitud dentro del área de 
+    estudio, se encuentra ubicado geográficamente entre el Caño Danubio y 
+    el Caño Maizaro y fluye en dirección occidente – oriente. La longitud 
+    del cauce dentro del proyecto es de 818 m. Descarga su caudal en el 
+    Lago Juanambú; en este sentido está controlado por el nivel del agua de 
+    este cuerpo de agua léntico. Actualmente cuenta con un box culvert de 
+    dimensiones 2.56x2.50x15.00m que permite el cruce por el cauce en las 
+    coordenadas E 1053275.62 N 949129.35.
+  - >
+    Lago Juanambú: Dentro del predio del sitio de proyecto se encuentra un 
+    cuerpo léntico que se denominará Lago Juanambú, el cual se compone de 
+    dos vasos interconectados que reciben las aguas del Caño Calatrava y el 
+    Caño Danubio, luego del tránsito dentro de este se rebosan las aguas 
+    por medio de cuatro vertederos de diferentes longitudes, tres de ellos 
+    descargan a dos cauces que se determinan como el Descole 1 y Descole 2, 
+    que posteriormente se unen para entregar el flujo al Caño Maizaro en el 
+    límite de intervención del proyecto.
+  - >
+    Descole Lago 1: Esta corriente corresponde a la que recibe las aguas 
+    del vertedero del sector secundario del Lago Juanambú y tiene una 
+    longitud de 130 m aproximadamente, fluye en sentido occidente – oriente 
+    y está controlado por una estructura que se compone por 4 alcantarillas 
+    de 36’’ de diámetro.
+  - >
+    Descole Lago 2: Esta corriente corresponde a la que recibe las aguas 
+    del vertedero del sector principal del Lago Juanambú y tiene una 
+    longitud de 210 m aproximadamente, fluye en sentido occidente – oriente 
+    y está controlado por una estructura que se compone por 7 alcantarillas 
+    de 36’’ de diámetro.
+  - >
+    Confluencia Descole: Las corrientes de Descole 1 y 2 del Lago Juanambú 
+    confluyen en el sitio de coordenadas E 1053843.38 N 949045.14 donde 
+    fluye a través de 125 m aproximadamente hasta entregar las aguas en el 
+    Caño Maizaro.
+  - >
+    De acuerdo con lo anterior, la estimación de caudales se realizará para 
+    el Caño Maizaro, Caño Danubio y Caño Calatrava que son los asociados a 
+    cuencas aportantes.
+  - >
+    La modelación hidráulica se trabajará de manera conjunta con todos los 
+    cuerpos de agua teniendo en cuenta la conectividad hídrica que existe 
+    entre ellos.
 
 informacion_base:
   - >
-    La informacion base del estudio procede de fuentes oficiales. A continuacion
-    se relaciona cada una con su procedencia y la fecha de consulta.
+    Se realizó la consulta de información secundaria perteneciente a 
+    distintas entidades como los son el IGAC, IDEAM y CORMACARENA, con el 
+    fin de obtener los insumos primarios para los análisis del estudio 
+    hidrológico.
 
 informacion_hidroclimatologica:
   - >
-    Las series de precipitacion proceden del Instituto de Hidrologia,
-    Meteorologia y Estudios Ambientales, IDEAM, obtenidas del servicio DHIME. En
-    el area de influencia del proyecto se identificaron {n_estaciones}
-    estaciones, de las cuales entran en cada analisis las que cumplen los
-    criterios de longitud y calidad de registro que ese analisis exige.
+    En la información recolectada se identificaron las estaciones hidro 
+    climatológicas existentes a nivel regional, que rodearan 
+    geográficamente el área objeto del presente estudio. Las estaciones 
+    consultadas corresponden al registro de la red meteorológica existente 
+    del IDEAM.
   - >
-    Las series se sometieron a analisis de datos anomalos, de consistencia y de
-    complemento de faltantes antes de su uso, en ese orden. Los criterios de
-    descarte y los registros afectados quedan documentados en los anexos de
-    calculo.
+    Se realizó la consulta en la plataforma digital de la autoridad 
+    ambiental competente CORMACARENA, sin embargo, a la fecha de desarrollo 
+    de este estudio en el geoportal no se cuenta con información disponible 
+    a utilizar.
+  - >
+    Se realizó la consulta en la red meteorológica del IDEAM la cual cuenta 
+    con varias estaciones cercanas al sitio de proyecto de tipo climáticas 
+    y de medición de lluvia, en la Ilustración 31 se presenta su 
+    identificación en la plataforma digital de la entidad
+  - >
+    Con el fin de hacer un análisis regional para la zona de proyecto, se 
+    seleccionaron preliminarmente las estaciones del IDEAM que 
+    geográficamente se encuentran de manera aferente al área de influencia 
+    delimitada las cuales fueron utilizadas posteriormente según su calidad 
+    y cantidad de registros.
+  - >
+    En la Ilustración 32 se presenta la localización de las estaciones 
+    identificadas dentro de la zona de estudio; en el Anexo 1 Información 
+    Hidroclimatológica se presenta los datos crudos de estas.
+  - >
+    En la Tabla 31 se presentan las características de las estaciones 
+    identificadas en el área de influencia definida. En el Gráfico 31 se 
+    presenta la longitud teórica de las series de acuerdo con las fechas de 
+    instalación y suspensión reportadas en la base de datos del IDEAM.
+  - >
+    En la Tabla 32 se observa el cálculo de la cantidad teórica de la 
+    longitud de las series de las estaciones identificadas en el área de 
+    influencia, definiendo también la cantidad de años en una ventana de 
+    tiempo definida desde el año 1980 hasta la fecha suponiendo que es 
+    donde se tiene un periodo uniforme de registros, así como el inicio de 
+    la ocurrencia de fenómenos climatológicos que afectan el régimen de 
+    precipitación y temperaturas.
+  - >
+    Con lo anterior se realiza un primer filtro teniendo con el criterio 
+    que la longitud teórica de series sea mayor a 15 años desde la ventana 
+    de tiempo de 1980 a diciembre de 2023; en la Ilustración 33 se presenta 
+    la localización de las estaciones seleccionadas para continuar con el 
+    análisis.
+  - >
+    Para el caso específico del parámetro de precipitación se tiene que 
+    para las estaciones que la registran (tipo AM, CO, CP, PG, PM, SP o SS) 
+    se tienen 13 estaciones, como se observa en la Ilustración 34.
+  - >
+    En el caso específico del parámetro de temperatura se tiene que para 
+    las estaciones que la registran (tipo AM, CO, CP, SP o SS) se tienen 4 
+    estaciones, como se observa en la Ilustración 35.
+  - >
+    En el caso específico del parámetro de temperatura se tiene que para 
+    las estaciones que la registran (tipo AM, CO o CP) se tienen 2 
+    estaciones, como se observa en la Ilustración 36.
+  - >
+    Con estas estaciones se procederá a realizar los respectivos análisis y 
+    procesamiento de calidad de las series descritos en numerales 
+    posteriores.
+  - >
+    En el Anexo 1.1 se presenta la información de crudos descargado desde 
+    la plataforma del IDEAM y en el Anexo 1.3 la información organizada en 
+    forma de resumen de los datos registrados.
 
 informacion_cartografica:
   - >
-    La cartografia base corresponde a la del Instituto Geografico Agustin
-    Codazzi, IGAC. La zonificacion hidrografica procede del IDEAM. Todo el
-    procesamiento se realizo en el sistema de referencia MAGNA-SIRGAS con origen
-    nacional CTM12.
+    La información cartográfica para el desarrollo del presente estudio fue 
+    tomada de la base de datos del IGAC a escala 1:10000, donde se consultó 
+    principalmente para los estudios de hidrología la información de curvas 
+    de nivel y drenajes delimitados por la entidad para realizar un 
+    análisis regional de precipitación. También se utilizó la información 
+    de planchas a escala 1:25000 para poder identificar de mejor manera los 
+    drenajes de la zona de estudio.
+  - >
+    Como complemento se utilizó la información de imágenes satelitales del 
+    satélite ALOS PALSAR de la NASA que provee modelos digitales de terreno 
+    a una resolución de 12.5x12.5m. En la Ilustración 37 se observa la 
+    extensión de área de las imágenes descargadas.
+  - >
+    En el Anexo 2 Información Cartográfica se incluyen las planchas y 
+    archivos descargados.
 
-informacion_topografica:
+informacion_topografica_y_batimetrica:
   - >
-    El modelo digital de elevacion empleado corresponde a ALOS PALSAR, con una
-    resolucion de 12,5 m. Sobre el se realizo la delimitacion de la cuenca y de
-    las subcuencas, y de el se derivaron las pendientes y las longitudes de
-    flujo.
+    Se recibió por parte de Constructora Amarilo la información de los 
+    planos topográficos donde se incluyen la superficie de terreno y 
+    batimetría del caño Maizaro, caño Calatrava, Caño Danubio y el Lago 
+    Juanambú correspondiente al levantamiento realizado en el mes de 
+    febrero de 2024. Se asume que entre ese momento y el desarrollo de este 
+    estudio no se tiene cambios en las características del terreno. En el 
+    Anexo 8 del informe se presenta la base utilizada.
 
-informacion_suelos:
+informacion_estudio_de_suelos:
   - >
-    El grupo hidrologico de suelo y la cobertura de la tierra se obtuvieron de
-    las capas disponibles para el area de estudio. La homologacion entre las
-    clases de las capas y las categorias del metodo del numero de curva quedo
-    registrada en una tabla de equivalencias diligenciada para este estudio.
+    Para los análisis de socavación se utiliza los resultados del estudio 
+    de suelos realizado en el proyecto de fecha 2015 y que se adjuntan en 
+    el Anexo 13 de este informe.
 
-morfometria_intro:
+caracterizacion_morfometrica_de_la_cuenca:
   - >
-    La caracterizacion morfometrica establece los parametros que gobiernan la
-    respuesta de la cuenca ante un evento de precipitacion. Se realiza para la
-    cuenca completa y, de forma individual, para cada una de las
-    {n_subcuencas} subcuencas en que se dividio el modelo.
+    En este numeral se realiza la descripción de las características de la 
+    cuenca hidrográfica en estudio.
 
-delimitacion:
+delimitacion_de_la_cuenca:
   - >
-    La delimitacion se realizo a partir del modelo digital de elevacion, con el
-    punto de cierre en el sitio de proyecto. La division en subcuencas se
-    efectuo con el modulo de geoprocesamiento de HEC-HMS y tiene como unico
-    objetivo mejorar la representacion de los hidrogramas, incluyendo el
-    transito por los cauces internos.
+    Como se menciona anteriormente, en el sitio de proyecto se cuenta con 
+    tres cuerpos de agua loticos: Caño Maizaro, Caño Calatrava y Caño 
+    Danubio que estos dos últimos descargan en uno lentico que corresponde 
+    a un lago.
+  - >
+    Para las tres corrientes se realizó la delimitación de la cuenca 
+    utilizando como insumo topográfico la base cartográfica del numeral 3.2 
+    para identificar los drenajes existentes, donde se tomaron las curvas 
+    de nivel del modelo digital de terreno regional ALOS PALSAR.
+  - >
+    Mediante la ayuda de un software especializado de geoprocesamiento que 
+    puede realizar el procedimiento a través de análisis espaciales de 
+    divisoria de agua y direcciones de flujo se realizó la delimitación de 
+    las cuencas con el punto de descarga definido donde confluyen los 
+    drenajes que se encuentran dentro del área de influencia del proyecto.
+  - >
+    En primera instancia se realiza una adecuación del DEM utilizando los 
+    drenajes conocidos de la cartografía IGAC 1:25.000, esto para forzar 
+    que en el geoprocesamiento de definición de acumulación del flujo se 
+    generen los drenajes de forma correcta. En la Ilustración 41 se 
+    ejemplifica el ejercicio realizado donde se evidencia que se ha marcado 
+    de manera especial los drenajes de la zona de estudio.
+  - >
+    En la Ilustración 42 se presenta los resultados del ejercicio de 
+    delimitación de la cuenca hasta el sitio de proyecto.
+  - >
+    A partir de esto y con el fin de tener en cuenta el tránsito de la 
+    creciente a pesar del pequeño tamaño de la cuenca, por medio de 
+    herramientas SIG se delimitaron subcuencas para la construcción del 
+    modelo hidrológico, como se observa en la Ilustración 43.
 
-parametros_morfometricos:
+zonificacion_hidrografica:
   - >
-    En la tabla siguiente se resumen los parametros morfometricos de la cuenca.
-    La curva hipsometrica y la distribucion altimetrica complementan esa
-    descripcion mostrando como se reparte el area con la elevacion.
+    Se realizó la consulta para los cuerpos de agua en la zonificación 
+    hidrográfica del IDEAM para identificar más subniveles que definan la 
+    codificación de las subcuencas mencionadas en el numeral anterior. Se 
+    determina que la zonificación hidrográfica se tiene hasta un subnivel 
+    III. De acuerdo con la Ilustración 44 se tiene que las cuencas se 
+    encuentran en el área hidrográfica del Orinoco, zona Meta y subzona 
+    hidrográfica río Guaitiquía.
 
-numero_curva:
+area_de_drenaje_de_la_cuenca:
   - >
-    El numero de curva se determino por el metodo del Soil Conservation Service,
-    cruzando el grupo hidrologico de suelo con la cobertura de la tierra y
-    ponderando por area dentro de cada subcuenca. El valor medio ponderado para
-    la cuenca es de {cn_medio}, en condicion de humedad antecedente media.
+    Se considera como el área plana incluida dentro de las divisorias 
+    topográficas de la cuenca. El área estimada de drenaje para las cuencas 
+    según las divisorias de aguas morfológicas y los puntos principales de 
+    interés para el proyecto, de acuerdo con la delimitación del numeral 
+    previo. En la Tabla 41 se presentan los valores calculados de área de 
+    cuenca.
+  - >
+    De acuerdo con el Centro Interamericano de Desarrollo Integral de Aguas 
+    y Suelos las áreas de drenaje se clasifican en: Sistema hidrográfico (+ 
+    de 300.000 ha), Cuencas (60.000 - 300.000 ha), Subcuencas (10.000 - 
+    60.000 ha) y Microcuenca (&lt; 10.000 ha); según lo anterior, para las 
+    delimitaciones realizadas en la zona de proyecto corresponde a 
+    microcuencas.
 
-tiempos:
+perimetro_de_la_cuenca:
   - >
-    El tiempo de concentracion se estimo con las formulas empiricas aplicables a
-    cada subcuenca segun su area y su pendiente, y se adopto el valor de la
-    formula declarada para el estudio. La mediana de los tiempos de
-    concentracion de las subcuencas es de {tc_mediana_min} minutos.
-  - >
-    El tiempo de rezago se obtuvo con el criterio {criterio_rezago}. La mediana
-    de los tiempos de rezago es de {tlag_mediana_min} minutos. Este es el
-    parametro que HEC-HMS emplea en la transformacion de lluvia neta a
-    escorrentia mediante el hidrograma unitario del Soil Conservation Service.
+    El perímetro de la cuenca corresponde a la longitud perimetral de 
+    acuerdo con la divisoria de aguas. Para las microcuencas delimitadas en 
+    la Tabla 42 se presentan los valores calculados de perímetro de cuenca.
 
-precipitacion_intro:
+longitud_del_cauce_principal:
   - >
-    El analisis de precipitaciones establece la lamina de diseno para cada
-    periodo de retorno y su distribucion en el tiempo. De el sale el hietograma
-    que alimenta el modelo lluvia-escorrentia.
+    Se denomina a la distancia planimétrica del cauce principal desde su 
+    punto de inicio hasta la descarga de la cuenca. Para las microcuencas 
+    delimitadas en la Tabla 43 se presentan los valores calculados según 
+    los drenajes delimitados.
 
-precipitacion_mensual:
+longitud_axial_de_la_cuenca:
   - >
-    La serie de precipitacion total mensual se empleo para caracterizar el
-    regimen de lluvias de la zona y su variabilidad interanual asociada al
-    fenomeno ENSO. Esa clasificacion no elimina estaciones ni registros: solo
-    ordena la informacion por fase.
+    La longitud axial de la cuenca es la distancia planimétrica desde el 
+    punto más alejado y la descarga de la cuenca en el punto analizado. 
+    Para las microcuencas delimitadas en la Tabla 44 se presentan los 
+    valores calculados.
 
-pmax24:
+coeficiente_de_forma:
   - >
-    La serie de precipitacion maxima en 24 horas es la base del analisis de
-    frecuencia. Se conserva integra, sin filtrado por valores anomalos: el
-    criterio de datos dudosos se aplica a la serie mensual, y aplicarlo a los
-    maximos truncaria justamente el dato de diseno.
+    Se define como la relación entre el ancho medio y la longitud axial de 
+    la cuenca cuya magnitud es la que se mide desde el curso de agua más 
+    largo desde la desembocadura hasta el punto más distante de la cuenca 
+    (Monsalve Sáenz, 1999).
+  - >
+    Se tiene la clasificación de la valoración de este parámetro de acuerdo 
+    con Horton como se muestra en la Tabla 45.
+  - >
+    Para las microcuencas delimitadas en la Tabla 46 se presentan los 
+    valores calculados de área de cuenca.
+  - >
+    Se tienen clasificaciones similares para las microcuencas predominando 
+    una tendencia a generar crecientes con hidrogramas cuyo pico es 
+    distribuido durante el evento de lluvia (Tipo A Ilustración 45).
 
-analisis_frecuencia:
+coeficiente_de_compacidad:
   - >
-    Se ajustaron las distribuciones de probabilidad usuales en hidrologia de
-    eventos extremos mediante momentos, momentos-L y maxima verosimilitud, y se
-    evaluo su bondad de ajuste con las pruebas de Kolmogorov-Smirnov,
-    Anderson-Darling y chi-cuadrado, junto con los criterios de informacion de
-    Akaike y bayesiano. La distribucion adoptada es {distribucion_adoptada}.
+    También conocido como el Índice de Gravelius, es un parámetro que 
+    presenta la relación entre el perímetro de la cuenca y la longitud de 
+    la circunferencia de un círculo que tiene un área igual a ésta 
+    (Monsalve Sáenz, 1999). El coeficiente mínimo es uno para una cuenca 
+    circular, por lo que entre mayor sea el valor de KC, la superficie será 
+    más irregular y según la literatura tendrá menos posibilidad de 
+    generación de crecientes.
   - >
-    Los periodos de retorno considerados son {periodos_retorno} anos.
+    Para las microcuencas delimitadas anteriormente en la Tabla 48 se 
+    presentan los valores calculados.
 
-hietograma:
+indice_de_sinuosidad:
   - >
-    La lamina de 24 horas se lleva a la duracion de diseno de
-    {duracion_tormenta_h} horas mediante un factor de escala temporal de
-    {factor_escala}, correspondiente a la relacion {fuente_escala}. El nivel de
-    la lamina lo aporta el analisis de frecuencia; el factor solo establece que
-    fraccion de ella corresponde a esa duracion.
+    Se define como la relación entre la longitud real del río principal de 
+    la cuenca y la longitud de este en medido de forma curva o recta. 
+    Valores iguales o menores a 1.25 indican que el cauce de la cuenca 
+    tiene una baja sinuosidad.
   - >
-    La distribucion en el tiempo sigue las curvas de Huff, adoptando el segundo
-    cuartil con 50 % de probabilidad de excedencia, que representa tormentas de
-    severidad media. El hietograma se discretizo en intervalos de
-    {intervalo_min} minutos, el mismo paso de calculo del modelo hidrologico.
+    Dónde:L = Longitud real del cauce principal (km).
+  - >
+    Lt = Longitud del cauce principal en línea recta o curva (km).
+  - >
+    Para las microcuencas delimitadas en la Tabla 4 30 se presentan los 
+    valores calculados.
 
-cambio_climatico:
+desnivel_altitudinal:
   - >
-    Se evaluo el efecto del cambio climatico sobre la precipitacion de diseno a
-    partir de la informacion de la Cuarta Comunicacion Nacional de Cambio
-    Climatico del IDEAM. El factor adoptado es de {factor_cc}, aplicado sobre la
-    lamina de diseno. El factor solo se aplica cuando la proyeccion es de
-    incremento; si la proyeccion fuese a la baja, el hietograma no se afecta y
-    la decision se documenta.
+    Este valor se define como la diferencia entre la cota superior e 
+    inferior del cauce principal en estudio que sirve como insumo para el 
+    cálculo de la pendiente media de la corriente. Para las microcuencas 
+    delimitadas en la Tabla 411 se presentan los valores calculados.
 
-idf:
+pendiente_media_del_cauce_principal:
   - >
-    Las curvas intensidad-duracion-frecuencia se calcularon por dos
-    metodologias, la regionalizacion del INVIAS de Vargas y Diaz-Granados y la
-    de Silva. Se presentan ambas y se declara cual gobierna el resultado.
+    La velocidad de la escorrentía de las corrientes de agua en una cuenca 
+    hidrográfica depende de la pendiente de los cursos fluviales, en cuanto 
+    mayor valor de pendiente se tenga mayor será la magnitud de la 
+    velocidad de flujo, siendo este elemento factor característico del 
+    tiempo de respuesta de la cuenca ante determinada precipitación. Para 
+    el cálculo de la pendiente de la cuenca se realizó mediante la 
+    obtención de valores de desnivel entre el inicio y fin del cauce y 
+    posteriormente dividiéndola entre su longitud.
+  - >
+    Para las microcuencas delimitadas en la Tabla 413 se presentan los 
+    valores calculados.
+  - >
+    Para las microcuencas delimitadas la pendiente del cauce principal se 
+    asocia en su eje a terrenos relativamente planos.
 
-hidrologico_intro:
+pendiente_media_de_la_cuenca:
   - >
-    El analisis hidrologico establece los caudales de creciente asociados a cada
-    periodo de retorno en el sitio de proyecto.
+    Para el cálculo de la pendiente de la cuenca se realizó mediante a 
+    obtención de valores representativos de las pendientes de los terrenos 
+    de la cuenca asociadas a un vector, distribuyendo porcentualmente los 
+    valores de pendiente mediante un procesamiento estadístico y 
+    posteriormente dividiéndola sumatoria de esto entre el número de 
+    ocurrencias de las pendientes.
+  - >
+    Las herramientas SIG disponibles en el mercado permiten realizar el 
+    cálculo de este parámetro de una manera ágil y precisa mediante 
+    estadísticas zonales de un archivo tipo ráster. En la Ilustración 46 se 
+    presenta la valoración de las pendientes de las microcuencas en estudio 
+    y en la Tabla 415 se presentan los valores calculados para las 
+    microcuencas.
+  - >
+    Los anteriores resultados indican que la escorrentía directa durante 
+    los eventos de lluvias intensas tendrá una tendencia a fluir de manera 
+    más rápida dentro de la cuenca en estudio.
 
-crecientes_intro:
+tipo_de_suelo_hidrologico:
   - >
-    El analisis de crecientes se realiza mediante el modelo lluvia-escorrentia,
-    dado que la cuenca no cuenta con registros de caudal utilizables para un
-    analisis de frecuencia directo.
+    El Soil Conservatión Service (S.C.S.) de los Estados Unidos de América 
+    realizó la clasificación hidrológica de más de 4000 suelos basándose en 
+    características como su potencial de escorrentía, denominados y 
+    definidos como se describe a continuación.
+  - >
+    Suelo Tipo A: Potencial de escurrimiento bajo. Suelos con altas 
+    capacidades de infiltración cuando están completamente húmedos, 
+    principalmente arenas y gravas muy bien ordenadas. Suelos con alta 
+    transmisión de agua.
+  - >
+    Suelos Tipo B: Suelos con capacidades de infiltración moderadas cuando 
+    están completamente húmedos, principalmente suelos medianamente 
+    profundos y drenados, con textura de sus agregados variando entre 
+    moderada y muy fina. Tiene velocidades medias de transmisión de agua.
+  - >
+    Suelos Tipo C: Suelos con capacidades de infiltración baja cuando están 
+    completamente húmedos, principalmente suelos que contiene una capa que 
+    impide el movimiento hacia abajo o suelos con textura fina o 
+    moderadamente fina. Estos suelos tienen baja transmisión de agua.
+  - >
+    Suelos Tipo D: Suelos con capacidades de infiltración muy bajas cuando 
+    están completamente húmedos. Suelos que se expanden significativamente 
+    cuando se mojan, arcillas altamente plásticas y ciertos suelos salinos. 
+    Suelos con transmisión del agua muy baja.
+  - >
+    La definición del tipo de suelo hidrológico requiere de pruebas de 
+    campo y estudios especializados, se tomará entonces para este caso un 
+    Tipo de Suelo Hidrológico C asumiendo una baja transmisión de agua 
+    hacia el subsuelo en la cuenca.
+
+numero_de_curva:
+  - >
+    El número de curva (CN) es un parámetro empírico que se calcula con el 
+    método desarrollado por el Soil Convervation Service (SCS), el cual 
+    utiliza las condiciones de humedad antecedente (AMC) del suelo (seco, 
+    normal o transición y húmedo) determinada a partir de la precipitación 
+    total en los cinco días previos, para conocer la reacción a fenómenos 
+    de precipitación según las características particulares de una cuenca. 
+    Se representa mediante un número adimensional, en curvas 
+    estandarizadas, que varían entre 0 y 100; donde un área con CN = 0 no 
+    tiene escurrimiento y otra con CN = 100 es impermeable y toda la 
+    precipitación genera escorrentía. En la Tabla 416 se presentan los 
+    valores asociados al tipo de cobertura.
+  - >
+    Se realizó un ejercicio de fotointerpretación con imágenes satelitales 
+    disponibles en plataformas SIG con el fin de identificar los tipos de 
+    cobertura predominantes en la zona de proyecto, para los cuales se 
+    identificaron: pastos, bosques y tejido urbano como se observa en la 
+    Ilustración 47. Con la información de tipo de cobertura se le asigna el 
+    número de curva para un suelo de tipo hidrológico C y se construye así 
+    un mapa ráster para la zona de proyecto, como se observa en la 
+    Ilustración 48. Para el caso específico de la cuenca de estudio, se 
+    tiene que el número de curva fluctúa entre 73 y 91; por medio de una 
+    estadística zonal se calcula el número de curva de diseño de la 
+    microcuenca que se presenta en la Tabla 417 se presentan los valores 
+    calculados para las microcuencas.
+
+tiempos_de_concentracion:
+  - >
+    El tiempo de concentración se define como el tiempo mínimo en el cual 
+    la totalidad de la cuenca está aportando flujo de escorrentía al punto 
+    de descarga, determinado por el tiempo transcurrido desde que el agua 
+    que se encuentra en el punto más alejado llega hasta el punto de 
+    control.
+  - >
+    Existen varias fórmulas para calcular este valor definidas por autores 
+    a partir de la información morfométrica de las cuencas, para el 
+    presente estudio se utilizarán las siguientes:
+  - >
+    Donde:tc = Tiempo de concentración (min).
+  - >
+    S = Pendiente media cauce principal (m/m).
+  - >
+    Donde:tc = Tiempo de concentración (hr).
+  - >
+    S = Pendiente media cauce principal (m/m).
+  - >
+    Donde:tc = Tiempo de concentración (hr).
+  - >
+    S = Pendiente media cauce principal (m/m).
+  - >
+    Donde:tc = Tiempo de concentración (hr).
+  - >
+    S = Pendiente media cauce principal (m/m).
+  - >
+    Donde:tc = Tiempo de concentración (min).
+  - >
+    S = Pendiente media cauce principal (m/m).
+  - >
+    Donde:tc = Tiempo de concentración (hr).
+  - >
+    S = Pendiente media cauce principal (m/m).
+  - >
+    Donde:tc = Tiempo de concentración (hr).
+  - >
+    S = Pendiente media cauce principal (m/m).
+  - >
+    Donde:tc = Tiempo de concentración (hr).
+  - >
+    H = Diferencia de cotas entre puntos extremos (m).
+  - >
+    Donde:tc = Tiempo de concentración (hr).
+  - >
+    S = Pendiente media cauce principal (%).
+  - >
+    En la Tabla 418 a la Tabla 420 se presentan los resultados del cálculo 
+    del tiempo de concentración de acuerdo con cada autor. El valor 
+    adoptado para los cálculos posteriores corresponde a la mediana de la 
+    serie de datos.
+
+analisis_de_precipitaciones:
+  - >
+    En este numeral se presentan los análisis correspondientes a la 
+    información de precipitación obtenida en las estaciones de lluvia de 
+    interés en la zona de proyecto.
+
+precipitacion_total_mensual:
+  - >
+    De acuerdo con el numeral 3.1, las siguientes son las estaciones con 
+    registros de precipitación seleccionadas para los análisis del proyecto 
+    ya que cuentan con una longitud de series mayor a 15 años.
+  - >
+    La estación ACACIAS, que se observa en el Gráfico 51 y Gráfico 52 tiene 
+    registros mensuales completos desde el año 1980 hasta el 2023, con 
+    excepción del año 2012 y 2014 que tiene algunos vacíos.
+  - >
+    La estación ACUEDUCTO ESMERALDA tiene registros desde el año 1986 de 
+    manera intermitente hasta el año 1993, luego desde 1994 hasta mediados 
+    de 1997 no existen registros; posteriormente hasta el año 2020 tiene 
+    series completas con algunos vacíos en 2007, 2008 y 2009; por último, 
+    desde el año 2021 a 2023 también tiene algunos vacíos en la serie 
+    mensual, esto se observa en el Gráfico 53 y Gráfico 54.
+  - >
+    La estación AEROPUERTO VANGUARDIA que se presenta en el Gráfico 55 y 
+    Gráfico 56, tiene registros desde 1980 hasta 2023 completos en su 
+    serie.
+  - >
+    La estación ALCALDÍA tiene registros desde el año 1995 hasta el 2023, 
+    con intermitencias en los años 1999, 2006, 2007, 2020, 2021, 2022 y 
+    2023, como se observa en el Gráfico 57 y Gráfico 58.
+  - >
+    La estación BASE APIAY tiene registros desde el año 1980 hasta el año 
+    2015, con intermitencias en la mayoría de sus años y en algunos casos 
+    con años totalmente vacíos como lo es el periodo 1985 a 1988, 1993, 
+    1995 a 1996, como se observa en el Gráfico 59 y Gráfico 510.
+  - >
+    La estación BUENAVISTA cuenta con registros desde el año 1994 hasta el 
+    año 2023 con algunas intermitencias en el año 2004, 2006 y 2008, como 
+    se muestra en el Gráfico 511 y Gráfico 512.
+  - >
+    La estación ICA VILLAVICENCIO cuenta con algunos registros en el año 
+    2006 y 2007, luego vuelve a tener información desde el año 2010 hasta 
+    el 2023 con algunos vacíos en el año 2018 y 2019. Lo anterior se puede 
+    observar en el Gráfico 513 y Gráfico 514.
+  - >
+    En el Gráfico 515 y Gráfico 516 se presenta la información de la 
+    estación MANZANARES la cual tiene información registrada desde el año 
+    1980 hasta 1999.
+  - >
+    En la estación Salinas de Upín se tiene información registrada desde el 
+    año 1980 hasta el año 1994, como se presenta en el Gráfico 517 y 
+    Gráfico 518.
+  - >
+    La estación SENA contiene registros desde el año 1985 hasta el año 2023 
+    con algunas intermitencias puntuales y otras en periodos prolongados 
+    como el año 1989, 1991, 1992, 1995, 1996, 2020 y 2021, pero en general 
+    todos los años cuentan con algún tipo de información, como se ve en el 
+    Gráfico 519 y Gráfico 520.
+  - >
+    En el Gráfico 521 y Gráfico 522 se observa que se tienen registros en 
+    la estación SERVITA desde el año 1995 hasta el año 2023, con buenos 
+    datos ya que solo dos meses puntuales no cuentan con información.
+  - >
+    La estación ICA VILLAVICENCIO AUTOMÁTICA solo tiene un año completo de 
+    registro correspondiente al 2009 y otros datos aislados del 2021. Esta 
+    inmediatamente se descarta por falta de información.
+  - >
+    La estación UNILLANOS que se presenta en el Gráfico 523 y Gráfico 524 
+    cuenta con registros desde el año 1984 hasta el 1989 con varias 
+    intermitencias, luego en el periodo de 1990 a 1993 son vacíos y vuelve 
+    a tener información con intermitencias hasta el año 2023.
+  - >
+    Como se observa en los gráficos anteriores de precipitación promedio 
+    mensual, todas las estaciones presentan un régimen de lluvias bimodal, 
+    con periodos de invierno entre abril a julio y octubre a noviembre, 
+    mientras los periodos secos son de diciembre a marzo y agosto.
+
+analisis_de_consistencia:
+  - >
+    Para conocer la confiabilidad de los datos de precipitación total de 
+    las estaciones mencionadas, se realizó para cada una de ellas el 
+    análisis consistencia de sus registros mediante la metodología de 
+    dobles masas, utilizando la información de las estaciones 
+    geográficamente más cercanas.
+  - >
+    Este método es utilizado para verificar la confiabilidad e idoneidad de 
+    una estación pluviométrica o si existe alguna inconsistencia importante 
+    en sus datos de precipitación. Se relacionan los datos totales 
+    mensuales de precipitación de una determinada estación y los totales 
+    mensuales de las estaciones cercanas en la región.
+  - >
+    El ejercicio se realizó para las estaciones seleccionadas del IDEAM que 
+    cuentan con un buen registro de datos para ser tenidas en cuenta en los 
+    análisis hidrológicos de acuerdo con el numeral 5.1. Para el análisis 
+    se utilizó el cálculo del coeficiente de correlación para determinar 
+    entre cada estación su comportamiento. En la Ilustración 51 se observan 
+    los resultados donde la correlación varía entre 0.5 y 1.0.
+  - >
+    En términos generales, la mayoría de las estaciones se obtuvo una buena 
+    consistencia entre los datos registrados por ella y sus cercanas 
+    geográficamente de acuerdo con el coeficiente de correlación calculado 
+    que supera los valores de 0.80 lo que el Consultor considera adecuado.
+  - >
+    Las estaciones con código 35020030 MANZANARES, 35035030 SALINAS DE UPIN 
+    y 35030370 ICA VILLAVICENCIO AUTOMÁTICA son las que tienen las peores 
+    correlaciones con las demás, esencialmente por la ausencia de datos, 
+    por lo que se descartan para continuar con los análisis.
+
+analisis_de_datos_dudosos:
+  - >
+    Con las series de datos de la precipitación total mensual se procede a 
+    analizar si algún dato se considera dudoso o anómalo a partir de la 
+    metodología del rango intercuartílico (IQR), la cual aplica para datos 
+    de una serie que no se asemejan a una distribución normal, el análisis 
+    identifica los valores considerados atípicos que son los que se 
+    encuentran por fuera de un rango definidos intercuartílico (Q3 – Q1). 
+    El valor del primer cuartil es el percentil 25 y el del tercer cuartil 
+    es el percentil 75 de la serie de datos.
+  - >
+    Utilizando un script de R.LTWB de la Escuela Colombiana de Ingeniería 
+    Julio Garavito, para los cuartiles definidos se realiza el análisis 
+    tipo box plot de las estaciones identificadas y filtradas de acuerdo 
+    con el numeral anterior.
+  - >
+    En el Gráfico 525 se presentan los resultados para cada estación, donde 
+    se observa que no todas tienen datos anómalos y las que si son muy 
+    pocos valores.
+  - >
+    En total se tiene que para las estaciones analizadas hay 8 datos 
+    anómalos según la metodología IQR, en el Gráfico 526 se presenta la 
+    serie sin outliers que continuará con el proceso de análisis 
+    estadístico de los siguientes numerales.
+
+complemento_de_datos_faltantes:
+  - >
+    Aunque se comprobó que las estaciones pluviométricas no descartadas en 
+    el ejercicio de análisis de consistencia por dobles masas tienen un 
+    alto grado de confiabilidad, se hace necesario completar los datos de 
+    los años donde no se cuenta con registros completos para las estaciones 
+    seleccionadas.
+  - >
+    Retomando la información de todas las estaciones para identificar la 
+    longitud real de las series, en el Gráfico 527 se observa una gran 
+    intermitencia en la década de 1980 para la mayoría de las estaciones y 
+    otras que no tienen registros recientes ya que fueron suspendidas en un 
+    año determinado.
+  - >
+    Si bien en análisis anteriores se consideraron adecuadas las estaciones 
+    por su correlación estadística, como ejercicio de buena práctica se 
+    decide descartar las estaciones que tengan muchos vacíos o ausencia de 
+    datos reciente, esto con el fin de no generar una serie predominante 
+    con datos sintéticos y que no tengan en cuenta los fenómenos climáticos 
+    que vienen ocurriendo en el país.
+  - >
+    En conclusión, las estaciones excluidas por serie incompleta en los 
+    últimos años, intermitencias por años incompletos y mala correlación 
+    con las otras son '35020030' MANZANARES, '35030370' ICA VILLAVICENCIO, 
+    '35035010' BASE AÉREA APIAY, '35035030' SALINAS DE UPIN y '35035100' 
+    ICA VILLAVICENCIO AUTOMÁTICA; las demás estaciones continúan al proceso 
+    de complemento de datos.
+  - >
+    En el Gráfico 528 se observa la serie de precipitación que será objeto 
+    de complemento de datos.
+  - >
+    Para el ejercicio de complemento de datos de precipitación se tienen 
+    los métodos disponibles en la literatura descritos en la Tabla 51.
+  - >
+    Para este caso se selecciona un método que tenga en cuenta la 
+    espacialidad de las estaciones, que pueda ser completada toda la serie 
+    y que mantenga la tendencia general de la zona estudiada (valores 
+    similares de media y desviación estándar). Se selecciona entonces el 
+    método de Multivariante con ecuación de encadenamiento (MICE).
+  - >
+    En el Gráfico 529 se presentan las series de precipitación completadas, 
+    donde se observa que la década de 1980 fue completada en la mayoría de 
+    las estaciones lo cual haría que se tuviera información sintética de 
+    gran magnitud.
+  - >
+    Como último filtro para genera los insumos de modelos lluvia 
+    escorrentía de los capítulos posteriores de este informe, se tomará una 
+    longitud de serie de 27 años que corresponde desde el año de 1997 
+    (donde se inician las series con intermitencias) hasta el año 2023.
+
+anomalias_enso:
+  - >
+    Se observa que en la totalidad de las estaciones estudiadas los 
+    registros tienen tendencia hacia los valores medios o mínimos y los 
+    datos anómalos corresponden a valores máximos asociados a eventos 
+    extremos.
+  - >
+    Los datos anómalos observados se consideran que son eventos reales 
+    asociados al fenómeno de Oscilación del Sur El Niño (l Niño-Southern 
+    Oscillation -ENSO), los cuales pueden ser comparados con el Índice del 
+    Niño Oceánico (Oceanic Nino Index - ONI).
+  - >
+    El fenómeno de El Niño es un evento climático relacionado con el 
+    calentamiento en el Pacífico Oriental Ecuatorial, que ocurre de forma 
+    cíclica, aunque errónea con ciclos entre 3 y 8 años. En contraste, 
+    ocurre el fenómeno de La Niña que corresponde a la presencia de lluvias 
+    intensas por el enfriamiento del ciclo.
+  - >
+    El ONI es calculado como la media móvil de tres puntos de la serie 
+    mensual de anomalías de la temperatura de la superficie del mar. De 
+    acuerdo con este índice, en condiciones El Niño (La Niña), el ONI debe 
+    ser igual o superior (igual o inferior) a medio grado Celsius de 
+    anomalía, se clasificó cada año desde 1950 para luego poder analizar 
+    separadamente los datos climatológicos recopilados de las estaciones 
+    terrestres de la zona de estudio.
+  - >
+    En la Ilustración 52 se observa la clasificación del tipo de fenómeno 
+    ENSO de acuerdo con los registros históricos del ONI.
+  - >
+    La asociación de eventos anómalos pero reales puede realizarse 
+    comparando la serie histórica de precipitación con los picos positivos 
+    de la serie, como se muestra en el Gráfico 530 al Gráfico 537.
+  - >
+    Se observa que los datos extremos de precipitación están efectivamente 
+    asociados a anomalías presentadas por el fenómeno ENSO, por lo cual no 
+    se excluyen esto datos de la serie a utilizar para análisis 
+    posteriores.
+  - >
+    Con lo anterior, se puede realizar la agregación de los datos 
+    completados por fenómeno climatológico, como se presenta del Gráfico 
+    538 al Gráfico 541.
+
+analisis_espacial_de_la_precipitacion:
+  - >
+    Con la serie de datos completados, se construye un mapa de la 
+    distribución espacial de la precipitación para determinar los valores 
+    promedio de este parámetro a nivel total o mensual, comúnmente usando 
+    el método de las isoyetas.
+  - >
+    Este método consiste en el trazado de líneas de igual precipitación 
+    llamadas isoyetas utilizando los datos puntuales reportados por las 
+    estaciones meteorológicas. Comúnmente estas líneas se dibujan 
+    observando la orografía de la región y los planos obtenidos mediante 
+    otros estudios e información de referencia, sin embargo, también se 
+    pueden utilizar técnicas de interpolación ráster que utilizan métodos 
+    numéricos para la construcción de isoyetas.
+  - >
+    IDW: Utiliza un método de interpolación que estima los valores de las 
+    celdas calculando promedios de los valores de los puntos de datos de 
+    muestra cercanos de cada celda de procesamiento. Cuanto más cerca está 
+    un punto del centro de la celda que se está estimando, más influencia o 
+    peso tendrá en el proceso de cálculo del promedio.
+  - >
+    KRIGING: Es un procedimiento de estadísticas geográficas avanzado que 
+    genera una superficie estimada a partir de un conjunto de puntos 
+    dispersados con valores z. Aún más que con otros métodos de 
+    interpolación, se debe realizar una investigación profunda del 
+    comportamiento espacial del fenómeno representado por los valores z 
+    antes de seleccionar el mejor método de estimación para generar la 
+    superficie de salida.
+  - >
+    VECINO NATURAL: La interpolación de Vecino Natural halla el subconjunto 
+    de muestras de entrada más cercano a un punto de consulta y aplica 
+    ponderaciones sobre ellas basándose en áreas proporcionales para 
+    interpolar un valor.
+  - >
+    SPLINE: Utiliza un método de interpolación que estima valores usando 
+    una función matemática que minimiza la curvatura general de la 
+    superficie, lo que resulta en una superficie suave que pasa exactamente 
+    por los puntos de entrada.
+  - >
+    De la literatura consultada para la selección del mejor método de 
+    interpolación, se tomó como referencia el trabajo “ANÁLISIS DE LA 
+    DISTRIBUCIÓN E INTERPOLACIÓN ESPACIAL DE LAS LLUVIAS EN BOGOTÁ, 
+    COLOMBIA” desarrollado por Vargas et al., en donde analizaron la 
+    estadística global mediante verificación del grado de ajuste al modelo 
+    real por medio de validaciones cruzadas y evaluación visual 
+    estableciendo de manera cualitativa los patrones de comportamiento de 
+    las isolíneas y superficies para los métodos de interpolación IDW y 
+    Kriging. Las conclusiones principales del trabajo de Vargas et al. 
+    fueron las siguientes:
+  - >
+    El método IDW es el que mejor representa el comportamiento espacial de 
+    la precipitación debido a que se obtienen los menores errores absolutos 
+    en la comparación de los valores interpolados con los observados.
+  - >
+    El modelo Kriging requiere un elevado número de estaciones con 
+    registros, mientras que los modelos IDW no tienen restricciones en este 
+    aspecto.
+  - >
+    El modelo Kriging genera sobreestimaciones de precipitación mientras 
+    que el modelo IDW no genera sobreestimaciones de la precipitación, sin 
+    embargo, produce concentraciones bastante fuertes en los puntos de 
+    medición.
+  - >
+    Considerando esto se podría concluir que el método más conveniente a 
+    utilizar es el IDW. Con la información de los numerales anteriores, se 
+    puede construir el mapa de isoyetas con las estaciones seleccionadas.
+  - >
+    Tomando la agregación realizada del numeral anterior, a través del 
+    script SIG presentado en la Ilustración 53, se generan los mapas de 
+    isoyetas de precipitación total mensual multianual para cada fenómeno 
+    climatológico.
+  - >
+    De la Ilustración 54 a la Ilustración 57 se observa que la distribución 
+    espacial de la precipitación a pesar del fenómeno es similar, teniendo 
+    como mayor cantidad de lluvia hacia el costado noroccidental en la 
+    región montañosa y menor hacia la ciudad de Villavicencio.
+
+precipitacion_maxima_en_24_horas:
+  - >
+    Se consultaron las precipitaciones máximas en 24 horas registradas en 
+    las estaciones meteorológicas seleccionadas, esto como insumo para 
+    realizar la construcción de hietogramas para la estimación de máximas 
+    avenidas.
+
+analisis_estadistico_de_eventos_maximos:
+  - >
+    Se tomaron los datos de precipitación diaria disponibles en la 
+    plataforma digital del IDEAM para las estaciones confiables y con datos 
+    registrados desde el año 1997 hasta el 2023, con el fin de tener series 
+    históricas mínimas de 25 años para analizar los eventos máximos de 
+    precipitación los cuales se presentan en el Gráfico 542.
+  - >
+    Utilizando la herramienta computacional Hydrognomon se realizó el 
+    análisis de comparación de las series máximas a las distribuciones de 
+    probabilidad conocidas, con el fin de seleccionar la que mejor ajuste 
+    tenga y a partir de esta calcular los valores de precipitación para 
+    diferentes periodos de retorno.
+  - >
+    Del Gráfico 543 al Gráfico 558 se presenta los resultados de cálculo 
+    del histograma de frecuencia y el ajuste a las probabilidades definidas 
+    para cada una de las estaciones.
+  - >
+    En la Tabla 52 se presenta las distribuciones de probabilidad 
+    seleccionadas para cada estación.
+  - >
+    Con estos resultados se calcularon las precipitaciones esperadas para 
+    diferentes periodos de retorno mediante el uso del programa Hydrognomon 
+    (Ilustración 58). En la Tabla 53 y Gráfico 559 se presentan los 
+    resultados obtenidos.
+  - >
+    Con estos resultados se construyen las isoyetas de precipitación máxima 
+    para conocer el comportamiento espacial de los eventos extremos; 
+    adicionalmente con esta información se calcula la precipitación máxima 
+    para cada uno de los periodos de retorno a estudiar en la zona de 
+    proyecto. En la Ilustración 59 a la Ilustración 515 se presentan los 
+    resultados del ejercicio.
+  - >
+    A partir de una estadística zonal del ráster generado de isoyetas por 
+    cada periodo de retorno cuyos resultados se presentan a continuación 
+    para cada microcuenca de las corrientes.
+
+hietograma_de_diseno:
+  - >
+    De acuerdo con la norma NS-085 de la EAAB-ESP y el Manual de Drenaje 
+    del INVIAS tomados como literatura de referencia, para los análisis de 
+    eventos de lluvia se recomienda una duración de la tormenta de 3 horas.
+  - >
+    Asumiendo la hipótesis anterior, se procede a construir los hietogramas 
+    de tormenta para diferentes periodos de retorno, a partir del método de 
+    Huff (1967); en este método se asumen distribuciones temporales para 
+    tormentas fuertes en áreas de hasta 1036 km2. En donde los patrones de 
+    distribución temporal se desarrollan para cuatro grupos de 
+    probabilidad, de los más severos (primer cuartil) hasta los menos 
+    severos (cuarto cuartil).
+  - >
+    En comparación con otros métodos como el bloque alterno y la tormenta 
+    instantánea, el método de Huff este pico no se encuentra en esta misma 
+    localización dentro del hietograma, se presenta más una tendencia 
+    similar al comportamiento de un hidrograma producto de la modelación 
+    lluvia-escorrentía, razón por la cual se considera más conveniente 
+    utilizar este método para elaborar los hietogramas de diseño.
+  - >
+    De acuerdo con lo anterior, utilizando la Ilustración 519 para un 50% 
+    de probabilidad que se refiere a un evento de intensidad media, es 
+    decir no la más extrema ni la menos intensa, se tomó la relación del 
+    valor de porcentaje de precipitación acumulada para un porcentaje del 
+    tiempo total de lluvia transcurrido, con lo cual se pueden construir 
+    los hietogramas de precipitación.
+  - >
+    Se realizó el ejercicio de construcción de los hietogramas para cada 
+    una de las subcuencas delimitadas en el numeral 4.1, tomando como 
+    insumo la precipitación máxima calculada en el numeral 5.2.1. En el 
+    Anexo 3.7 de presentan las hojas de cálculo de los hietogramas. En el 
+    Gráfico 560 al Gráfico 580 se presentan los resultados para cada 
+    periodo de retorno.
+
+influencia_del_cambio_climatico:
+  - >
+    Como parte de las acciones ante el cambio climático que se viene 
+    evidenciando a nivel mundial, el IDEAM ha realizado estudios y planes 
+    para informar y mitigar las acciones que este fenómeno genera sobre el 
+    país.
+  - >
+    Dentro de éstos se tiene la Comunicación Nacional del cambio climático, 
+    que actualmente se encuentra en su tercera entrega que data del año 
+    2015, presentando los escenarios de cambio climático desarrollados para 
+    Colombia, tomando como base información del periodo 1976 a 2005, 
+    considerado el clima de referencia, y pronosticando los cambios 
+    principalmente en temperatura y precipitación para los periodos 
+    2011-2040, 2041-2070 y 2071-2100.
+  - >
+    En la Ilustración 520 se presenta los impactos de este fenómeno para el 
+    periodo de ejecución del proyecto.
+  - >
+    En esta Comunicación Nacional también se han hecho proyecciones a nivel 
+    departamental sobre estos cambios de temperatura y precipitación, para 
+    los tres escenarios futuros, con lo que se puede observar de manera más 
+    exacta cual es la estimación de aumento o disminución de estas 
+    variables para el departamento del Meta y la ciudad de Villavicencio.
+  - >
+    De acuerdo con la Ilustración 521, en los próximos años se tendrá una 
+    disminución de precipitación del 7.46% y posteriormente de la década 
+    del 2040 también disminución del 5.68%, sin embargo, como margen de 
+    seguridad para la estimación de caudales en la cuenca de estudio, las 
+    magnitudes de los hietogramas de diseño no se afectarán en el volumen 
+    resultante de los análisis estadísticos que puede presentarse en la 
+    creciente.
+
+series_de_precipitacion_diaria:
+  - >
+    De acuerdo con la delimitación de la cuenca en estudio (numeral 4.1), 
+    la localización de estaciones meteorológicas (Ilustración 34) y la 
+    distribución espacial de la precipitación (numeral 5.1.5), desde el 
+    punto de vista de esta Consultoría no se puede seleccionar una estación 
+    específica para tomar la serie de datos diarios de precipitación ya que 
+    se encuentran alejadas del sitio de proyecto.
+  - >
+    En este sentido con las estaciones seleccionadas según los resultados 
+    de los numerales anteriores, el periodo de tiempo asumido para los 
+    análisis y la metodología de interpolación para construir las 
+    isolíneas, se realizó un extenso ejercicio de construcción de la serie 
+    de precipitación diaria para las cuencas de estudio, con un total de 
+    9862 datos en la ventana de tiempo de análisis.
+  - >
+    En primera instancia para este ejercicio se realizó el complemento de 
+    3670 datos diarios identificados como faltantes (Ilustración 522) 
+    siguiendo la misma metodología del numeral 5.1.3 para las ocho 
+    estaciones seleccionadas; en la Gráfico 581 se observa el resultado de 
+    las series completadas.
+  - >
+    En la Ilustración 523 se presenta algunos ejemplos del ejercicio de 
+    interpolación realizado para la ventana de tiempo a escala diaria que 
+    como se mencionó anteriormente corresponde a 9862 datos.
+  - >
+    Como insumo para los análisis del numeral 5.5 a través de la 
+    estadística zonal con herramientas SIG se construyeron las series 
+    específicas para la zona de proyecto.
+
+curvas_idf:
+  - >
+    Las curvas IDF son una representación gráfica de la relación existente 
+    entre dos parámetros de la precipitación: intensidad y duración, y su 
+    frecuencia de ocurrencia; así, en ellas se dibuja un promedio de 
+    intensidades de lluvia contra sus correspondientes duraciones, para 
+    diferentes frecuencias de ocurrencia dentro del grupo de datos 
+    estudiado, conocidas como periodos de retorno. Estas curvas usualmente 
+    se ajustan a una ecuación de la siguiente forma.
+  - >
+    Donde: i=intensidad de la precipitación para una duración dada (mm/h)
+  - >
+    T=Frecuencia de ocurrencia o periodo de retorno (años)
+  - >
+    a, b, m, n=coeficientes y exponentes que varían de una región a otra.
+  - >
+    De acuerdo con la información reportada en la plataforma de datos 
+    abiertos del IDEAM, consultada en la fecha de desarrollo de este 
+    informe se tienen dos estaciones con una curva IDF disponible que 
+    corresponde a Base Aérea Apiay con una ventana temporal del año 1972 al 
+    2010 y a la estación Salinas de Upín con una ventana temporal de 1970 a 
+    1992. Sin embargo, teniendo en cuenta que estas estaciones fueron 
+    descartadas para los análisis hidrológicos, pero primordialmente que 
+    los datos utilizados no son recientes, se descarta el uso de esta 
+    información al considerarse no actualizada.
+  - >
+    En este caso se construyen de manera sintética las curvas IDF a partir 
+    de metodologías en función del a precipitación máxima registrada en 24 
+    horas en una estación. De acuerdo con el numeral 3.1 y 4.1, y 
+    utilizando el ejercicio del numeral inmediatamente anterior de 
+    construcción de series de precipitación diaria, para este caso de 
+    estudio se opta por tomar los máximos anuales de dicha serie sintética 
+    construida para el área de proyecto.
+  - >
+    En el Gráfico 583 se observan los valores de referencia para el área de 
+    proyecto; si bien los valores de las tres subcuencas cercanas son 
+    similares, para la estimación de la curva IDF se toma los mayores 
+    correspondientes a la subcuenca W440.
+  - >
+    A continuación, se presentan tres ejercicios realizados para la 
+    construcción de curvas IDF a partir de diferentes metodologías, con el 
+    fin de determinar criterios de similitud o conveniencia para realizar 
+    la selección de la curva IDF a utilizar en el desarrollo de los 
+    estudios posteriores.
+
+metodologia_invias:
+  - >
+    Para Colombia, existen una serie de regionalizaciones que definen 
+    magnitudes de los parámetros a, b, m, n para las cinco regiones del 
+    país. Una de estas regionalizaciones, es la publicada por el Ministerio 
+    de Transporte en el manual de diseños de estructuras de drenaje INVIAS. 
+    Para este caso, la ecuación general es modificada para quedar en 
+    términos de la precipitación máxima en 24 horas promedio multianual; la 
+    ecuación queda así de la siguiente forma.
+  - >
+    Donde: i= Intensidad de precipitación (mm/h)
+  - >
+    M=Precipitación máxima promedio anual en 24 h a nivel multianual
+  - >
+    a, b, c, d=Parámetros de ajuste de la regresión regionalizados.
+  - >
+    Como valores de precipitación máxima promedio anual 24 h a nivel 
+    multianual, se han tomado los registros mencionados en el numeral 
+    anterior cuyo promedio multianual es de 126.69 mm. En la Tabla 58 y 
+    Gráfico 584 se presentan los resultados de esta metodología.
+
+metodologia_registro_pluviometrico_de_silva:
+  - >
+    La curva IDF fue calculada a partir de una segunda metodología 
+    planteada por Silva. Este método es empleado cuando no se cuenta con 
+    información pluviográfica suficiente en la zona y requiere de datos de 
+    precipitación máxima en 24 horas, en este caso se toma la información 
+    de los máximos estimados en la zona de proyecto en una longitud de 
+    serie de 27 años. Cada curva es expresada siguiente forma:
+  - >
+    Donde: I = Intensidad de la lluvia (mm/h).
+  - >
+    a, c = Coeficiente particular para cada periodo de retorno.
+  - >
+    b, n = Coeficientes de la zona. b ≅ 10 minutos, n ≅0.6.
+  - >
+    El valor numérico de n es del orden de 0.5 y en general está 
+    comprendido entre 0.5 y 0.6. En el presente estudio se adoptó el valor 
+    de n = 0.6 asociado a lluvias más intensas. La magnitud de b, por su 
+    parte, está comprendida entre 5 y 20 minutos; en el presente estudio se 
+    adoptó un valor de 10 minutos como valor medio del intervalo 
+    recomendado.
+  - >
+    Este método requiere realizar una conversión adicional, la cual es una 
+    relación entre la precipitación máxima en 24 h y la precipitación 
+    máxima en una hora. Teniendo en cuenta el lapso de información, como 
+    método de validación se utilizará el valor promedio de 126.78 mm de la 
+    serie como el equivalente al volumen de escorrentía en un evento de 
+    periodo de retorno de 2.33 años y con lo cual se varía el coeficiente 
+    de transformación de la lluvia que como se presenta en la memoria de 
+    cálculo del Anexo 3.8 se definió en 0.369.
+  - >
+    Para la serie de datos de precipitación máxima en 24 horas de la 
+    estación de medición, se calcula la probabilidad de excedencia según 
+    Weibull, para determinar de esta manera el valor de K de la ecuación. 
+    El procedimiento y resultados parciales se muestran a continuación, en 
+    donde además se aprecia la relación de K con el período de retorno Tr, 
+    como se muestra en la el Gráfico 585.
+  - >
+    Los resultados de la aplicación del método de Silva (1998) para el caso 
+    de estudio, arrojaron las curvas IDF para la estación SENA mostrada en 
+    el Gráfico 586.
+
+comparacion_de_metodologias:
+  - >
+    Una vez construidas las curvas IDF a partir de las metodologías 
+    descritas anteriormente, se procedió a realizar una comparación gráfica 
+    de los resultados para algunos de los periodos de retorno considerados, 
+    con el fin de conocer la diferencia de tendencia y comportamiento entre 
+    ellas, como se observa en el Gráfico 587.
+  - >
+    Se observa que para periodos de retorno bajo se tiene la misma 
+    tendencia hacia duraciones mayores, mientras que para periodo de 
+    retornos medio y altos ya existe una diferencia importante en la 
+    magnitud entre las dos metodologías.
+  - >
+    Para las duraciones iniciales de lluvia el inicio de la curva entre las 
+    dos metodologías difiere bastante para todos los periodos de retorno 
+    siendo más altos en la INVIAS.
+  - >
+    Teniendo en cuenta que la metodología de SILVA parte de un análisis 
+    estadístico de la serie de valores de precipitación máxima y no solo 
+    del promedio como la INVIAS se prefiere el uso de la metodología de 
+    SILVA. Además de la experiencia del Consultor que en otros proyectos se 
+    ha hecho comparación entre el método de SILVA y curvas IDF construidas 
+    a partir de pluviogramas de la estación de estudio, tienen tanto la 
+    tendencia como la magnitud similar en comparación al método INVIAS.
+  - >
+    Por lo anterior, en caso de requerirse un análisis que tenga como 
+    insumo la IDF se recomienda utilizar la generada por el método de 
+    SILVA.
+
+analisis_hidrologico:
+  - >
+    El objetivo general del presente capítulo consiste en realizar la 
+    estimación hidrológica de la cuenca asociada a las corrientes presentes 
+    frente a los eventos de creciente en diferentes periodos de retorno, 
+    condiciones medias y otros parámetros que deben desarrollarse.
+
+analisis_de_caudales_medios_balance_hidrico_a_largo_plazo:
+  - >
+    En este numeral se presenta el cálculo de los caudales medios mensuales 
+    a partir de los datos de precipitación, evapotranspiración y 
+    temperatura para las cuencas delimitadas asociadas al área de 
+    influencia.
+  - >
+    En este numeral se presenta el cálculo de los caudales medios mensuales 
+    a partir de los datos de precipitación, evapotranspiración y 
+    temperatura para las cuencas delimitadas asociadas al área de 
+    influencia.
+
+rendimiento_hidrico:
+  - >
+    De acuerdo con la zonificación hidrográfica definida en el numeral 4.2, 
+    la Quebrada No. 2 se encuentra en la subzona hidrográfica del río 
+    Guatiquía. Según el Estudio Nacional del Agua desarrollado por el IDEAM 
+    en el año 2022, se tiene que la cuenca de este cuerpo de agua definido 
+    en esta subzona hidrográfica corresponde a 1847 km2 y la oferta 
+    disponible es de 3122.7 Mm3 para el año medio, 7728.3 Mm3 para el año 
+    húmedo y 1032.4 Mm3 para el año seco, con lo que se obtiene unos 
+    rendimientos de 56.61 l/s/km2, 132.68 l/s/km2 y 17.72 l/s/km2 
+    respectivamente.
+  - >
+    Para el caso de la zona de estudio se prevé entonces que para el área 
+    de 13.55 km2 del caño Maizaro el caudal medio será aproximadamente de 
+    726.4 l/s, el caudal base en época húmeda de 1797.8 l/s y el caudal 
+    mínimo en año seco de 240.17 l/s; para el área de 1.10 km2 del caño 
+    Danubio el caudal medio será aproximadamente de 59 l/s, el caudal base 
+    en época húmeda de 145.9 l/s y el caudal mínimo en año seco de 19.50 
+    l/s y por último para el área de 0.26 km2 del caño Calatrava el caudal 
+    medio será aproximadamente de 13.9 l/s, el caudal base en época húmeda 
+    de 34.5 l/s y el caudal mínimo en año seco de 4.61 l/s. El primer dato 
+    será utilizado como medio de validación de la curva de duración de 
+    caudales dada la ausencia de instrumentación en la corriente de estudio 
+    mientras que el segundo será usado para completar los vacíos de la 
+    serie sintética que por las expresiones matemáticas no se puedan 
+    utilizar o sean menores a 0.
+  - >
+    De acuerdo con la zonificación hidrográfica definida en el numeral 4.2, 
+    la Quebrada No. 2 se encuentra en la subzona hidrográfica del río 
+    Guatiquía. Según el Estudio Nacional del Agua desarrollado por el IDEAM 
+    en el año 2022, se tiene que la cuenca de este cuerpo de agua definido 
+    en esta subzona hidrográfica corresponde a 1847 km2 y la oferta 
+    disponible es de 3122.7 Mm3 para el año medio, 7728.3 Mm3 para el año 
+    húmedo y 1032.4 Mm3 para el año seco, con lo que se obtiene unos 
+    rendimientos de 56.61 l/s/km2, 132.68 l/s/km2 y 17.72 l/s/km2 
+    respectivamente.
+  - >
+    Para el caso de la zona de estudio se prevé entonces que para el área 
+    de 13.55 km2 del caño Maizaro el caudal medio será aproximadamente de 
+    726.4 l/s, el caudal base en época húmeda de 1797.8 l/s y el caudal 
+    mínimo en año seco de 240.17 l/s; para el área de 1.10 km2 del caño 
+    Danubio el caudal medio será aproximadamente de 59 l/s, el caudal base 
+    en época húmeda de 145.9 l/s y el caudal mínimo en año seco de 19.50 
+    l/s y por último para el área de 0.26 km2 del caño Calatrava el caudal 
+    medio será aproximadamente de 13.9 l/s, el caudal base en época húmeda 
+    de 34.5 l/s y el caudal mínimo en año seco de 4.61 l/s. El primer dato 
+    será utilizado como medio de validación de la curva de duración de 
+    caudales dada la ausencia de instrumentación en la corriente de estudio 
+    mientras que el segundo será usado para completar los vacíos de la 
+    serie sintética que por las expresiones matemáticas no se puedan 
+    utilizar o sean menores a 0.
 
 modelo_lluvia_escorrentia:
   - >
-    El modelo se construyo en HEC-HMS con {n_subcuencas} subcuencas,
-    {n_tramos} tramos de transito y sus respectivas uniones. El metodo de
-    perdidas es el numero de curva del Soil Conservation Service y la
-    transformacion de lluvia neta a escorrentia es el hidrograma unitario del
-    mismo servicio.
+    Debido a que no se cuenta con estaciones de medición de caudales o 
+    niveles en la corriente de estudio con la que se pudiera calibrar un 
+    modelo hidrológico tipo SMA o GR4J, la Consultoría adoptó la 
+    metodología de balance hídrico a largo plazo de Budyko (1977) quien 
+    derivó una ecuación para la evapotranspiración en términos de funciones 
+    hiperbólicas.
   - >
-    No se considera flujo base. La tormenta de diseno es un evento aislado y el
-    hidrograma que interesa para el diseno es el de escorrentia directa.
+    Los argumentos relacionan la energía total disponible con la energía 
+    requerida para evaporar toda la precipitación anual. La ecuación fue 
+    probada con una amplia variedad de ríos en Europa, con valores 
+    observados de evaporación y de escorrentía al realizar el balance 
+    hídrico.
+  - >
+    Esta metodología fue utilizada para la estimación de la oferta hídrica 
+    en Colombia desde el estudio Nacional del Agua del año 2010 (ENA). Las 
+    principales hipótesis del modelo son:
+  - >
+    En el largo plazo los cambios en el almacenamiento de la cuenca son 
+    despreciables en comparación con los valores medios de precipitación, 
+    evapotranspiración y escorrentía.
+  - >
+    Del agua que cae en un determinado sitio (P) parte de este volumen 
+    vuelve a la atmosfera ya sea por evaporación directa o 
+    evapotranspiración (ETR).
+  - >
+    Otra parte del volumen de la precipitación escurre por la superficie de 
+    la cuenca (E), el cual fluye hasta alcanzar cauces principales.
+  - >
+    Una parte de la escorrentía se infiltra (I)en el terreno y se incorpora 
+    al sistema de aguas subterráneas de la zona.
+  - >
+    Donde: P = Precipitación total mensual (mm).
+  - >
+    ETR = Evapotranspiración real mensual (mm).
+  - >
+    Además, la evapotranspiración real nunca sobrepasa la 
+    evapotranspiración potencial. Si no hay precipitación, entonces E y ETP 
+    deben ser iguales a cero. Similarmente, a medida que P alcance valores 
+    altos, la evapotranspiración real se aproxima en forma asintótica a la 
+    evapotranspiración potencial.
+  - >
+    Teniendo en cuenta de los resultados obtenidos en cuanto a los 
+    parámetros de evapotranspiración, infiltración y precipitación, para el 
+    cálculo de los caudales medios para la cuenca, se realiza la aplicación 
+    de la siguiente ecuación:
+  - >
+    Debido a las limitaciones que se tienen en las mediciones hidrológicas 
+    directas, es necesario implementar modelos lluvia – escorrentía, los 
+    cuales proporcionan una predicción o extrapolación cuantitativa que 
+    puede ser útil en la toma de decisiones, especialmente en cuencas que 
+    no han sido calibradas. Para el cálculo de los hidrogramas se utilizó 
+    el modelo del Soil Conservatión Service (S.C.S.) de los Estados Unidos 
+    de América.
+  - >
+    Debido a que no se cuenta con estaciones de medición de caudales o 
+    niveles en la corriente de estudio con la que se pudiera calibrar un 
+    modelo hidrológico tipo SMA o GR4J, la Consultoría adoptó la 
+    metodología de balance hídrico a largo plazo de Budyko (1977) quien 
+    derivó una ecuación para la evapotranspiración en términos de funciones 
+    hiperbólicas.
+  - >
+    Los argumentos relacionan la energía total disponible con la energía 
+    requerida para evaporar toda la precipitación anual. La ecuación fue 
+    probada con una amplia variedad de ríos en Europa, con valores 
+    observados de evaporación y de escorrentía al realizar el balance 
+    hídrico.
+  - >
+    Esta metodología fue utilizada para la estimación de la oferta hídrica 
+    en Colombia desde el estudio Nacional del Agua del año 2010 (ENA). Las 
+    principales hipótesis del modelo son:
+  - >
+    En el largo plazo los cambios en el almacenamiento de la cuenca son 
+    despreciables en comparación con los valores medios de precipitación, 
+    evapotranspiración y escorrentía.
+  - >
+    Del agua que cae en un determinado sitio (P) parte de este volumen 
+    vuelve a la atmosfera ya sea por evaporación directa o 
+    evapotranspiración (ETR).
+  - >
+    Otra parte del volumen de la precipitación escurre por la superficie de 
+    la cuenca (E), el cual fluye hasta alcanzar cauces principales.
+  - >
+    Una parte de la escorrentía se infiltra (I)en el terreno y se incorpora 
+    al sistema de aguas subterráneas de la zona.
+  - >
+    Donde: P = Precipitación total mensual (mm).
+  - >
+    ETR = Evapotranspiración real mensual (mm).
+  - >
+    Además, la evapotranspiración real nunca sobrepasa la 
+    evapotranspiración potencial. Si no hay precipitación, entonces E y ETP 
+    deben ser iguales a cero. Similarmente, a medida que P alcance valores 
+    altos, la evapotranspiración real se aproxima en forma asintótica a la 
+    evapotranspiración potencial.
+  - >
+    Teniendo en cuenta de los resultados obtenidos en cuanto a los 
+    parámetros de evapotranspiración, infiltración y precipitación, para el 
+    cálculo de los caudales medios para la cuenca, se realiza la aplicación 
+    de la siguiente ecuación:
 
-arf:
+precipitacion:
   - >
-    La lamina de diseno obtenida del analisis de frecuencia es puntual, mientras
-    que la que cae sobre la cuenca se distribuye sobre su area. El factor de
-    reduccion por area adoptado es de {arf}, correspondiente a un area de
-    {area_km2} km2 y a la duracion de diseno.
+    Para el desarrollo de los cálculos en este apartado del documento se 
+    utilizaron los resultados de series de precipitación mensuales 
+    complementadas del numeral 5.1.3, se construyeron los archivos tipo 
+    ráster de la variable mediante la interpolación con el método IDW y a 
+    partir de una estadística zonal con herramientas de geoprocesamiento se 
+    calculó el valor medio para la zona de estudio, esto con el fin de 
+    construir una serie de precipitación a nivel mensual específica para el 
+    proyecto. Esta información sintética se presenta en el Anexo 3.6 del 
+    informe. A continuación, se presentan los resultados de este ejercicio 
+    para cada corriente.
+  - >
+    Para el desarrollo de los cálculos en este apartado del documento se 
+    utilizaron los resultados de series de precipitación mensuales 
+    complementadas del numeral 5.1.3, se construyeron los archivos tipo 
+    ráster de la variable mediante la interpolación con el método IDW y a 
+    partir de una estadística zonal con herramientas de geoprocesamiento se 
+    calculó el valor medio para la zona de estudio, esto con el fin de 
+    construir una serie de precipitación a nivel mensual específica para el 
+    proyecto. Esta información sintética se presenta en el Anexo 3.6 del 
+    informe. A continuación, se presentan los resultados de este ejercicio 
+    para cada corriente.
 
-transito:
+infiltracion:
   - >
-    El transito de crecientes por los cauces se realizo por el metodo de
-    Muskingum-Cunge con seccion trapezoidal. El ancho de fondo de cada tramo se
-    asigno segun su area de drenaje acumulada mediante una relacion de geometria
-    hidraulica, de modo que la seccion crece hacia aguas abajo en lugar de ser
-    unica para toda la red.
+    El análisis de infiltración se realizará mediante la metodología 
+    propuesta por Gunther Schosinsky &amp; Marcelino Losilla en su estudio 
+    “MODELO ANALÍTICO PARA DETERMINAR LA INFILTRACIÓN CON BASE EN LA LLUVIA 
+    MENSUAL” del año 1999, el cual presenta un método simplificado del 
+    cálculo de este parámetro teniendo como base la precipitación mensual 
+    registrada y la infiltración básica, con variables como el tipo de 
+    cobertura y la intercepción del follaje.
+  - >
+    La modelación matemática de este método es la siguiente:
+  - >
+    Donde: I = Infiltración mensual (mm/mes).
+  - >
+    Donde:Kfc = Fracción que se infiltra por efecto de la textura del 
+    suelo.
+  - >
+    Kp = Fracción que se infiltra por efecto de la pendiente.
+  - >
+    Kv = Fracción que se infiltra por efecto de la cobertura vegetal.
+  - >
+    Donde: fc = Infiltración básica del suelo (mm/día).
+  - >
+    Los coeficientes Kp y Kv que dependen de la cobertura y condiciones de 
+    terreno se toman también de dicho estudio y se presentan en la Tabla 
+    64.
+  - >
+    Se requiere de los valores de infiltración básica o capacidad de 
+    infiltración en el suelo, que al ser un parámetro especifico generado a 
+    partir de ensayos de laboratorio en diferentes puntos de la cuenca a 
+    través de estudios especializados es difícil de obtener, por lo cual se 
+    tomaron valores de referencia en la literatura y estudios en la región 
+    para suelos hidrológicos Tipo C.
+  - >
+    Teniendo en cuenta la ausencia de datos puntuales se asume como valor 
+    de infiltración básica el valor límite máximo de 38 mm/hr como 
+    condición crítica para los cálculos.
+  - >
+    En la Tabla 66 se presenta los parámetros seleccionados a utilizar para 
+    el cálculo de la infiltración, es de anotar que dichos valores ya 
+    fueron utilizados como mecanismo de validación de los resultados del 
+    caudal medio como se explicará más adelante. De igual manera, se 
+    observa que como componente del balance hídrico la infiltración tiene 
+    un gran impacto ya que la cuenca se satura rápidamente en los eventos 
+    de lluvia por lo que genera caudales importantes respecto al tamaño de 
+    las cuencas.
+  - >
+    A continuación, se presentan los resultados para las microcuencas en 
+    estudio en la zona de influencia.
+  - >
+    El análisis de infiltración se realizará mediante la metodología 
+    propuesta por Gunther Schosinsky &amp; Marcelino Losilla en su estudio 
+    “MODELO ANALÍTICO PARA DETERMINAR LA INFILTRACIÓN CON BASE EN LA LLUVIA 
+    MENSUAL” del año 1999, el cual presenta un método simplificado del 
+    cálculo de este parámetro teniendo como base la precipitación mensual 
+    registrada y la infiltración básica, con variables como el tipo de 
+    cobertura y la intercepción del follaje.
+  - >
+    La modelación matemática de este método es la siguiente:
+  - >
+    Donde: I = Infiltración mensual (mm/mes).
+  - >
+    Donde:Kfc = Fracción que se infiltra por efecto de la textura del 
+    suelo.
+  - >
+    Kp = Fracción que se infiltra por efecto de la pendiente.
+  - >
+    Kv = Fracción que se infiltra por efecto de la cobertura vegetal.
+  - >
+    Donde: fc = Infiltración básica del suelo (mm/día).
+  - >
+    Los coeficientes Kp y Kv que dependen de la cobertura y condiciones de 
+    terreno se toman también de dicho estudio y se presentan en la Tabla 
+    64.
+  - >
+    Se requiere de los valores de infiltración básica o capacidad de 
+    infiltración en el suelo, que al ser un parámetro especifico generado a 
+    partir de ensayos de laboratorio en diferentes puntos de la cuenca a 
+    través de estudios especializados es difícil de obtener, por lo cual se 
+    tomaron valores de referencia en la literatura y estudios en la región 
+    para suelos hidrológicos Tipo C.
+  - >
+    Teniendo en cuenta la ausencia de datos puntuales se asume como valor 
+    de infiltración básica el valor límite máximo de 38 mm/hr como 
+    condición crítica para los cálculos.
+  - >
+    En la Tabla 66 se presenta los parámetros seleccionados a utilizar para 
+    el cálculo de la infiltración, es de anotar que dichos valores ya 
+    fueron utilizados como mecanismo de validación de los resultados del 
+    caudal medio como se explicará más adelante. De igual manera, se 
+    observa que como componente del balance hídrico la infiltración tiene 
+    un gran impacto ya que la cuenca se satura rápidamente en los eventos 
+    de lluvia por lo que genera caudales importantes respecto al tamaño de 
+    las cuencas.
+  - >
+    A continuación, se presentan los resultados para las microcuencas en 
+    estudio en la zona de influencia.
 
-resultados_crecientes:
+temperatura:
   - >
-    En la tabla siguiente se presentan los caudales maximos en el sitio de
-    proyecto para cada periodo de retorno, que constituyen el insumo para el
-    diseno hidraulico. El caudal asociado al periodo de retorno de 100 anos es
-    de {q_100} m3/s, equivalente a un caudal especifico de
-    {caudal_especifico_100} m3/s por kilometro cuadrado.
+    Para el análisis de temperatura se tomaron los datos de las cuatro 
+    estaciones con registros diarios máximos y mínimos de información de 
+    este tipo según el numeral 3.1. La estación más cercana a la zona de 
+    proyecto corresponde a la denominada AEROPUERTO VANGUARDIA, la cual 
+    cuenta con registros desde el año 1980 con muy pocas intermitencias 
+    como se observa en el Gráfico 67 y Gráfico 68.
+  - >
+    Como se puede observar en los archivos del Anexo 1.3 las demás 
+    estaciones no cuentan con información completa ni su localización 
+    permite un análisis espacial adecuado, por lo que se tomarán los datos 
+    de la estación AEROPUERTO VANGUARDIA para los análisis posteriores. A 
+    esta serie se le dio el mismo tratamiento de outlier y complemento de 
+    datos como se describe en los numerales de análisis de precipitación.
+  - >
+    Teniendo en cuenta que los datos corresponden al valor máximo y mínimo 
+    del día, se calcularon los promedios con esta información para generar 
+    la serie de temperatura media y posteriormente fue agregada a nivel 
+    mensual. En la Tabla 610 se presenta el resultado del ejercicio.
+  - >
+    Para el análisis de temperatura se tomaron los datos de las cuatro 
+    estaciones con registros diarios máximos y mínimos de información de 
+    este tipo según el numeral 3.1. La estación más cercana a la zona de 
+    proyecto corresponde a la denominada AEROPUERTO VANGUARDIA, la cual 
+    cuenta con registros desde el año 1980 con muy pocas intermitencias 
+    como se observa en el Gráfico 67 y Gráfico 68.
+  - >
+    Como se puede observar en los archivos del Anexo 1.3 las demás 
+    estaciones no cuentan con información completa ni su localización 
+    permite un análisis espacial adecuado, por lo que se tomarán los datos 
+    de la estación AEROPUERTO VANGUARDIA para los análisis posteriores. A 
+    esta serie se le dio el mismo tratamiento de outlier y complemento de 
+    datos como se describe en los numerales de análisis de precipitación.
+  - >
+    Teniendo en cuenta que los datos corresponden al valor máximo y mínimo 
+    del día, se calcularon los promedios con esta información para generar 
+    la serie de temperatura media y posteriormente fue agregada a nivel 
+    mensual. En la Tabla 610 se presenta el resultado del ejercicio.
+
+evapotranspiracion:
+  - >
+    La evapotranspiración es la máxima cantidad de agua que puede 
+    evaporarse desde el suelo completamente cubierto por vegetación 
+    desarrollado en óptimas condiciones y sin limitaciones en la 
+    disponibilidad de agua, este proceso es la combinación de dos tipos de 
+    superficie: la evaporación del agua en la vegetación, suelo o cuerpos 
+    de agua, y la transpiración de las plantas.
+  - >
+    Este parámetro se utiliza en las metodologías y modelos para el cálculo 
+    del balance hídrico de una cuenca y se subdivide en dos: 
+    evapotranspiración potencial y evapotranspiración real.
+  - >
+    La evapotranspiración es la máxima cantidad de agua que puede 
+    evaporarse desde el suelo completamente cubierto por vegetación 
+    desarrollado en óptimas condiciones y sin limitaciones en la 
+    disponibilidad de agua, este proceso es la combinación de dos tipos de 
+    superficie: la evaporación del agua en la vegetación, suelo o cuerpos 
+    de agua, y la transpiración de las plantas.
+  - >
+    Este parámetro se utiliza en las metodologías y modelos para el cálculo 
+    del balance hídrico de una cuenca y se subdivide en dos: 
+    evapotranspiración potencial y evapotranspiración real.
+
+evapotranspiracion_potencial:
+  - >
+    La evapotranspiración potencial es la cantidad máxima de agua que es 
+    capaz de perderse en una capa de vegetación verde que se considere 
+    continua y de altura corta, bajo la premisa que la cantidad de agua que 
+    suministra el suelo es ilimitada.
+  - >
+    El cálculo de la evapotranspiración potencial (Ep) en mm/mes, se 
+    realiza por medio de la siguiente expresión definida por Thronthwaite 
+    (1948) descrita en la Nota Técnica 002-2018 del IDEAM titulada 
+    “Validación de las fórmulas de evapotranspiración de referencia (Eto) 
+    para Colombia”, que se encuentra en función de la temperatura de la 
+    estación de medición:
+  - >
+    Constante que es función del índice de calor anual (a):
+  - >
+    Para la estación que cuenta con datos de temperatura mensual 
+    completados en la totalidad de meses del año se realizó el cálculo de 
+    este parámetro a nivel mensual el cual se presenta en el Anexo 4.
+  - >
+    En el Gráfico 69 se presenta los resultados del cálculo de este 
+    parámetro para la zona de proyecto, en donde el valor medio mensual 
+    multianual es 125.5 mm, el valor máximo 198.2 mm y el valor mínimo 95.9 
+    mm.
+  - >
+    La evapotranspiración potencial es la cantidad máxima de agua que es 
+    capaz de perderse en una capa de vegetación verde que se considere 
+    continua y de altura corta, bajo la premisa que la cantidad de agua que 
+    suministra el suelo es ilimitada.
+  - >
+    El cálculo de la evapotranspiración potencial (Ep) en mm/mes, se 
+    realiza por medio de la siguiente expresión definida por Thronthwaite 
+    (1948) descrita en la Nota Técnica 002-2018 del IDEAM titulada 
+    “Validación de las fórmulas de evapotranspiración de referencia (Eto) 
+    para Colombia”, que se encuentra en función de la temperatura de la 
+    estación de medición:
+  - >
+    Constante que es función del índice de calor anual (a):
+  - >
+    Para la estación que cuenta con datos de temperatura mensual 
+    completados en la totalidad de meses del año se realizó el cálculo de 
+    este parámetro a nivel mensual el cual se presenta en el Anexo 4.
+  - >
+    En el Gráfico 69 se presenta los resultados del cálculo de este 
+    parámetro para la zona de proyecto, en donde el valor medio mensual 
+    multianual es 125.5 mm, el valor máximo 198.2 mm y el valor mínimo 95.9 
+    mm.
+
+evapotranspiracion_real:
+  - >
+    La evapotranspiración real es la cantidad de agua que se pierde en el 
+    sistema planta-suelo en las condiciones existentes de la cuenca desde 
+    el aspecto meteorológico, biológico y características del suelo.
+  - >
+    Se calculó de Evapotranspiración Real por método balance hídrico a 
+    largo plazo de Budyko (1977), para la zona de proyecto.
+  - >
+    Donde: E = Evapotranspiración real (mm/mes).
+  - >
+    P = Precipitación total mensual, tomada de la estación (mm/mes).
+  - >
+    Ep = Evaporación potencial mensual (mm/mes).
+  - >
+    En el Anexo 4 del informe se presenta los cálculos a nivel mensual de 
+    este parámetro en los años registrados con datos de precipitación y 
+    temperatura completados, y la evapotranspiración potencial según lo 
+    descrito en el numeral anterior.
+  - >
+    En el Gráfico 610 y Tabla 611 se presenta el resultado del cálculo de 
+    este parámetro.
+  - >
+    Los valores en blanco corresponden a datos que no se pudieron calcular, 
+    por lo que para el balance hídrico no se tendrán en cuenta en la 
+    generación de caudales medios mensuales.
+  - >
+    La evapotranspiración real es la cantidad de agua que se pierde en el 
+    sistema planta-suelo en las condiciones existentes de la cuenca desde 
+    el aspecto meteorológico, biológico y características del suelo.
+  - >
+    Se calculó de Evapotranspiración Real por método balance hídrico a 
+    largo plazo de Budyko (1977), para la zona de proyecto.
+  - >
+    Donde: E = Evapotranspiración real (mm/mes).
+  - >
+    P = Precipitación total mensual, tomada de la estación (mm/mes).
+  - >
+    Ep = Evaporación potencial mensual (mm/mes).
+  - >
+    En el Anexo 4 del informe se presenta los cálculos a nivel mensual de 
+    este parámetro en los años registrados con datos de precipitación y 
+    temperatura completados, y la evapotranspiración potencial según lo 
+    descrito en el numeral anterior.
+  - >
+    En el Gráfico 610 y Tabla 611 se presenta el resultado del cálculo de 
+    este parámetro.
+  - >
+    Los valores en blanco corresponden a datos que no se pudieron calcular, 
+    por lo que para el balance hídrico no se tendrán en cuenta en la 
+    generación de caudales medios mensuales.
+
+resultados:
+  - >
+    Los resultados de la estimación del balance hídrico en la zona de 
+    proyecto a partir de los datos procesados y analizados se presentan a 
+    continuación. Para los meses sin dato de ETR se asumió que no existe el 
+    dato.
+  - >
+    De acuerdo con lo anterior se tiene que el caudal promedio mensual para 
+    la Qda. Maizaro es de 724.14 l/s.
+  - >
+    De acuerdo con lo anterior se tiene que el caudal promedio mensual para 
+    la Caño Danubio es de 58.4 l/s.
+  - >
+    De acuerdo con lo anterior se tiene que el caudal promedio mensual para 
+    el Caño Calatrava es de 13.8 l/s.
+  - >
+    De la Ilustración 610 a la Ilustración 618 se presentan algunos de los 
+    resultados obtenidos en el programa HEC HMS para la simulación del 
+    modelo lluvia escorrentía del SCS. En el Anexo 6 se encuentra el 
+    archivo de modelación en el software HEC HMS.
+  - >
+    De acuerdo con los resultados se tienen los caudales máximos que 
+    representan el caudal pico de la creciente en el Gráfico 620 y la Tabla 
+    621 como insumo para modelaciones hidráulicas en 1D, así como los 
+    hidrogramas de creciente resultantes en el sitio de proyecto que se 
+    presentan en el Gráfico 621 al Gráfico 623 para las modelaciones 
+    hidráulicas en 2D.
+  - >
+    Los resultados de la estimación del balance hídrico en la zona de 
+    proyecto a partir de los datos procesados y analizados se presentan a 
+    continuación. Para los meses sin dato de ETR se asumió que no existe el 
+    dato.
+  - >
+    De acuerdo con lo anterior se tiene que el caudal promedio mensual para 
+    la Qda. Maizaro es de 724.14 l/s.
+  - >
+    De acuerdo con lo anterior se tiene que el caudal promedio mensual para 
+    la Caño Danubio es de 58.4 l/s.
+  - >
+    De acuerdo con lo anterior se tiene que el caudal promedio mensual para 
+    el Caño Calatrava es de 13.8 l/s.
+
+curva_de_duracion_de_caudales:
+  - >
+    Para establecer la serie de caudales que presente una confiabilidad 
+    determinada generalmente se construyen las curvas de duración de 
+    caudales medios diarios de la cuenca en estudio. Estas curvas 
+    representan la frecuencia de los caudales diarios registrados en un año 
+    determinado con registros completos. El gráfico de duración de caudales 
+    diarios se construye en las ordenadas el caudal y en las abscisas el 
+    porcentaje del tiempo en el cual el caudal es excedido. En el Gráfico 
+    614 al Gráfico 616 se presentan los resultados de la construcción de 
+    estas curvas a partir de los resultados del numeral anterior y en el 
+    Anexo 4 dentro de la memoria de cálculo de análisis hidrológico de la 
+    microcuenca se encuentra el cálculo de la curva de duración de 
+    caudales.
+  - >
+    Para establecer la serie de caudales que presente una confiabilidad 
+    determinada generalmente se construyen las curvas de duración de 
+    caudales medios diarios de la cuenca en estudio. Estas curvas 
+    representan la frecuencia de los caudales diarios registrados en un año 
+    determinado con registros completos. El gráfico de duración de caudales 
+    diarios se construye en las ordenadas el caudal y en las abscisas el 
+    porcentaje del tiempo en el cual el caudal es excedido. En el Gráfico 
+    614 al Gráfico 616 se presentan los resultados de la construcción de 
+    estas curvas a partir de los resultados del numeral anterior y en el 
+    Anexo 4 dentro de la memoria de cálculo de análisis hidrológico de la 
+    microcuenca se encuentra el cálculo de la curva de duración de 
+    caudales.
+
+indice_de_retencion_y_regulacion_hidrica:
+  - >
+    El Índice de Retención y Regulación Hídrica (IRH) corresponde a la 
+    relación entre un volumen parcial que equivale al área bajo el límite 
+    del caudal medio de la CDC y el volumen total equivalente a la 
+    sumatoria bajo el área de la CDC, su interpretación es la capacidad de 
+    la cuenca para la retención y regulación del agua en términos de 
+    estabilidad o déficit. En el Anexo 4 dentro de la memoria de cálculo de 
+    análisis hidrológico de la microcuenca se encuentra el cálculo del IRH.
+  - >
+    El IRH se calcula de la siguiente manera:
+  - >
+    Donde:𝑄𝑖 = Caudal medio en la posición 𝑖, de una serie ordenada de 
+    caudales de mayor a menor (m3/s).
+  - >
+    𝑄𝑖+1 = Caudal medio en la posición 𝑖+1, de una serie ordenada de 
+    caudales de mayor a menor (m3/s).
+  - >
+    𝑃 𝑒𝑥𝑐 𝑖+1 = Es la probabilidad de excedencia del caudal medio en la 
+    posición 𝑖+1 (%).
+  - >
+    𝑃 𝑒𝑥𝑐 𝑖 = Es la probabilidad de excedencia del caudal medio en la 
+    posición 𝑖 (%).
+  - >
+    Donde:𝑄𝑚𝑒𝑑𝑖𝑜 = Caudal promedio de la serie de datos de caudal (m3/s).
+  - >
+    𝑃𝑒𝑥𝑐 𝑚𝑒𝑑 = Es la probabilidad de excedencia del caudal promedio de la 
+    serie de caudales (%).
+  - >
+    𝑃𝑒𝑥𝑐 𝑚 = Es la probabilidad de excedencia del caudal medio diario 
+    inmediatamente menor al caudal promedio (%).
+  - >
+    𝑃𝑒𝑥𝑐 𝑚+1 = Es la probabilidad de excedencia del caudal medio diario 
+    inmediatamente mayor al caudal promedio (%).
+  - >
+    Δ𝑃𝑒𝑥𝑐 = Es la diferencia entre probabilidades de excedencia (%).
+  - >
+    𝑄𝑖 = Caudal medio diario en la posición 𝑖, de la serie ordenada de 
+    caudales de mayor a menor (m3/s).
+  - >
+    𝑄𝑖+1 = Caudal medio diario en la posición 𝑖+1, de una serie ordenada de 
+    caudales de mayor a menor (m3/s).
+  - >
+    𝑄𝑚 = Caudal medio diario inmediatamente menor al caudal promedio de la 
+    serie ordenada de caudales (m3/s).
+  - >
+    𝑄𝑚+1 = Caudal medio diario o mensual inmediatamente mayor al caudal 
+    promedio de la serie ordenada de caudales (m3/s).
+  - >
+    El IDEAM ha clasificado el IRH como se muestra en la Tabla 615. 
+    Interpretación IRH.
+  - >
+    Con los resultados obtenidos del numeral anterior y aplicando las 
+    expresiones matemáticas descritas anteriormente, en el Gráfico 617 al 
+    Gráfico 619 se presenta el área bajo la curva que da como resultado un 
+    IRH de 0.80 para el Caño Maizaro (Alta), de 0.91 para el Caño Danubio 
+    (Muy Alta) y de 0.79 para el Caño Calatrava (Alta).
+  - >
+    El Índice de Retención y Regulación Hídrica (IRH) corresponde a la 
+    relación entre un volumen parcial que equivale al área bajo el límite 
+    del caudal medio de la CDC y el volumen total equivalente a la 
+    sumatoria bajo el área de la CDC, su interpretación es la capacidad de 
+    la cuenca para la retención y regulación del agua en términos de 
+    estabilidad o déficit. En el Anexo 4 dentro de la memoria de cálculo de 
+    análisis hidrológico de la microcuenca se encuentra el cálculo del IRH.
+  - >
+    El IRH se calcula de la siguiente manera:
+  - >
+    Donde:𝑄𝑖 = Caudal medio en la posición 𝑖, de una serie ordenada de 
+    caudales de mayor a menor (m3/s).
+  - >
+    𝑄𝑖+1 = Caudal medio en la posición 𝑖+1, de una serie ordenada de 
+    caudales de mayor a menor (m3/s).
+  - >
+    𝑃 𝑒𝑥𝑐 𝑖+1 = Es la probabilidad de excedencia del caudal medio en la 
+    posición 𝑖+1 (%).
+  - >
+    𝑃 𝑒𝑥𝑐 𝑖 = Es la probabilidad de excedencia del caudal medio en la 
+    posición 𝑖 (%).
+  - >
+    Donde:𝑄𝑚𝑒𝑑𝑖𝑜 = Caudal promedio de la serie de datos de caudal (m3/s).
+  - >
+    𝑃𝑒𝑥𝑐 𝑚𝑒𝑑 = Es la probabilidad de excedencia del caudal promedio de la 
+    serie de caudales (%).
+  - >
+    𝑃𝑒𝑥𝑐 𝑚 = Es la probabilidad de excedencia del caudal medio diario 
+    inmediatamente menor al caudal promedio (%).
+  - >
+    𝑃𝑒𝑥𝑐 𝑚+1 = Es la probabilidad de excedencia del caudal medio diario 
+    inmediatamente mayor al caudal promedio (%).
+  - >
+    Δ𝑃𝑒𝑥𝑐 = Es la diferencia entre probabilidades de excedencia (%).
+  - >
+    𝑄𝑖 = Caudal medio diario en la posición 𝑖, de la serie ordenada de 
+    caudales de mayor a menor (m3/s).
+  - >
+    𝑄𝑖+1 = Caudal medio diario en la posición 𝑖+1, de una serie ordenada de 
+    caudales de mayor a menor (m3/s).
+  - >
+    𝑄𝑚 = Caudal medio diario inmediatamente menor al caudal promedio de la 
+    serie ordenada de caudales (m3/s).
+  - >
+    𝑄𝑚+1 = Caudal medio diario o mensual inmediatamente mayor al caudal 
+    promedio de la serie ordenada de caudales (m3/s).
+  - >
+    El IDEAM ha clasificado el IRH como se muestra en la Tabla 615. 
+    Interpretación IRH.
+  - >
+    Con los resultados obtenidos del numeral anterior y aplicando las 
+    expresiones matemáticas descritas anteriormente, en el Gráfico 617 al 
+    Gráfico 619 se presenta el área bajo la curva que da como resultado un 
+    IRH de 0.80 para el Caño Maizaro (Alta), de 0.91 para el Caño Danubio 
+    (Muy Alta) y de 0.79 para el Caño Calatrava (Alta).
+
+caudal_ambiental:
+  - >
+    El caudal ambiental se define como el volumen por unidad de tiempo que 
+    se requiere para mantener el funcionamiento y resiliencia de los 
+    ecosistemas acuáticos y provisión de servicios ecosistémicos, con lo 
+    que se asocia a la oferta hídrica disponible sobre los cuerpos de agua.
+  - >
+    El IDEAM y ANLA han definido distintas metodologías para la estimación 
+    de este caudal:
+  - >
+    Q95: Es el caudal con una probabilidad de excedencia del 95% según la 
+    curva de duración de caudales de la cuenca, el cual puede ser estimado 
+    en series mensuales de acuerdo con el Northern Great Plains Resource 
+    Program (NGPRP, 1974).
+  - >
+    QIRH: Se basa en el índice de retención y regulación hídrica, IRH. Si 
+    IRH es menor que 0.7 corresponde al 75% de la CDC; en caso contrario al 
+    85%.
+  - >
+    7Q10: Corresponde al caudal estimado a partir del ajuste de 
+    probabilidad para un periodo de retorno de 10 años de caudales mínimos 
+    definidos a partir del promedio móvil de siete días en la serie diaria 
+    de caudales; este método al requerir caudales a nivel diario se 
+    descarta para el estudio ya que no se cuenta con esta información.
+  - >
+    Tomando los resultados de los numerales anteriores, se definen con las 
+    dos metodologías seleccionadas el caudal ambiental se tiene que para el 
+    Caño Maizaro el Q95 es de 37.49 l/s y el QIRH es de 231.13 l/s, para el 
+    Caño Danubio el Q95 es de 3.04 l/s y el QIRH es de 18.76 l/s y para el 
+    Caño Calatrava el Q95 es de 1.06 l/s y el QIRH es de 5.32 l/s. En el 
+    Anexo 4 dentro de la memoria de cálculo de análisis hidrológico de la 
+    microcuenca se encuentra el cálculo del caudal ambiental.
+  - >
+    Para efectos de cálculos que tomen como insumo el caudal ambiental, se 
+    tomará el QIRH que corresponde al mayor entre los métodos calculados.
+  - >
+    El caudal ambiental se define como el volumen por unidad de tiempo que 
+    se requiere para mantener el funcionamiento y resiliencia de los 
+    ecosistemas acuáticos y provisión de servicios ecosistémicos, con lo 
+    que se asocia a la oferta hídrica disponible sobre los cuerpos de agua.
+  - >
+    El IDEAM y ANLA han definido distintas metodologías para la estimación 
+    de este caudal:
+  - >
+    Q95: Es el caudal con una probabilidad de excedencia del 95% según la 
+    curva de duración de caudales de la cuenca, el cual puede ser estimado 
+    en series mensuales de acuerdo con el Northern Great Plains Resource 
+    Program (NGPRP, 1974).
+  - >
+    QIRH: Se basa en el índice de retención y regulación hídrica, IRH. Si 
+    IRH es menor que 0.7 corresponde al 75% de la CDC; en caso contrario al 
+    85%.
+  - >
+    7Q10: Corresponde al caudal estimado a partir del ajuste de 
+    probabilidad para un periodo de retorno de 10 años de caudales mínimos 
+    definidos a partir del promedio móvil de siete días en la serie diaria 
+    de caudales; este método al requerir caudales a nivel diario se 
+    descarta para el estudio ya que no se cuenta con esta información.
+  - >
+    Tomando los resultados de los numerales anteriores, se definen con las 
+    dos metodologías seleccionadas el caudal ambiental se tiene que para el 
+    Caño Maizaro el Q95 es de 37.49 l/s y el QIRH es de 231.13 l/s, para el 
+    Caño Danubio el Q95 es de 3.04 l/s y el QIRH es de 18.76 l/s y para el 
+    Caño Calatrava el Q95 es de 1.06 l/s y el QIRH es de 5.32 l/s. En el 
+    Anexo 4 dentro de la memoria de cálculo de análisis hidrológico de la 
+    microcuenca se encuentra el cálculo del caudal ambiental.
+  - >
+    Para efectos de cálculos que tomen como insumo el caudal ambiental, se 
+    tomará el QIRH que corresponde al mayor entre los métodos calculados.
+
+analisis_de_crecientes:
+  - >
+    Para las cuencas mencionadas anteriormente en este numeral se realiza 
+    la estimación de los caudales de crecientes para periodos de retorno de 
+    2.33, 5, 10, 15, 25, 50 y 100 años.
+
+descripcion_del_modelo:
+  - >
+    Este método se desarrolló empíricamente por el departamento 
+    estadounidense de conservación de suelos, en el año 1972, con el fin de 
+    estimar las abstracciones (las cuales se refieren principalmente a la 
+    intercepción, detención superficial e infiltración) necesarias a la 
+    lluvia total que se precipita sobre la cuenca para obtener la 
+    precipitación de excesos, que luego conformará la escorrentía 
+    superficial directa sobre la cuenca.
+  - >
+    Con base en lo anterior, se puede decir que el exceso de precipitación 
+    o la escorrentía superficial directa es siempre menor o igual a la 
+    precipitación total, también que existe una cierta cantidad de 
+    precipitación para la cual no ocurrirá escorrentía y por tanto si se le 
+    sustrae esta cantidad a la precipitación total es posible obtener la 
+    escorrentía potencial.
+  - >
+    La capacidad de infiltración que tiene el suelo va disminuyendo a 
+    medida que pasa el tiempo, debido a esto al momento de separar la parte 
+    de la precipitación de excesos en el hietograma de precipitación total, 
+    se sugiere seguir una curva descendente que refleja la disminución 
+    natural de la capacidad de infiltración.
+  - >
+    Dicho método, parte de un número de curva de escorrentía (CN), a partir 
+    del cual se calculan las pérdidas en la cuenca de una tormenta, donde 
+    se incluyen la intercepción, la detención superficial y la 
+    infiltración. El número de curva varía en un rango de 1 a 100 y depende 
+    de la caracterización de cuatro propiedades productoras de escorrentía 
+    de una cuenca hidrográfica.
+  - >
+    Primero se debe clasificar hidrológicamente el suelo y determinar su 
+    potencial de escurrimiento. Según la tasa de infiltración, la 
+    distribución de finos y gruesos y condiciones de drenaje se puede 
+    establecer que el suelo tenga un potencial bajo, moderadamente bajo, 
+    moderadamente alto y alto.
+  - >
+    Igualmente, el método incluye una clasificación del suelo según su uso 
+    y tratamiento. El uso del suelo pertenece a la cobertura de la cuenca 
+    (tipo de vegetación, tierras en descanso, usos no agrícolas, cuerpos de 
+    agua y superficies impermeables). Por otro lado, el tratamiento del 
+    suelo aplica principalmente a los usos agrícolas y las prácticas 
+    mecánicas y de manejo que se utilicen.
+  - >
+    La tercera propiedad productora de escorrentía es la condición 
+    hidrológica del suelo, es decir, al porcentaje del área cubierta con 
+    pasto natural y la intensidad de pastoreo. Dicha condición debe ser 
+    establecida visualmente y debe ser catalogada como pobre (&lt;50% de 
+    área cubierta y alta intensidad de pastoreo), aceptable (50% – 75% de 
+    área cubierta y media intensidad de pastoreo) y buena (&gt;75% de área 
+    cubierta y baja intensidad de pastoreo).
+  - >
+    Por último, se debe contar con la condición de humedad antecedente 
+    según las condiciones de la precipitación total en los 5 días previos a 
+    la tormenta de análisis. Esto puede ser seca (AMC I) con una 
+    precipitación acumulada de 0 a 3.6 cm y menor potencial de escorrentía, 
+    promedio (AMC II) con una precipitación acumulada entre 3.6 y 5.3 cm y 
+    húmeda (AMC III) con más de 5.3 cm.
+  - >
+    Una vez establecidas estas propiedades es posible determinar el número 
+    CN siguiendo los cuadros guía de esta metodología.
+  - >
+    El número CN permitirá, entonces establecer la escorrentía directa a 
+    partir de las siguientes expresiones:
+  - >
+    Dónde:P:Profundidad de Precipitación en cm.
+  - >
+    Pe: Profundidad de exceso de precipitación en cm.
+  - >
+    Debido a las distintas condiciones del suelo y coberturas, se puede 
+    ponderar el valor de CN respecto al área:
+  - >
+    Las pérdidas iniciales de la lluvia se estiman a partir de la ecuación 
+    de hipótesis que define el método del SCS:
+  - >
+    Donde Ia se refiere a las pérdidas iniciales antes del encharcamiento, 
+    que a su vez se definen como:
+  - >
+    El hidrograma unitario de una cuenca es el hidrograma de escurrimiento 
+    directo, producido por 1 unidad (mm, cm, etc.) de lluvia en exceso, que 
+    cae con una intensidad uniforme sobre toda la cuenca durante un tiempo 
+    determinado, es un hidrograma típico de la cuenca, que se relaciona con 
+    las características de la cuenca (área, forma, pendiente, etc.) que son 
+    relativamente constantes.
+  - >
+    El hidrograma unitario está basado en el supuesto de precipitaciones de 
+    características similares (duración, intensidad, distribución, etc.) 
+    generan hidrogramas unitarios parecidos. Por lo tanto, las ordenadas 
+    del hidrograma son proporcionales al volumen de escurrimiento directo.
+  - >
+    Si no se cuenta con registros simultáneos de lluvia y escurrimientos, 
+    el hidrograma unitario se realiza a partir de alguna de las 
+    características fisiográficas de la cuenca. Para esta situación se 
+    utilizan los denominados hidrogramas unitarios sintéticos, como el 
+    hidrograma Unitario Adimensional del Servicio de Conservación de Suelos 
+    (SCS).
+  - >
+    El SCS de los Estados Unidos propone usar el hidrograma unitario 
+    adimensional de la figura mostrada a continuación, basado en la 
+    combinación de hidrogramas unitarios en diferentes cuencas en Estados 
+    Unidos para diferentes condiciones climatológicas y como sus áreas de 
+    drenaje. Para definir el hidrograma unitario adimensional se calcula el 
+    caudal pico (qp) y el tiempo al pico (tp) con las expresiones:
+  - >
+    tc =es el tiempo de concentración, en horas.
+  - >
+    La forma del hidrograma unitario queda definida al multiplicar los 
+    valores de las ordenadas y las abscisas, que aparecen en la siguiente 
+    tabla, por q_p y t_p. Para la elaboración del hidrograma se escoge un 
+    valor de t/tp y con la tabla anterior se obtiene q/qp. Una vez obtenido 
+    este valor y conociendo qp se halla el valor de q, de la relación t/tp, 
+    conocido tp se despeja el valor de t.
+
+tiempo_de_concentracion_y_rezago:
+  - >
+    El tiempo de concentración de la cuenca en estudio se puede definir 
+    como el momento en que se encuentra aportando escorrentía desde el 
+    punto más alejado de ésta hasta el sitio de descarga de interés. 
+    Utilizando las fórmulas definidas por los autores mencionados en el 
+    numeral 4.15, en la Tabla 616 a la Tabla 618 se presenta el cálculo 
+    para las microcuencas de estudio en el área de influencia. 
+    Adicionalmente se calcula el tiempo de rezago que de acuerdo con los 
+    autores y desarrolladores del software HEC-HMS; el cual se mencionará a 
+    detalle más adelante, el tiempo de rezago para la creciente se ha 
+    estimado según los comportamientos típicos de los hidrogramas del SCS 
+    como el 60% del tiempo de concentración de la duración de la lluvia de 
+    diseño. En el Anexo 5 del informe se encuentran las memorias de cálculo 
+    de estos parámetros.
+
+factor_de_reduccion_de_precipitacion:
+  - >
+    Considerando que la precipitación ocurrida en una tormenta se 
+    distribuye sobre toda el área de la cuenca, se han desarrollado curvas 
+    de profundidad contra área que promedian la distribución de la lluvia a 
+    partir de la localización hipotética de las estaciones de registro.
+  - >
+    Asumiendo que la duración de la lluvia será 3 horas, para el tamaño de 
+    las cuencas en estudio según la Ilustración 65 no sería necesario 
+    aplicar algún factor de ajuste por esta condición.
+
+transito_de_crecientes:
+  - >
+    El hidrograma de una creciente de diseño representa la variación de los 
+    caudales en una sección determinada lo cual refleja los efectos de la 
+    cuenca aguas arriba de la sección considerada esto con el fin de 
+    conocer el comportamiento de la onda producida al pasar a través de la 
+    estructura o aguas debajo de la sección estudiada.
+  - >
+    Conociendo el hidrograma de entrada de dicha sección se busca entonces 
+    conocer el hidrograma de salida a través de la ecuación de continuidad, 
+    es decir lo que entra debe ser igual a lo que sale como se describe en 
+    la Ilustración 66.
+  - >
+    Existen varios métodos para propagación de crecientes en ríos y 
+    canales, pero el utilizado aquí es el método desarrollado por McCarthy 
+    en conexión con estudios de propagación del río Muskingum, en Ohio, 
+    Estados Unidos, este método hace uso de las ecuaciones de conservación 
+    de la masa.
+  - >
+    El parámetro k puede tomarse como el tiempo que le toma a la onda 
+    recorrer el total de la longitud de la sección en estudio. X es una 
+    constante que está entre 0 y 0.5, tomando como valor típico 0.2 para 
+    quebradas en zona relativamente planas como el caso de estudio.
+  - >
+    Al no contar con datos de hidrogramas registrados en el volumen de 
+    control, el método simplificado para cálculo de la constante K del 
+    método de Muskingum se puede estimar de la siguiente manera:
+  - >
+    Donde: K = Tiempo de recorrido de la onda (seg).
+  - >
+    C = Celeridad o velocidad media del tránsito (m/s).
+  - >
+    En la Tabla 619 y Tabla 620 se presentan los datos utilizados para el 
+    cálculo de esta condición en las microcuencas Maizaro y Danubio 
+    respectivamente del área de influencia, para el Caño Calatrava por su 
+    tamaño de cuenca se toma como una creciente instantánea.
+
+construccion_del_modelo:
+  - >
+    Para la ejecución de este modelo lluvia-escorrentía, se utiliza el 
+    programa Hydrologic Modelling System (HEC-HMS), el cual mediante una 
+    serie de pasos ordenados construye el modelo de acuerdo con la 
+    información de la cuenca y de precipitación.
+  - >
+    El HEC-HMS es un programa de simulación hidrológica desarrollado para 
+    estimar los hidrogramas de salida en una cuenca a partir de condiciones 
+    extremas de lluvias, aplicando para ello métodos de cálculo de 
+    hietogramas de precipitación efectiva, pérdidas por infiltración, 
+    comportamiento del flujo base y conversión en escorrentía directa. El 
+    programa se compone de una interfaz gráfica para el usuario que le 
+    permite introducir la información necesaria para la simulación, manejar 
+    los parámetros de análisis hidrológico a través de módulos integrados y 
+    obtener gráficas o tablas con los resultados. El programa trabaja con 
+    tres módulos básicos que se describen a continuación:
+  - >
+    Módulo de la cuenca: Permite la construcción del sistema de drenaje de 
+    la cuenca con elementos de conexión y generación de caudales, así como 
+    la inclusión de las características morfométricas para cada uno de los 
+    elementos del sistema.
+  - >
+    Módulo de precipitación: Se encarga de seleccionar los patrones de 
+    precipitación del evento de tormenta que se desea estudiar, incluyendo 
+    la introducción manual de los datos de la lluvia de diseño.
+  - >
+    Módulo de control: En este módulo se configuran las fechas de inicio y 
+    culminación de los datos de lluvia y caudal para la simulación y los 
+    intervalos de tiempo para realizar los cálculos, también permite la 
+    creación de escenarios de simulación según los casos que se quiera 
+    evaluar.
+  - >
+    De las opciones que proporciona el programa para el cálculo del 
+    hidrograma se escogió para el Método de Pérdidas de lluvia el SCS Curve 
+    Number (en este elemento del software se realiza el cálculo de la 
+    abstracción inicial automáticamente) y para el Método de Transformación 
+    de lluvia neta a escorrentía directa el SCS Unit Hydrograph.
+  - >
+    Con el fin de representar adecuadamente los hidrogramas generados 
+    incluyendo el tránsito en las microcuencas, se realizó una división a 
+    nivel de subcuencas cuyo único objetivo es mejorar la aproximación de 
+    la modelación, en la Ilustración 67 a la Ilustración 69se presenta el 
+    modelo construido para la microcuenca del área de influencia. Las 
+    características de cada cuenca fueron tomadas de los resultados de 
+    análisis del capítulo 4 de este informe.
 
 conclusiones:
   - >
-    A continuacion se relacionan las conclusiones del estudio.
+    Se delimitó y caracterizó la cuenca para el Caño Maizaro (13.55 km2), 
+    Caño Calatrava (0.26 km2) y Caño Danubio (1.10 km2) considerándose como 
+    una microcuenca.
+  - >
+    Al no tener registros de caudales o niveles sobre la corriente de 
+    estudio se realizó el balance hidrológico por la metodología de largo 
+    plazo de Budyko obteniendo un caudal medio multianual de 724.14 l/s 
+    para el Caño Maizaro, 58.40 l/s para el Caño Danubio y 13.81 l/s para 
+    el Caño Calatrava.
+  - >
+    El caudal ambiental se estimó en 37.49 l/s para el Caño Maizaro, 18.76 
+    l/s para el Caño Danubio y 5.32 l/s para el Caño Calatrava.
+  - >
+    Se realizó el análisis de crecientes para las corrientes de Agua que se 
+    encuentra en el área de influencia del proyecto, con caudales de 
+    crecientes entre 2.33 y 100 años de periodo de retorno en el rango de 
+    82.56 m3/s a 149.90 m3/s para el Caño Maizaro, 9.68 m3/s a 16.73 m3/s 
+    para el Caño Danubio y 2.47 m3/s a 4.45 m3/s para el Caño Calatrava.
 
 bibliografia:
   - >
-    Chow, V. T., Maidment, D. R. y Mays, L. W. Hidrologia aplicada. McGraw-Hill.
+    Baldeon, L. C. (2016). Modelamiento Hidrológico de la Subcuenca del río 
+    Ahamayo.
   - >
-    Huff, F. A. Time distribution of rainfall in heavy storms. Water Resources
-    Research.
+    Universidad del Centro del Perú. BREÑA Agustín y JACOBO Marco Antonio. 
+    Principios y fundamentos de la Hidrología Superficial. Ciudad de 
+    México- enero 2006.
   - >
-    Menabde, M., Seed, A. y Pegram, G. A simple scaling model for extreme
-    rainfall. Water Resources Research, 35(2), 335-339, 1999.
+    CHOW Ven Te, MAIDMENT David R, MAYS Larry W. Hidrología aplicada. 1 ed. 
+    Bogotá. Mc GRAW HILL. 1994.
   - >
-    US Army Corps of Engineers. Hydrologic Modeling System HEC-HMS. Technical
-    Reference Manual. Hydrologic Engineering Center.
+    CUNGE, J. A. 1969. 'On the subject of a flood propagation computation 
+    method (Muskingum Method),' Journal of Hydraulic Research, Vol. 7, No. 
+    2, 205-230.
   - >
-    US Department of Agriculture, Soil Conservation Service. National
-    Engineering Handbook, Section 4: Hydrology.
+    IDEAM, PNUD, MADS, DNP, CANCILLERÍA. 2015. Nuevos Escenarios de Cambio 
+    Climático para Colombia 2011-2100 Herramientas Científicas para la Toma 
+    de Decisiones – Enfoque Nacional – Departamental: Tercera Comunicación 
+    Nacional de Cambio Climático.
   - >
-    Vargas, R. y Diaz-Granados, M. Curvas sinteticas regionalizadas de
-    intensidad-duracion-frecuencia para Colombia. Universidad de los Andes, 1998.
+    IDEAM, 2023. Estudio Nacional del Agua 2022. IDEAM. 464 pp.
+  - >
+    INVIAS, 2009. Manual de Drenaje para Carreteras.
+  - >
+    Londoño Arango, Carlos (2001). Cuencas Hidrográficas: Bases 
+    Conceptuales – Caracterización-planificación-Administración.
+  - >
+    Maidment, D. R. (1993). Handobook of hydrology. New York: Mc Graw Hill.
+  - >
+    Monsalve Sáenz, German 1999. Hidrología en la ingeniería. Escuela 
+    Colombiana de Ingeniería. 2a edición. Pág. 278.
+  - >
+    R.LTWB - Balance hidrológico de largo plazo para estimación de caudales 
+    medios usando SIG - Long-term water balance', r.cfdtools@gmail.com, 
+    https://github.com/rcfdtools/R.LTWB, Bogotá - Colombia - Suramérica.
+  - >
+    SÁNCHEZ, F. J. (2017). Hidrología Superficial y Subterránea. 1ª ed. 
+    Kindle Direct Publishing.
+  - >
+    SILVA MEDINA Gustavo A. Hidrología básica. 1 ed. Bogotá. Universidad 
+    Nacional de Colombia, Facultad de Ingeniería. 1998.
 
 anexos:
   - >
-    Los anexos contienen la informacion de soporte del estudio: series
-    hidroclimatologicas empleadas, memorias de calculo, cartografia tematica y
-    el modelo de HEC-HMS.
+    Anexo 1. Información Hidrometereológica.
+  - >
+    Anexo 6. Análisis de Crecientes (HEC HMS).
+
+# =============================================================================
+# APARTADOS NUEVOS
+# =============================================================================
+# Temas que la cadena produce y que los informes base no cubrian. Se redactan
+# con explicacion teorica y resultados, al mismo nivel que los demas.
+# -----------------------------------------------------------------------------
+
+analisis_de_dobles_masas:
+  - >
+    El analisis de dobles masas es la prueba grafica clasica de homogeneidad de
+    una serie hidrologica. Consiste en acumular los valores de la estacion que
+    se examina frente a los acumulados de un patron construido con las
+    estaciones vecinas, y observar la recta resultante: si las condiciones de
+    medida no han cambiado, los dos acumulados crecen en proporcion constante y
+    los puntos se alinean.
+  - >
+    Un quiebre en la pendiente de esa recta senala el momento en que la relacion
+    entre la estacion y su entorno dejo de ser la misma. Las causas habituales
+    son un traslado del instrumento, un cambio de operador o de aparato, el
+    crecimiento de obstaculos alrededor del pluviometro o un cambio en el
+    procedimiento de lectura. Ninguna de ellas se manifiesta como un dato
+    anomalo aislado, y por eso el analisis de datos dudosos no las detecta: la
+    serie sigue siendo verosimil, solo que describe dos regimenes de medida
+    distintos unidos en un mismo registro.
+  - >
+    La correccion consiste en multiplicar el tramo afectado por la razon entre
+    las dos pendientes, de modo que toda la serie quede referida a un mismo
+    periodo de medida. Se corrige el tramo anterior al quiebre y no el
+    posterior, porque el mas reciente es el que refleja las condiciones
+    actuales de la estacion.
+  - >
+    Se aplica esta prueba a las {n_estaciones_consistencia} estaciones con
+    registro suficiente. El criterio para declarar un quiebre es un cambio de
+    pendiente que supere el umbral declarado en la configuracion del estudio y
+    que se sostenga sobre un numero minimo de anios, para no confundir un
+    quiebre con la variabilidad interanual propia del regimen.
+
+analisis_de_sensibilidad_de_longitud_de_series:
+  - >
+    La longitud de la serie disponible condiciona todo el analisis posterior. Un
+    umbral exigente deja pocas estaciones y concentra el resultado en unas
+    pocas ubicaciones; uno laxo admite series cortas cuya media multianual es
+    menos representativa del clima. Ninguno de los dos extremos es
+    universalmente correcto, y la eleccion debe quedar registrada.
+  - >
+    Por esa razon el estudio evalua de forma sistematica cuantas estaciones
+    sobreviven a cada umbral de longitud y a cada ventana temporal, y presenta
+    esa matriz al consultor antes de fijar el criterio. La decision se toma
+    sobre el dato y no sobre una convencion heredada.
+
+factor_de_reduccion_por_area:
+  - >
+    La lamina que entrega el analisis de frecuencia es puntual: corresponde a lo
+    que registraria un pluviometro. La lluvia que cae simultaneamente sobre toda
+    una cuenca es menor, porque una tormenta no cubre por igual cada punto del
+    area en el mismo instante. El factor de reduccion por area corrige esa
+    diferencia y crece en importancia con el tamano de la cuenca y con la
+    brevedad de la tormenta.
+  - >
+    El factor que corresponde es el de la DURACION DE DISENO, no el de la lamina
+    de veinticuatro horas, y por eso solo puede aplicarse una vez que la lamina
+    ha sido desagregada a esa duracion. Aplicarlo antes daria un valor que no
+    corresponde a la tormenta que se modela.
+
+diagrama_de_budyko:
+  - >
+    El diagrama de Budyko representa la fraccion de la precipitacion que
+    retorna a la atmosfera frente al indice de aridez, es decir, frente a la
+    razon entre la energia disponible para evaporar y el agua disponible para
+    ser evaporada. Es la forma adimensional de la formulacion y permite situar
+    la cuenca respecto de sus dos limites fisicos.
+  - >
+    El primero es el limite de agua disponible: no puede evaporarse mas agua de
+    la que precipita. El segundo es el de energia disponible: no puede
+    evaporarse mas de lo que la radiacion permite. Toda cuenca real cae por
+    debajo de ambos, y la curva de Budyko describe la trayectoria media que
+    siguen las cuencas del mundo entre esos dos extremos.
+  - >
+    Situar las subcuencas del estudio en ese diagrama indica en que regimen
+    opera la cuenca. Un indice de aridez cercano a la unidad corresponde al codo
+    de la curva, que es la zona en que la formulacion es mas sensible a la
+    lamina de entrada: alli un error moderado en la precipitacion se traslada
+    amplificado a la escorrentia.
+  - >
+    Conviene una advertencia de lectura. Los puntos se posan sobre la curva
+    porque la evapotranspiracion real se calculo con ella, de modo que el
+    diagrama comprueba la implementacion y no valida el modelo. Validarlo
+    exigiria caudal observado en la cuenca, que este estudio no tiene.
+
+isotermas:
+  - >
+    El campo de temperatura se obtiene por regresion contra la elevacion y no
+    por interpolacion espacial. En terreno montanoso la cota explica la
+    temperatura mucho mejor que la vecindad horizontal: dos estaciones separadas
+    pocos kilometros pero con varios cientos de metros de desnivel no registran
+    temperaturas parecidas.
+  - >
+    Esa eleccion tiene una consecuencia util. Si la temperatura depende
+    linealmente de la elevacion, las isotermas coinciden exactamente con las
+    curvas de nivel, y el reparto de area por rango de temperatura se obtiene de
+    la distribucion altimetrica de la cuenca sin necesidad de construir un
+    raster intermedio ni de introducir una resolucion de celda que no procede de
+    ningun dato.
+  - >
+    El gradiente se ajusta ademas mes a mes, porque su valor cambia a lo largo
+    del ano: en temporada seca la radiacion calienta mas las partes bajas y la
+    recta se empina, mientras que la nubosidad de la temporada humeda la aplana.
+    Un unico gradiente anual repartiria ese efecto por igual entre todos los
+    meses.
+
+infiltracion_por_schosinsky:
+  - >
+    La infiltracion se estima con el modelo analitico de Schosinsky y Losilla,
+    que determina la fraccion de la lluvia mensual que entra al suelo a partir
+    de tres efectos independientes: la textura del suelo, la pendiente del
+    terreno y la cobertura vegetal. Cada uno aporta un coeficiente y su suma,
+    acotada a la unidad, es la fraccion que se infiltra.
+  - >
+    La retencion del follaje se descuenta antes de aplicar ese coeficiente,
+    porque esa parte de la lluvia no llega al suelo. Por debajo de una lamina
+    mensual minima se retiene toda la precipitacion: no alcanza a mojar el
+    follaje lo suficiente para que gotee, y ese mes no aporta infiltracion.
+  - >
+    La infiltracion basica del suelo, que gobierna el primero de los tres
+    coeficientes, se deriva del grupo hidrologico determinado para la cuenca y
+    no de valores tomados de estudios de otras zonas. Esa es una diferencia
+    deliberada respecto de la practica habitual: un valor de infiltracion
+    medido en otro suelo describe ese suelo.
+
+contraste_con_el_estudio_nacional_del_agua:
+  - >
+    El balance hidrico se cierra sobre si mismo: la precipitacion, la
+    evapotranspiracion y el area proceden de la misma cadena de calculo, de modo
+    que el resultado seria internamente coherente aunque alguno de esos insumos
+    estuviese equivocado. Por esa razon se contrasta el rendimiento obtenido con
+    el que el Estudio Nacional del Agua del IDEAM publica para la subzona
+    hidrografica, que es un dato ajeno y con otra metodologia.
+  - >
+    El contraste se hace contra una BANDA y no contra un valor unico. El estudio
+    nacional publica la oferta en condicion de ano humedo, medio y seco, y
+    comparar contra uno solo de esos valores sugiere una precision que no
+    existe: lo que la referencia informa es entre que limites se mueve la
+    subzona.
+  - >
+    Conviene interpretar la comparacion como orden de magnitud y no como
+    validacion. Las escalas no son equiparables, porque la subzona abarca un
+    area mucho mayor y heterogenea, y las metodologias tampoco coinciden. Una
+    cuenca alta rinde por unidad de area mas que el promedio de la subzona a la
+    que pertenece, de modo que una diferencia en ese sentido es esperable.
+
+verificacion_de_resultados:
+  - >
+    Todo estudio hidrologico sin registros de caudal descansa sobre una cadena
+    de modelos que no puede validarse de forma directa. Por esa razon se
+    incorporan verificaciones cruzadas entre partes independientes del calculo,
+    cuyo desacuerdo revela un error que ninguna de ellas detectaria por si sola.
+  - >
+    Se verifican cuatro coherencias. La primera contrasta la lamina de
+    escorrentia que el metodo de perdidas deja disponible con el volumen del
+    hidrograma que la transformacion produce: son la misma agua contada de dos
+    maneras. La segunda compara el balance hidrico de largo plazo con el
+    promedio de la serie mensual, calculados por caminos distintos. La tercera
+    contrasta la infiltracion bruta con la escorrentia neta del balance. La
+    cuarta compara el rendimiento obtenido con el que publica el Estudio
+    Nacional del Agua.
+  - >
+    Las verificaciones que no cierran se reportan de forma explicita, con su
+    magnitud, en el apartado de decisiones que requieren criterio. Un estudio
+    que no puede explicar sus discrepancias no es defendible ante interventoria.

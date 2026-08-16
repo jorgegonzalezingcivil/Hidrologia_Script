@@ -103,6 +103,8 @@ class ResultadoM15:
     sin_valor: list[str] = field(default_factory=list)
     ausentes: list[str] = field(default_factory=list)
     valores: dict[str, Any] = field(default_factory=dict)
+    inyectados: int = 0
+    decisiones: list[str] = field(default_factory=list)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -324,6 +326,98 @@ def recolectar_valores(reportes: dict[str, dict], tablas: dict[str, list],
     return {c: v for c, v in valores.items() if v not in (None, "")}
 
 
+
+def repartir_hallazgos(
+    reportes: dict[str, dict], asignacion: dict[str, Sequence[str]],
+) -> tuple[dict[str, list[dict]], list[dict]]:
+    """
+    Reparte los hallazgos de los módulos entre los apartados del informe.
+
+    LOS HALLAZGOS SON EL ANÁLISIS, y ya están escritos. Cada módulo los emitió
+    en el momento en que midió cada cosa, con su severidad y su porqué: que el
+    gradiente térmico se aparta del adiabático, que el índice de retención cayó
+    a una milésima de su umbral, que dos formulaciones de evapotranspiración
+    difieren un tercio. Redactar eso otra vez desde una plantilla produciría
+    prosa genérica al lado de un análisis que ya existe.
+
+    La asignación va por PREFIJO DE CLAVE y no por módulo: un mismo módulo emite
+    hallazgos que pertenecen a capítulos distintos, y la clave del hallazgo
+    ('temperatura.gradiente_ajustado', 'balance.contraste_ena') dice de qué
+    trata mejor que el módulo que lo produjo.
+
+    Devuelve los hallazgos por apartado y, aparte, los que reclaman una decisión
+    del consultor, para que el informe los reúna al principio en lugar de
+    dejarlos repartidos por el documento.
+    """
+    por_apartado: dict[str, list[dict]] = {}
+    vistos: set[tuple[str, str]] = set()
+    for modulo, reporte in sorted(reportes.items()):
+        for hallazgo in reporte.get("hallazgos", []) or []:
+            clave = str(hallazgo.get("clave", ""))
+            firma = (clave, str(hallazgo.get("mensaje", ""))[:60])
+            if firma in vistos:
+                continue
+            vistos.add(firma)
+            ficha = {**hallazgo, "modulo": modulo}
+            for apartado, prefijos in asignacion.items():
+                if any(clave.startswith(p) for p in prefijos):
+                    por_apartado.setdefault(apartado, []).append(ficha)
+                    break
+
+    orden = {"BLOQUEANTE": 0, "ADVERTENCIA": 1, "INFORMATIVO": 2}
+    for lista in por_apartado.values():
+        lista.sort(key=lambda h: (orden.get(h.get("severidad"), 9),
+                                  h.get("clave", "")))
+    decisiones = [h for lista in por_apartado.values() for h in lista
+                  if reclama_decision(h)]
+    decisiones.sort(key=lambda h: h.get("clave", ""))
+    return por_apartado, decisiones
+
+
+# Marcas con que un hallazgo pide que decida una persona. Se buscan en el texto
+# porque son la forma en que los modulos lo expresan, y mantener una lista de
+# claves aparte se desincronizaria en cuanto se anadiera un modulo.
+SENALES_DE_DECISION = (
+    "decision del consultor", "decision declarada", "el consultor decid",
+    "debe declarar", "el informe debe", "debe quedar", "el consultor debe",
+    "hay que declarar", "conviene declarar", "no es defendible",
+)
+
+
+def reclama_decision(hallazgo: dict) -> bool:
+    """
+    Indica si un hallazgo pide criterio de una persona.
+
+    NO TODOS LOS AVISOS SON DECISIONES. Un hallazgo que informa de una
+    extrapolación describe una limitación del dato; uno que dice que el
+    consultor debe elegir entre dos valores exige una firma. Reunir los segundos
+    al principio del informe es lo que permite revisarlo sin leerlo entero.
+    """
+    if hallazgo.get("severidad") == "INFORMATIVO":
+        return False
+    mensaje = str(hallazgo.get("mensaje", "")).lower()
+    return any(senal in mensaje for senal in SENALES_DE_DECISION)
+
+
+def texto_de_hallazgo(hallazgo: dict) -> str:
+    """
+    Convierte un hallazgo en el párrafo que va al informe.
+
+    SE CONSERVA EL MENSAJE INTACTO. Está redactado como frase completa y
+    resumirlo perdería justamente el porqué, que es lo que hace defendible la
+    decisión. Solo se le antepone una marca cuando la severidad lo merece, para
+    que quien hojee el documento distinga un dato de una salvedad.
+    """
+    mensaje = " ".join(str(hallazgo.get("mensaje", "")).split())
+    if not mensaje:
+        return ""
+    severidad = hallazgo.get("severidad")
+    if severidad == "BLOQUEANTE":
+        return f"Advertencia grave. {mensaje}"
+    if severidad == "ADVERTENCIA":
+        return f"Salvedad. {mensaje}"
+    return mensaje
+
 # =============================================================================
 # Escritura del documento
 # =============================================================================
@@ -490,9 +584,13 @@ def ejecutar(
             return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
                            SALIDA_BLOQUEANTE)
 
-        escribir_tabla_de_contenido(documento)
+        asignacion = {c: list(p) for c, p in
+                      (estructura.get("hallazgos") or {}).items()}
+        por_apartado, decisiones = repartir_hallazgos(reportes, asignacion)
+        resultado.decisiones = [h.get("clave", "") for h in decisiones]
         contexto = {
             "base": base, "configuracion": configuracion,
+            "hallazgos": por_apartado,
             "narrativa": narrativa.get("texto", narrativa),
             "delimitador": str(configuracion.obtener(
                 "insumos_usuario.delimitador_csv")),
@@ -502,6 +600,8 @@ def ejecutar(
             "separador": str(configuracion.obtener(
                 "informe.separador_numeracion", "-")),
         }
+        escribir_tabla_de_contenido(documento)
+        _escribir_decisiones(documento, decisiones, resultado)
         for nodo in estructura.get("capitulos", []):
             _escribir_nodo(documento, nodo, contexto, resultado, logger)
 
@@ -608,6 +708,13 @@ def _escribir_nodo(documento, nodo, contexto, resultado, logger) -> None:
             if clave not in resultado.sin_valor:
                 resultado.sin_valor.append(clave)
 
+    for hallazgo in contexto["hallazgos"].get(nodo.get("texto", ""), []):
+        texto = texto_de_hallazgo(hallazgo)
+        if texto:
+            documento.add_paragraph(texto, style=ESTILO_TEXTO)
+            resultado.parrafos += 1
+            resultado.inyectados += 1
+
     for declarada in nodo.get("tablas", []) or []:
         _escribir_tabla_declarada(documento, declarada, contexto, resultado,
                                   logger)
@@ -674,13 +781,24 @@ def _hallazgos_finales(resultado) -> None:
     """Convierte lo ocurrido durante la composición en hallazgos del reporte."""
     resultado.hallazgos.append(Hallazgo(
         INFORMATIVO, "informe.compuesto",
-        f"{resultado.capitulos} apartado(s), {resultado.parrafos} parrafo(s), "
-        f"{resultado.tablas} tabla(s) y {resultado.figuras} figura(s). La "
+        f"{resultado.capitulos} apartado(s), {resultado.parrafos} parrafo(s) "
+        f"de los cuales {resultado.inyectados} son hallazgos que los modulos "
+        f"emitieron al medir, {resultado.tablas} tabla(s) y "
+        f"{resultado.figuras} figura(s). La "
         "numeracion de leyendas va con campos de Word (STYLEREF y SEQ): al "
         "abrir el documento hay que responder que si a la actualizacion de "
         "campos, o pulsar F9, para que se numeren y se arme la tabla de "
         "contenido.",
     ))
+    if resultado.decisiones:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "informe.decisiones",
+            f"{len(resultado.decisiones)} punto(s) del estudio reclaman "
+            f"criterio del consultor y se reunen en un apartado al PRINCIPIO "
+            f"del documento: {resultado.decisiones[:6]}. Es lo que permite "
+            "revisar el informe sin leerlo entero; repartidas por los "
+            "capitulos, esas salvedades pasan desapercibidas.",
+        ))
     if resultado.pendientes:
         resultado.hallazgos.append(Hallazgo(
             ADVERTENCIA, "informe.pendientes",
@@ -738,6 +856,8 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "tablas": resultado.tablas,
         "figuras": resultado.figuras,
         "pendientes": resultado.pendientes,
+        "hallazgos_inyectados": resultado.inyectados,
+        "decisiones_del_consultor": resultado.decisiones,
         "valores_sin_resolver": sorted(resultado.sin_valor),
         "insumos_ausentes": resultado.ausentes,
         "valores": resultado.valores,
@@ -788,6 +908,39 @@ def main(argv=None) -> int:
         print(f"{MODULO}: {error}", file=sys.stderr)
         return SALIDA_ERROR
     return codigo
+
+
+def _escribir_decisiones(documento, decisiones, resultado) -> None:
+    """
+    Reúne al principio del informe lo que exige criterio de una persona.
+
+    ES LO QUE PERMITE REVISAR EL DOCUMENTO SIN LEERLO ENTERO. La cadena resuelve
+    todo lo que puede resolverse y deja señalado, en un solo sitio, aquello
+    donde eligió por defecto o donde hay dos valores defendibles. El consultor
+    firma esas decisiones; el resto del informe las da por tomadas.
+
+    NO SE OCULTAN NI SE DILUYEN entre los capítulos: repartidas por el
+    documento, trece salvedades pasan desapercibidas.
+    """
+    documento.add_paragraph("DECISIONES QUE REQUIEREN CRITERIO",
+                            style=ESTILO_TITULO[1])
+    if not decisiones:
+        documento.add_paragraph(
+            "La cadena no encontro ninguna decision con margen pendiente de "
+            "criterio en esta ejecucion.", style=ESTILO_TEXTO)
+        return
+    documento.add_paragraph(
+        f"La cadena identifico {len(decisiones)} punto(s) en que eligio por "
+        "defecto o en que hay mas de un valor defendible. Se reunen aqui para "
+        "que puedan revisarse y firmarse sin recorrer el documento entero; en "
+        "los capitulos correspondientes vuelven a aparecer con su contexto.",
+        style=ESTILO_TEXTO)
+    for hallazgo in decisiones:
+        parrafo = documento.add_paragraph(style=ESTILO_TEXTO)
+        corrida = parrafo.add_run(f"{hallazgo.get('clave', '')}. ")
+        corrida.bold = True
+        parrafo.add_run(" ".join(str(hallazgo.get("mensaje", "")).split()))
+        resultado.parrafos += 1
 
 
 if __name__ == "__main__":

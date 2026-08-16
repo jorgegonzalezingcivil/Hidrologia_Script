@@ -197,10 +197,19 @@ class PruebaDeclaraciones(unittest.TestCase):
 
     def test_la_estructura_declara_capitulos(self) -> None:
         capitulos = self._cargar("informe.estructura").get("capitulos", [])
-        self.assertGreater(len(capitulos), 5)
+        self.assertGreater(len(capitulos), 40)
         for nodo in capitulos:
             self.assertTrue(str(nodo.get("titulo", "")).strip())
-            self.assertEqual(int(nodo.get("nivel", 0)), 1)
+            self.assertIn(int(nodo.get("nivel", 0)), m15.ESTILO_TITULO)
+
+    def test_cada_familia_de_hallazgos_tiene_apartado(self) -> None:
+        # Un prefijo sin apartado deja su hallazgo fuera del informe, y anadir
+        # un modulo obliga a decidir donde va lo que dice.
+        estructura = self._cargar("informe.estructura")
+        apartados = {n.get("texto") for n in estructura.get("capitulos", [])}
+        for apartado in estructura.get("hallazgos", {}):
+            self.assertIn(apartado, apartados,
+                          f"{apartado} recibe hallazgos y no es un apartado")
 
     def test_cada_texto_declarado_existe_en_la_narrativa(self) -> None:
         # Una clave mal escrita produciría un apartado mudo y ninguna señal.
@@ -224,6 +233,69 @@ class PruebaDeclaraciones(unittest.TestCase):
                 self.assertIn(int(nodo.get("nivel", 1)), m15.ESTILO_TITULO)
                 if nodo.get("hijos"):
                     pendientes.append(nodo["hijos"])
+
+
+class PruebaRepartoDeHallazgos(unittest.TestCase):
+    """
+    Los hallazgos SON el análisis: cada módulo los emitió al medir, con su
+    severidad y su porqué. El M15 los reparte, no los reescribe.
+    """
+
+    REPORTES = {
+        "M18a": {"hallazgos": [
+            {"clave": "temperatura.gradiente_ajustado", "severidad": "INFORMATIVO",
+             "mensaje": "gradiente de 8,10 C/km"},
+            {"clave": "etp.discrepancia", "severidad": "ADVERTENCIA",
+             "mensaje": "difieren un 35 %, y el informe debe declararlo"}]},
+        "M19": {"hallazgos": [
+            {"clave": "regimen.irh", "severidad": "INFORMATIVO",
+             "mensaje": "indice de 0,7010"}]},
+    }
+    ASIGNACION = {"temperatura": ["temperatura"],
+                  "evapotranspiracion_potencial": ["etp"],
+                  "indice_de_retencion_y_regulacion_hidrica": ["regimen.irh"]}
+
+    def test_cada_hallazgo_cae_en_su_apartado(self) -> None:
+        por_apartado, _ = m15.repartir_hallazgos(self.REPORTES, self.ASIGNACION)
+        self.assertEqual(len(por_apartado["temperatura"]), 1)
+        self.assertEqual(len(por_apartado["evapotranspiracion_potencial"]), 1)
+
+    def test_el_reparto_es_por_clave_y_no_por_modulo(self) -> None:
+        # Un mismo módulo emite hallazgos de capítulos distintos.
+        por_apartado, _ = m15.repartir_hallazgos(self.REPORTES, self.ASIGNACION)
+        self.assertEqual(
+            por_apartado["evapotranspiracion_potencial"][0]["modulo"], "M18a")
+
+    def test_las_decisiones_se_reunen_aparte(self) -> None:
+        _, decisiones = m15.repartir_hallazgos(self.REPORTES, self.ASIGNACION)
+        self.assertEqual([d["clave"] for d in decisiones], ["etp.discrepancia"])
+
+    def test_un_informativo_no_es_una_decision(self) -> None:
+        # Describe una limitación; no exige una firma.
+        self.assertFalse(m15.reclama_decision(
+            {"severidad": "INFORMATIVO", "mensaje": "el informe debe declarar"}))
+
+    def test_no_se_repite_un_hallazgo_que_dos_modulos_emiten(self) -> None:
+        reportes = dict(self.REPORTES)
+        reportes["M18"] = {"hallazgos": [
+            {"clave": "regimen.irh", "severidad": "INFORMATIVO",
+             "mensaje": "indice de 0,7010"}]}
+        por_apartado, _ = m15.repartir_hallazgos(reportes, self.ASIGNACION)
+        self.assertEqual(
+            len(por_apartado["indice_de_retencion_y_regulacion_hidrica"]), 1)
+
+    def test_la_severidad_encabeza_el_parrafo(self) -> None:
+        texto = m15.texto_de_hallazgo(
+            {"severidad": "ADVERTENCIA", "mensaje": "algo que revisar"})
+        self.assertTrue(texto.startswith("Salvedad."))
+        self.assertIn("algo que revisar", texto)
+
+    def test_el_mensaje_se_conserva_intacto(self) -> None:
+        # Resumirlo perdería el porqué, que es lo que hace defendible la
+        # decisión.
+        mensaje = "la razon es que el gradiente supera el adiabatico"
+        self.assertIn(mensaje, m15.texto_de_hallazgo(
+            {"severidad": "INFORMATIVO", "mensaje": mensaje}))
 
 
 if __name__ == "__main__":
