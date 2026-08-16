@@ -260,6 +260,17 @@ pasos:
     estado: disponible
 
   # --- Entrega --------------------------------------------------------------
+  - modulo: M15p
+    # PREPARA LA PLANTILLA, una sola vez y no en cada estudio: toma el informe
+    # base del consultor, conserva su formato integro y sustituye el contenido
+    # del proyecto anterior por marcadores. Fuera de la cadena a proposito.
+    nombre: "Generador de la plantilla con marcadores"
+    script: "src/M15_plantilla.py"
+    entorno: venv
+    estado: disponible
+    opcional: true
+    modos: [detallado]
+
   - modulo: M15
     # El formato, la estructura y la redaccion viven fuera del codigo: la
     # plantilla se deriva del informe de referencia del consultor, el arbol de
