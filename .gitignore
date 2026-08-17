@@ -143,3 +143,7 @@ config/config.local.yaml
 .env
 *.secret
 
+
+# QGIS escribe esta base de estilos en el directorio de trabajo al arrancar
+# sin perfil de usuario. Es un artefacto del intérprete, no del estudio.
+symbology-style.db
