@@ -1,0 +1,22 @@
+capa;geometria;relleno;borde;grosor_mm;opacidad;rampa;invertir;origen;validado;observacion
+subzona_intersectada;poligono;;#7f8c8d;0.5;1.0;;no;Convencion cartografica: los limites administrativos e hidrograficos van sin relleno para no tapar el contenido;si;Sin relleno. Es un limite, no un tema.
+area_influencia;poligono;;#c0392b;0.8;1.0;;no;Idem;si;Sin relleno. El area de influencia enmarca, no colorea.
+envolvente;poligono;;#95a5a6;0.4;1.0;;no;Idem;si;Trazo fino y discreto: es auxiliar.
+subcuencas;poligono;;#2c3e50;0.4;1.0;;no;Idem;si;Sin relleno para que se lea el DEM debajo. El tema de cada subcuenca va en las figuras del M10, no en esta plancha.
+cobertura;poligono;#a9dfbf;#7f8c8d;0.2;0.75;;no;Verde claro translucido, convencion para cobertura vegetal;si;Un solo color. La clasificacion por clase CLC exige un .qml categorizado que el consultor define.
+embalses;poligono;#aed6f1;#2874a6;0.3;1.0;;no;Azul de masa de agua;si;
+drenaje_sencillo;linea;;#2874a6;0.25;1.0;;no;Azul de red hidrica, trazo fino por la densidad de la red;si;
+drenaje_doble;poligono;#aed6f1;#2874a6;0.25;1.0;;no;Idem;si;Cauce ancho representado como poligono por el IGAC.
+eje_drenaje_doble;linea;;#1b4f72;0.45;1.0;;no;Idem, mas grueso;si;Es el eje repuesto que cierra la red. Se destaca a proposito.
+red_topologica;linea;;#154360;0.5;1.0;;no;Idem;si;
+punto_descarga;punto;#c0392b;#ffffff;0.4;1.0;;no;Rojo de punto de control;si;Tamano 3,5 mm.
+estaciones_seleccionadas;punto;#1e8449;#ffffff;0.3;1.0;;no;Verde, estacion que entra al analisis;si;Tamano 2,8 mm.
+estaciones_descartadas;punto;#7f8c8d;#ffffff;0.3;1.0;;no;Gris, estacion descartada;si;Tamano 2,2 mm. Se dibujan para que el descarte sea visible, no para ocultarlo.
+dem;raster;;;;1.0;RdYlGn;si;Rampa hipsometrica invertida: verde en las cotas bajas y rojo en las altas. QGIS no trae 'terrain';si;Estiramiento al minimo y maximo de la banda.
+pendiente;raster;;;;1.0;Reds;no;Rampa secuencial: a mayor pendiente, mas intenso;si;
+isoyetas_precipitacion;raster;;;;0.85;Blues;no;Rampa secuencial de lluvia;si;Translucida para que se lea el area debajo.
+isoyetas_pmax;raster;;;;0.85;YlOrRd;no;Rampa secuencial de intensidad;si;
+curvas_isoyetas;linea;;#1a5276;0.3;1.0;;no;Curvas de igual precipitacion;si;
+curvas_pmax;linea;;#922b21;0.3;1.0;;no;Idem;si;
+estaciones_isoyetas;punto;#1a5276;#ffffff;0.3;1.0;;no;Estacion que aporta el dato interpolado;si;Tamano 2,5 mm.
+estaciones_pmax;punto;#922b21;#ffffff;0.3;1.0;;no;Idem;si;Tamano 2,5 mm.

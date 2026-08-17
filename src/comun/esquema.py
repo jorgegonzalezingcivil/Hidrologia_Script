@@ -1315,10 +1315,29 @@ ESQUEMA: dict[str, Campo] = {
     "informe.formato_graficos": texto("rótulo de los gráficos", no_vacio=True),
     "informe.formato_tablas": texto("rótulo de las tablas", no_vacio=True),
     "informe.numeracion_por_capitulo": booleano("numerar con prefijo de capítulo"),
-    "cartografia.plantillas_qpt": ruta("directorio de composiciones .qpt"),
-    "cartografia.escalas": lista(
-        "denominadores de escala", entero("escala", minimo=100), creciente=True,
+    "cartografia.declaracion": ruta("catálogo de capas y planchas"),
+    "cartografia.salida": ruta("directorio de las planchas exportadas"),
+    "cartografia.plantilla_qpt": ruta("composición .qpt de la plancha"),
+    "cartografia.escribir_plantilla_inicial": booleano(
+        "escribir la plantilla de partida si no existe"),
+    # NO ES LA ESCALA DEL MAPA, sino el juego del que se elige. La escala de
+    # cada plancha la calcula el M16 desde la extensión y el marco, y redondea
+    # hacia arriba a uno de estos valores.
+    "cartografia.serie_escalas": lista(
+        "serie normalizada de escalas admitidas",
+        entero("escala", minimo=100), creciente=True,
     ),
+    "cartografia.margen_encuadre": numero(
+        "holgura sobre la extensión antes de redondear la escala",
+        minimo=0.0, maximo=1.0),
+    "cartografia.plancha.ancho_mm": numero("ancho de la hoja", minimo=50.0),
+    "cartografia.plancha.alto_mm": numero("alto de la hoja", minimo=50.0),
+    "cartografia.plancha.margen_mm": numero("margen de la hoja", minimo=0.0),
+    "cartografia.plancha.ancho_panel_mm": numero(
+        "ancho del panel de leyenda y rótulo", minimo=0.0),
+    "cartografia.divisiones_grilla": entero(
+        "divisiones aproximadas de la grilla a lo ancho del marco",
+        minimo=2, maximo=20),
     "cartografia.formato_salida": lista(
         "formatos de exportación",
         texto("formato", opciones=("pdf", "png", "svg", "jpg", "tif")),

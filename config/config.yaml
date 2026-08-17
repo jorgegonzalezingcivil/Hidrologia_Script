@@ -1436,10 +1436,43 @@ informe:
   separador_numeracion: "-"
 
 cartografia:
-  plantillas_qpt: "templates/mapas"
-  escalas: [1000, 2000, 5000, 10000, 25000]
+  declaracion: "config/mapas.yaml"   # catálogo de capas y juego de planchas
+  salida: "data/05_resultados/mapas"
+
+  # LA ESCALA NO SE FIJA, SE CALCULA. La versión anterior declaraba una lista
+  # [1000, 2000, 5000, 10000, 25000] y ninguna servía: el área de influencia de
+  # este estudio mide 27,1 por 36,5 km, y a 1:25.000 exige 1,46 m de papel de
+  # alto. Se calcula desde la extensión de la capa que encuadra y del marco de
+  # la plancha, y se redondea HACIA ARRIBA a esta serie normalizada. Así el
+  # módulo sirve igual a una cuenca de 5 km2 que a una de 3.000.
+  # La serie lleva pasos intermedios (12.500, 15.000, 75.000, 125.000, 150.000)
+  # porque una serie gruesa desperdicia media plancha: con el salto de 100.000 a
+  # 200.000, el area de influencia de este estudio, de 27,1 por 36,5 km, cae en
+  # 1:200.000 y deja el marco cubriendo 59 por 55 km. Con 1:150.000 cubre 44 por
+  # 42. El precio es una escala menos convencional que 1:100.000; quien prefiera
+  # solo las canonicas quita los pasos intermedios de esta lista.
+  serie_escalas: [500, 1000, 2000, 2500, 5000, 10000, 12500, 15000, 20000,
+                  25000, 50000, 75000, 100000, 125000, 150000, 200000,
+                  250000, 300000, 400000, 500000, 600000, 750000, 1000000]
+  margen_encuadre: 0.05          # holgura sobre la extensión, antes de redondear
+
+  # Plancha. El tamaño está aquí y no en el código: otro estudio con formato
+  # institucional obligatorio cambia estas cifras y la plantilla .qpt.
+  plancha:
+    ancho_mm: 420                # A3 horizontal
+    alto_mm: 297
+    margen_mm: 10
+    ancho_panel_mm: 95           # franja derecha de leyenda, norte y rótulo
+
+  plantilla_qpt: "templates/mapas/plancha_a3.qpt"
+  escribir_plantilla_inicial: true   # la crea si no existe; nunca la sobrescribe
+
   formato_salida: [pdf, png]
   dpi: 300
+
+  # Divisiones aproximadas de la grilla de coordenadas a lo ancho del marco. El
+  # intervalo se redondea a una cifra legible en metros.
+  divisiones_grilla: 5
 
 anexos:
   estructura: "config/anexos.yaml"

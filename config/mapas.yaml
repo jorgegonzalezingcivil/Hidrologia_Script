@@ -1,0 +1,270 @@
+# =============================================================================
+# DECLARACIÓN DE LA CARTOGRAFÍA TEMÁTICA  (insumo del M16)
+# -----------------------------------------------------------------------------
+# Declara el catálogo de capas y el juego de planchas. Añadir un mapa es añadir
+# un bloque aquí; no se toca Python.
+#
+# POR QUÉ ESTE ARCHIVO TIENE SU PROPIO CATÁLOGO DE CAPAS y no reutiliza el de
+# config/proyecto_qgis.yaml: una plancha necesita cosas que el proyecto QGIS no
+# lleva, el orden de dibujo y la visibilidad propios de cada mapa, y hoy las dos
+# declaraciones no coinciden en todas las rutas. Se declara aquí de forma
+# autónoma y se asume la duplicación de rutas a cambio de que el M16 no dependa
+# de un archivo que puede estar desfasado.
+#
+# UNA CAPA AUSENTE NO ES UN ERROR. Significa que el módulo que la produce aún no
+# se ha ejecutado. El M16 lo reporta y sigue. Un mapa cuya capa de extensión
+# falta sí se omite entero, porque sin ella no hay encuadre.
+#
+# LA ESCALA NO SE DECLARA. Se calcula desde la extensión de la capa que encuadra
+# y del marco de la plancha, y se redondea hacia arriba a la serie normalizada.
+# Fijarla a mano es lo que produce mapas donde la cuenca no cabe. Puede forzarse
+# por plancha con 'escala', y entonces el módulo advierte si el contenido se
+# sale del marco.
+#
+# SERIES. Un bloque de 'series' produce una plancha por cada archivo que case
+# con el patrón. El token capturado sustituye a {token} en el identificador, el
+# título y las rutas. Así un estudio con otros periodos de retorno u otras fases
+# no exige editar nada.
+# =============================================================================
+
+version: 1
+
+# -----------------------------------------------------------------------------
+# CATÁLOGO DE CAPAS
+# Cada entrada es 'id: {tipo, ruta, estilo}'. El estilo es un .qml del directorio
+# declarado en config.yaml (proyecto_qgis.estilos): el mismo que usa el M00b, de
+# modo que la simbología se ajusta UNA vez y sirve al proyecto y a las planchas.
+# -----------------------------------------------------------------------------
+capas:
+
+  # --- Referencia y delimitación ---
+  subzona_intersectada:
+    nombre: "Subzona hidrográfica"
+    tipo: vector
+    ruta: "data/03_SIG/vector/subzona_intersectada.shp"
+    estilo: "subzona_intersectada.qml"
+  area_influencia:
+    nombre: "Área de influencia"
+    tipo: vector
+    ruta: "data/03_SIG/vector/area_influencia.shp"
+    estilo: "area_influencia.qml"
+  envolvente:
+    nombre: "Envolvente de la cuenca"
+    tipo: vector
+    ruta: "data/03_SIG/vector/envolvente.shp"
+    estilo: "envolvente.qml"
+  punto_descarga:
+    nombre: "Punto de descarga"
+    tipo: vector
+    ruta: "data/03_SIG/vector/punto_descarga.shp"
+    estilo: "punto_descarga.qml"
+
+  # --- Terreno ---
+  dem:
+    nombre: "Elevación (m s. n. m.)"
+    tipo: raster
+    ruta: "data/03_SIG/raster/dem_recortado.tif"
+    estilo: "dem.qml"
+  pendiente:
+    nombre: "Pendiente (%)"
+    tipo: raster
+    ruta: "data/03_SIG/raster/pendiente.tif"
+    estilo: "pendiente.qml"
+
+  # --- Red hídrica ---
+  drenaje_sencillo:
+    nombre: "Drenaje sencillo"
+    tipo: vector
+    ruta: "data/03_SIG/vector/drenaje_sencillo_area.shp"
+    estilo: "drenaje_sencillo.qml"
+  drenaje_doble:
+    nombre: "Cauce doble"
+    tipo: vector
+    ruta: "data/03_SIG/vector/drenaje_doble_area.shp"
+    estilo: "drenaje_doble.qml"
+  eje_drenaje_doble:
+    nombre: "Eje del cauce doble"
+    tipo: vector
+    ruta: "data/03_SIG/vector/eje_drenaje_doble.shp"
+    estilo: "eje_drenaje_doble.qml"
+  embalses:
+    nombre: "Embalses y lagunas"
+    tipo: vector
+    ruta: "data/03_SIG/vector/embalses_area.shp"
+    estilo: "embalses.qml"
+  red_topologica:
+    nombre: "Red topológica"
+    tipo: vector
+    ruta: "data/03_SIG/vector/red_topologica.shp"
+    estilo: "red_topologica.qml"
+
+  # --- Modelo ---
+  subcuencas:
+    nombre: "Subcuencas"
+    tipo: vector
+    ruta: "data/03_SIG/vector/subcuencas.shp"
+    estilo: "subcuencas.qml"
+  cobertura:
+    nombre: "Cobertura de la tierra"
+    tipo: vector
+    ruta: "data/03_SIG/vector/cobertura_clc_area.shp"
+    estilo: "cobertura.qml"
+
+  # --- Estaciones ---
+  estaciones_seleccionadas:
+    nombre: "Estaciones seleccionadas"
+    tipo: vector
+    ruta: "data/03_SIG/vector/estaciones_seleccionadas.shp"
+    estilo: "estaciones_seleccionadas.qml"
+  estaciones_descartadas:
+    nombre: "Estaciones descartadas"
+    tipo: vector
+    ruta: "data/03_SIG/vector/estaciones_descartadas.shp"
+    estilo: "estaciones_descartadas.qml"
+
+# -----------------------------------------------------------------------------
+# PLANCHAS
+# El orden de 'capas' es el orden de DIBUJO: la primera queda al fondo. Es el
+# inverso del árbol de QGIS y coincide con el orden natural de lectura de un
+# mapa, del fondo a la superficie.
+#
+# 'encuadre' es la capa cuya extensión fija el marco. Si falta, la plancha no se
+# produce.
+#
+# 'esenciales' son las capas que le dan sentido al mapa. Una plancha titulada
+# «Pendiente del terreno» cuyo ráster de pendiente no existe sale con el marco,
+# el norte y la leyenda en su sitio, y sin el tema. Es peor que no producirla,
+# porque parece completa. Si falta una esencial, la plancha se omite y se
+# reporta. Las capas de contexto que no se declaren aquí pueden faltar sin que
+# el mapa deje de decir lo que dice.
+# -----------------------------------------------------------------------------
+mapas:
+
+  - id: localizacion
+    titulo: "Localización general"
+    subtitulo: "Cuenca de estudio en su subzona hidrográfica"
+    encuadre: subzona_intersectada
+    capas: [subzona_intersectada, drenaje_sencillo, area_influencia,
+            punto_descarga]
+    nota: >-
+      La subzona hidrográfica procede de la Zonificación Hidrográfica del IDEAM
+      (2013). El punto de descarga es el declarado por el consultor.
+
+  - id: area_influencia
+    titulo: "Área de influencia"
+    subtitulo: "Delimitación adoptada y envolvente de la cuenca"
+    encuadre: area_influencia
+    capas: [dem, drenaje_sencillo, drenaje_doble, envolvente, area_influencia,
+            punto_descarga]
+    nota: >-
+      El área de influencia se acota por el trazado de la red y no por un buffer
+      de radio fijo.
+
+  - id: modelo_digital
+    titulo: "Modelo digital de elevación"
+    subtitulo: "ALOS PALSAR recortado al área de influencia"
+    encuadre: area_influencia
+    esenciales: [dem]
+    capas: [dem, drenaje_sencillo, area_influencia, punto_descarga]
+    nota: >-
+      Resolución nominal 12,5 m. La cota condiciona el gradiente térmico y la
+      zonificación pluviométrica.
+
+  - id: pendiente
+    titulo: "Pendiente del terreno"
+    subtitulo: "Derivada del modelo digital de elevación"
+    encuadre: area_influencia
+    esenciales: [pendiente]
+    capas: [pendiente, drenaje_sencillo, area_influencia]
+    nota: >-
+      La pendiente gobierna el tiempo de concentración y el término Kp del
+      coeficiente de infiltración.
+
+  - id: red_drenaje
+    titulo: "Red de drenaje"
+    subtitulo: "Cauces sencillos, dobles y eje repuesto"
+    encuadre: area_influencia
+    esenciales: [drenaje_sencillo]
+    capas: [drenaje_doble, embalses, drenaje_sencillo, eje_drenaje_doble,
+            red_topologica, area_influencia, punto_descarga]
+    nota: >-
+      La cartografía del IGAC representa un río ancho como polígono y su
+      continuación aguas arriba como polilínea. El eje de los cauces dobles se
+      repone por adelgazamiento para cerrar la red; sin él la longitud del cauce
+      principal queda en una fracción de la real.
+
+  - id: subcuencas
+    titulo: "Subcuencas del modelo hidrológico"
+    subtitulo: "Delimitación asistida en HEC-HMS"
+    encuadre: area_influencia
+    esenciales: [subcuencas]
+    capas: [dem, subcuencas, red_topologica, area_influencia, punto_descarga]
+    nota: >-
+      Cada subcuenca lleva sus parámetros morfométricos, su número de curva y su
+      tiempo de rezago en la tabla de atributos.
+
+  - id: cobertura
+    titulo: "Cobertura de la tierra"
+    subtitulo: "Corine Land Cover recortado al área de influencia"
+    encuadre: area_influencia
+    esenciales: [cobertura]
+    capas: [cobertura, drenaje_sencillo, area_influencia]
+    nota: >-
+      La cobertura alimenta el número de curva y el término Kv del coeficiente
+      de infiltración, por la tabla de homologación del estudio.
+
+  - id: estaciones
+    titulo: "Estaciones hidrometeorológicas"
+    subtitulo: "Seleccionadas y descartadas del Catálogo Nacional"
+    encuadre: subzona_intersectada
+    esenciales: [estaciones_seleccionadas]
+    capas: [subzona_intersectada, drenaje_sencillo, area_influencia,
+            estaciones_descartadas, estaciones_seleccionadas]
+    nota: >-
+      El criterio de descarte de cada estación queda registrado en el reporte
+      del M03 y en el capítulo correspondiente del informe.
+
+# -----------------------------------------------------------------------------
+# SERIES
+# Una plancha por archivo que case con el patrón. {token} es lo que captura el
+# comodín del patrón.
+# -----------------------------------------------------------------------------
+series:
+
+  - id: "isoyetas_{token}"
+    patron: "data/03_SIG/raster/isoyetas/isoyetas_*.tif"
+    titulo: "Isoyetas de precipitación total"
+    subtitulo: "Fase ENSO: {token}"
+    encuadre: area_influencia
+    capas_extra:
+      - {tipo: raster, ruta: "data/03_SIG/raster/isoyetas/isoyetas_{token}.tif",
+         estilo: "isoyetas_precipitacion.qml",
+         nombre: "Precipitación total (mm)"}
+      - {tipo: vector, ruta: "data/03_SIG/vector/isoyetas/isoyetas_{token}.shp",
+         estilo: "curvas_isoyetas.qml", nombre: "Isoyeta"}
+      - {tipo: vector,
+         ruta: "data/03_SIG/vector/isoyetas/estaciones_isoyetas_{token}.shp",
+         estilo: "estaciones_isoyetas.qml", nombre: "Estación"}
+    capas: [area_influencia, drenaje_sencillo]
+    nota: >-
+      Interpolación IDW sobre la precipitación total mensual multianual de la
+      fase. Todo valor fuera de la franja altitudinal de las estaciones es
+      extrapolación.
+
+  - id: "pmax_{token}"
+    patron: "data/03_SIG/raster/isoyetas/pmax_*.tif"
+    titulo: "Isoyetas de precipitación máxima en 24 horas"
+    subtitulo: "Periodo de retorno {token}"
+    encuadre: area_influencia
+    capas_extra:
+      - {tipo: raster, ruta: "data/03_SIG/raster/isoyetas/pmax_{token}.tif",
+         estilo: "isoyetas_pmax.qml", nombre: "Pmáx 24 h (mm)"}
+      - {tipo: vector, ruta: "data/03_SIG/vector/isoyetas/pmax_{token}.shp",
+         estilo: "curvas_pmax.qml", nombre: "Isolínea de Pmáx"}
+      - {tipo: vector,
+         ruta: "data/03_SIG/vector/isoyetas/estaciones_pmax_{token}.shp",
+         estilo: "estaciones_pmax.qml", nombre: "Estación"}
+    capas: [area_influencia, drenaje_sencillo]
+    nota: >-
+      Cada estación aporta el cuantil de la distribución que el M07 adoptó para
+      ella. Un mismo campo puede mezclar distribuciones vecinas.

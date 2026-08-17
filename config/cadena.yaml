@@ -281,10 +281,14 @@ pasos:
     estado: disponible
 
   - modulo: M16
+    # LA ESCALA SE CALCULA, no se declara: desde la extension de la capa que
+    # encuadra y del marco de la plancha, redondeando hacia arriba a la serie
+    # normalizada. Una lista fija de escalas es inservible en cuanto cambia el
+    # tamano de la cuenca, y el error no se ve hasta imprimir.
     nombre: "Cartografía temática"
     script: "src/M16_cartografia.py"
     entorno: qgis
-    estado: pendiente
+    estado: disponible
 
   - modulo: M17
     nombre: "Ensamble y verificación de anexos"
