@@ -1491,6 +1491,16 @@ cartografia:
   # eso exige que midan lo mismo. Se adopta la mayor que exige el grupo.
   escala_uniforme: true
 
+  # EL MARCO SE ESTRECHA HASTA LA FORMA DEL CONTENIDO y el ancho liberado pasa a
+  # la columna de leyenda. Una cuenca alta en un marco apaisado desperdicia
+  # media plancha: la escala la fija el alto y sobra el ancho.
+  ajustar_marco_al_contenido: true
+
+  # Proyecto QGIS con las capas simbolizadas y TODAS las composiciones. Es lo
+  # que permite revisar y corregir en QGIS una vez, guardar el .qml o el .qpt, y
+  # que la cadena reproduzca esa correccion en cada corrida.
+  proyecto: "planchas.qgz"
+
   # Sistema en que se PRESENTAN las planchas. La cadena calcula en CTM12, que es
   # el origen unico nacional; la entrega se presenta en el que declaro el
   # consultor con las coordenadas del punto de descarga. Vacio adopta ese.

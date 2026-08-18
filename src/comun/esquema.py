@@ -1326,6 +1326,9 @@ ESQUEMA: dict[str, Campo] = {
     "cartografia.numerar_figuras": booleano("numerar los archivos de figura"),
     "cartografia.prefijo_figura": texto("prefijo del nombre de figura"),
     "cartografia.escala_uniforme": booleano("una sola escala por grupo"),
+    "cartografia.ajustar_marco_al_contenido": booleano(
+        "estrechar el marco hasta la forma del contenido"),
+    "cartografia.proyecto": texto("proyecto QGIS con las composiciones"),
     "cartografia.plancha.alto_rotulo_mm": numero(
         "alto del rótulo inferior", minimo=0.0),
     "cartografia.plancha.separacion_mm": numero(

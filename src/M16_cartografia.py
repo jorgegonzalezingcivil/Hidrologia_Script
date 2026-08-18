@@ -137,6 +137,7 @@ class ResultadoM16:
     plantilla: str = ""
     plantilla_creada: bool = False
     rotulo: str = ""
+    proyecto: str = ""
     rotulo_faltante: list[str] = field(default_factory=list)
     planchas: list[dict[str, Any]] = field(default_factory=list)
     omitidas: list[dict[str, Any]] = field(default_factory=list)
@@ -1477,6 +1478,82 @@ def _extension_de(capa, crs_destino: str | None = None
     return (caja.xMinimum(), caja.yMinimum(), caja.xMaximum(), caja.yMaximum())
 
 
+def ajustar_marco_al_contenido(layout, plancha_cfg: dict[str, Any],
+                               extension: tuple[float, float, float, float],
+                               minimo_panel_mm: float = 60.0) -> float:
+    """
+    Estrecha el marco del mapa hasta la forma del contenido y devuelve su ancho.
+
+    UNA CUENCA ALTA EN UN MARCO APAISADO DESPERDICIA LA PLANCHA. Con 27 por 36
+    km de contenido y un marco de 416 por 230 mm, la escala la fija el alto y
+    sobra la mitad del ancho: la cuenca queda ocupando un tercio de la hoja. Se
+    lleva el marco a la proporcion del contenido y el ancho liberado pasa a la
+    columna de leyenda, que es la disposicion de las planchas de referencia.
+
+    No se estrecha por debajo de lo que deja sitio a la leyenda, ni mas alla del
+    ancho disponible: en los dos extremos manda la plancha.
+    """
+    from qgis.core import QgsLayoutPoint, QgsLayoutSize, QgsUnitTypes
+
+    mapa = layout.itemById("mapa")
+    if mapa is None:
+        return 0.0
+    x, y, disponible, alto = marco_del_mapa(plancha_cfg)
+    ancho_contenido = extension[2] - extension[0]
+    alto_contenido = extension[3] - extension[1]
+    if ancho_contenido <= 0 or alto_contenido <= 0:
+        return disponible
+
+    proporcion = ancho_contenido / alto_contenido
+    deseado = alto * proporcion
+    ancho = max(min(deseado, disponible), disponible - _ancho_columna(
+        disponible, minimo_panel_mm))
+    ancho = min(ancho, disponible)
+
+    mapa.attemptMove(QgsLayoutPoint(x, y, QgsUnitTypes.LayoutMillimeters))
+    mapa.attemptResize(QgsLayoutSize(ancho, alto,
+                                     QgsUnitTypes.LayoutMillimeters))
+    mapa.updateBoundingRect()
+
+    # La guarnicion se muda a la columna liberada. Si no queda columna, se
+    # queda flotando sobre el mapa, que es de donde venia.
+    columna = disponible - ancho
+    if columna < minimo_panel_mm:
+        return ancho
+    izquierda = x + ancho + 3.0
+    util = columna - 3.0
+    for identificador, alto_item, desde_abajo in (
+            ("leyenda", min(150.0, alto * 0.62), False),
+            ("norte", 24.0, True),
+            ("escala_grafica", 18.0, True),
+            ("escala_numerica", 6.0, True)):
+        elemento = layout.itemById(identificador)
+        if elemento is None:
+            continue
+        if identificador == "leyenda":
+            arriba = y + 2.0
+            ancho_item = util
+        elif identificador == "norte":
+            arriba = y + alto - 52.0
+            ancho_item = 22.0
+        elif identificador == "escala_grafica":
+            arriba = y + alto - 26.0
+            ancho_item = util
+        else:
+            arriba = y + alto - 8.0
+            ancho_item = util
+        elemento.attemptMove(QgsLayoutPoint(izquierda, arriba,
+                                            QgsUnitTypes.LayoutMillimeters))
+        elemento.attemptResize(QgsLayoutSize(ancho_item, alto_item,
+                                             QgsUnitTypes.LayoutMillimeters))
+    return ancho
+
+
+def _ancho_columna(disponible: float, minimo: float) -> float:
+    """Cuanto ancho puede cederse a la columna de leyenda, como maximo."""
+    return max(0.0, min(disponible * 0.45, disponible - minimo))
+
+
 def _encuadrar(mapa, capas_cargadas, capa_encuadre, configuracion, crs_id,
                escala_forzada=None) -> dict[str, Any]:
     """
@@ -1577,6 +1654,14 @@ def componer(
             "la plantilla no tiene un elemento de mapa con identificador "
             "'mapa'. Es el único elemento imprescindible: sin él no hay dónde "
             "dibujar.")
+
+    # EL MARCO SE AJUSTA ANTES DE ENCUADRAR, porque la escala depende de sus
+    # dimensiones: al reves se calcularia sobre un marco que ya no existe.
+    if configuracion.obtener("cartografia.ajustar_marco_al_contenido", True) \
+            and layout.itemById("mapa_detalle") is None:
+        ajustar_marco_al_contenido(
+            layout, configuracion.obtener("cartografia.plancha"),
+            _extension_de(capa_encuadre, crs_id))
 
     detalle = _encuadrar(mapa, capas_cargadas, capa_encuadre, configuracion,
                          crs_id, plancha.escala_forzada or escala_de_grupo)
@@ -1819,7 +1904,11 @@ def ejecutar(
                 resultado.capas_ausentes.append(
                     rutas.relativa(capa.ruta, base))
                 continue
-            proyecto.addMapLayer(objeto, False)
+            # AL ARBOL, para que el .qgz sirva de verdad: un proyecto cuyas
+            # capas no estan en el panel no se puede revisar ni resimbolizar.
+            # Cada composicion fija su propio juego con setKeepLayerSet, de
+            # modo que anadirlas al arbol no las mete en todos los mapas.
+            proyecto.addMapLayer(objeto, True)
             cargadas[clave] = objeto
             if getattr(objeto, "_sin_simbologia", False):
                 resultado.capas_sin_estilo.append(capa.identificador)
@@ -1958,6 +2047,12 @@ def ejecutar(
             # mano.
             escritas = exportar(layout, salida / nombre_de_figura(
                 numero, plancha, configuracion), formatos, dpi)
+            # LA COMPOSICION SE GUARDA EN EL PROYECTO, no solo se exporta.
+            # Es lo que permite abrir una plancha en QGIS, corregirla y
+            # devolver la correccion a la cadena como .qpt o .qml.
+            layout.setName(nombre_de_figura(numero, plancha, configuracion))
+            proyecto.layoutManager().addLayout(layout.clone())
+
             detalle["archivos"] = [rutas.relativa(r, base) for r in escritas]
             resultado.planchas.append(detalle)
             resultado.productos.extend(detalle["archivos"])
@@ -1966,6 +2061,27 @@ def ejecutar(
                         len(visibles),
                         ", ".join(p.rsplit("/", 1)[-1]
                                   for p in detalle["archivos"]))
+
+    # --- Proyecto QGIS de las planchas ---------------------------------------
+    # ES LO QUE CIERRA EL CICLO DE REVISIÓN. Sin él, corregir una plancha obliga
+    # a describir el defecto sobre un PDF y esperar a que alguien lo traduzca a
+    # código. Con él, el consultor abre un archivo, ve las treinta
+    # composiciones, corrige en QGIS lo que quiera, guarda el estilo como .qml y
+    # la composición como .qpt, y la cadena reproduce esa corrección en todas
+    # las corridas siguientes.
+    with registro.bloque(logger, "Proyecto de planchas"):
+        ruta_proyecto = salida / str(configuracion.obtener(
+            "cartografia.proyecto", "planchas.qgz"))
+        ruta_proyecto.parent.mkdir(parents=True, exist_ok=True)
+        proyecto.setTitle(str(configuracion.obtener("proyecto.nombre", "")))
+        if proyecto.write(str(ruta_proyecto)):
+            resultado.proyecto = rutas.relativa(ruta_proyecto, base)
+            resultado.productos.append(resultado.proyecto)
+            logger.info("%d composición(es) guardadas en %s",
+                        len(proyecto.layoutManager().printLayouts()),
+                        ruta_proyecto.name)
+        else:
+            logger.warning("QGIS no pudo escribir %s", ruta_proyecto)
 
     resultado.hallazgos.extend(_resumir(resultado))
     codigo = (SALIDA_BLOQUEANTE
@@ -2110,6 +2226,7 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "plantilla": resultado.plantilla,
         "plantilla_creada": resultado.plantilla_creada,
         "rotulo": resultado.rotulo,
+        "proyecto": resultado.proyecto,
         "rotulo_faltante": resultado.rotulo_faltante,
         "planchas": resultado.planchas,
         "omitidas": resultado.omitidas,
