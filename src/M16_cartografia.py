@@ -138,6 +138,7 @@ class ResultadoM16:
     plantilla_creada: bool = False
     rotulo: str = ""
     proyecto: str = ""
+    propias: list[str] = field(default_factory=list)
     rotulo_faltante: list[str] = field(default_factory=list)
     planchas: list[dict[str, Any]] = field(default_factory=list)
     omitidas: list[dict[str, Any]] = field(default_factory=list)
@@ -1506,11 +1507,119 @@ def plantilla_por_defecto(destino: Path, plancha: dict[str, Any], crs_id: str,
 
     _rotulo(layout, plancha)
 
+    # SE MARCA LA PLANTILLA COMO GENERADA, para poder distinguirla de la que el
+    # consultor componga. Sobre la suya el módulo no toca el marco: el tamaño y
+    # la posición del mapa sobre la hoja son decisión de composición, no de
+    # cálculo.
+    layout.setCustomProperty("m16_generada", True)
+
     destino = Path(destino)
     destino.parent.mkdir(parents=True, exist_ok=True)
     if not layout.saveAsTemplate(str(destino), QgsReadWriteContext()):
         raise ErrorFormato(f"QGIS no pudo escribir la plantilla en {destino}.")
     return destino
+
+
+def absorber_proyecto(ruta_qgz: Path, planchas: Sequence[Plancha],
+                      destino_qpt: Path, destino_qml: Path,
+                      configuracion: Config, logger=None) -> dict[str, Any]:
+    """
+    Extrae de un proyecto ajustado a mano todo lo que la cadena sabe consultar.
+
+    ES LA PIEZA QUE HACE VIABLE CALIBRAR EN QGIS. Guardar veintinueve
+    composiciones y treinta y una simbologías a mano es una tarea tan larga como
+    la que se quería evitar; aquí se hace con un comando. Cada composición sale
+    como .qpt con el nombre de su plancha, y cada capa como .qml con el nombre
+    que el catálogo declara, que son exactamente los archivos a los que el M16
+    da precedencia.
+
+    NO SE INTERPRETA NADA de lo que el consultor hizo: se copia. Un extractor
+    que decidiera qué ajustes conservar volvería a poner el criterio en el
+    código, que es de donde se lo quiere sacar.
+
+    Lo que no se puede ubicar NO SE GUARDA y se reporta por nombre. Adivinar a
+    qué plancha corresponde una composición renombrada produciría un archivo que
+    la cadena aplicaría al mapa equivocado.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si el proyecto no existe.
+    ErrorFormato
+        Si QGIS no puede leerlo.
+    """
+    from qgis.core import QgsProject, QgsReadWriteContext
+
+    ruta_qgz = Path(ruta_qgz)
+    if not ruta_qgz.is_file():
+        raise ErrorRutas(f"no se encuentra el proyecto {ruta_qgz}.")
+
+    proyecto = QgsProject.instance()
+    proyecto.clear()
+    if not proyecto.read(str(ruta_qgz)):
+        raise ErrorFormato(f"QGIS no pudo leer {ruta_qgz.name}.")
+
+    destino_qpt = Path(destino_qpt)
+    destino_qml = Path(destino_qml)
+    destino_qpt.mkdir(parents=True, exist_ok=True)
+    destino_qml.mkdir(parents=True, exist_ok=True)
+
+    # La composición se identifica por su nombre, que es el de la figura.
+    por_nombre = {nombre_de_figura(numero, plancha, configuracion): plancha
+                  for numero, plancha in enumerate(planchas, start=1)}
+
+    # Las capas, por su ruta en disco: es lo único estable, porque el nombre
+    # visible lo pone el catálogo y el consultor puede haberlo cambiado.
+    por_fuente: dict[str, str] = {}
+    for plancha in planchas:
+        for capa in plancha.capas:
+            nombre_qml = capa.estilo or f"{capa.identificador}.qml"
+            por_fuente[str(capa.ruta).lower()] = nombre_qml
+            if capa.union:
+                derivada = (capa.ruta.parent / "tematicas"
+                            / f"{capa.identificador}.shp")
+                por_fuente[str(derivada).lower()] = nombre_qml
+
+    composiciones: list[str] = []
+    estilos: list[str] = []
+    sin_ubicar: list[str] = []
+
+    for layout in proyecto.layoutManager().printLayouts():
+        plancha = por_nombre.get(layout.name())
+        if plancha is None:
+            sin_ubicar.append(f"composición «{layout.name()}»")
+            continue
+        destino = destino_qpt / f"{plancha.identificador}.qpt"
+        if layout.saveAsTemplate(str(destino), QgsReadWriteContext()):
+            composiciones.append(plancha.identificador)
+            if logger is not None:
+                logger.info("composición %-34s -> %s", layout.name(),
+                            destino.name)
+
+    for capa in proyecto.mapLayers().values():
+        fuente = str(capa.source()).split("|")[0]
+        nombre_qml = (por_fuente.get(fuente.lower())
+                      or por_fuente.get(str(Path(fuente).resolve()).lower()))
+        if not nombre_qml:
+            sin_ubicar.append(f"capa «{capa.name()}»")
+            continue
+        destino = destino_qml / nombre_qml
+        mensaje, correcto = capa.saveNamedStyle(str(destino))
+        if correcto:
+            estilos.append(nombre_qml)
+            if logger is not None:
+                logger.info("estilo      %-34s -> %s", capa.name(),
+                            destino.name)
+        elif logger is not None:
+            logger.warning("no se pudo guardar el estilo de %s: %s",
+                           capa.name(), mensaje)
+
+    return {
+        "proyecto": str(ruta_qgz),
+        "composiciones": sorted(set(composiciones)),
+        "estilos": sorted(set(estilos)),
+        "sin_ubicar": sorted(set(sin_ubicar)),
+    }
 
 
 def _cargar_plantilla(ruta: Path):
@@ -1737,14 +1846,45 @@ def componer(
 
     # EL MARCO SE AJUSTA ANTES DE ENCUADRAR, porque la escala depende de sus
     # dimensiones: al reves se calcularia sobre un marco que ya no existe.
-    if configuracion.obtener("cartografia.ajustar_marco_al_contenido", True) \
+    # NO SE TOCA EL MARCO DE UNA PLANTILLA COMPUESTA POR EL CONSULTOR. El ajuste
+    # automático existe para que la plancha de partida no desperdicie media hoja
+    # con una cuenca alta y estrecha; en cuanto hay una composición propia, esa
+    # decisión ya está tomada, y sobrescribirla sería borrar ese trabajo en cada
+    # corrida. La plantilla generada se marca al escribirla, y al guardar desde
+    # QGIS la marca no se conserva: con eso basta para distinguirlas.
+    es_generada = bool(layout.customProperty("m16_generada", False))
+    if es_generada \
+            and configuracion.obtener("cartografia.ajustar_marco_al_contenido",
+                                      True) \
             and layout.itemById("mapa_detalle") is None:
         ajustar_marco_al_contenido(
             layout, configuracion.obtener("cartografia.plancha"),
             _extension_de(capa_encuadre, crs_id))
 
-    detalle = _encuadrar(mapa, capas_cargadas, capa_encuadre, configuracion,
-                         crs_id, plancha.escala_forzada or escala_de_grupo)
+    if es_generada:
+        detalle = _encuadrar(
+            mapa, capas_cargadas, capa_encuadre, configuracion, crs_id,
+            plancha.escala_forzada or escala_de_grupo)
+    else:
+        # LA COMPOSICION DEL CONSULTOR MANDA ENTERA. Su encuadre y su escala son
+        # los que valen: recalcularlos borraria justo lo que decidio. Solo se
+        # refrescan las capas, que son el dato.
+        mapa.setLayers(list(capas_cargadas))
+        mapa.setKeepLayerSet(True)
+        mapa.refresh()
+        caja = mapa.extent()
+        escala_propia = int(round(mapa.scale()))
+        detalle = {
+            "escala": escala_propia,
+            "escala_texto": escala_como_texto(escala_propia),
+            "escala_desbordada": False,
+            "grilla_m": int(mapa.grid().intervalX() or 0),
+            "extension_m": [round(v, 1) for v in (
+                caja.xMinimum(), caja.yMinimum(),
+                caja.xMaximum(), caja.yMaximum())],
+            "holgura": 0.0,
+            "composicion_propia": True,
+        }
 
     mapa_detalle = layout.itemById("mapa_detalle")
     if mapa_detalle is not None and capa_encuadre_detalle is not None:
@@ -1896,6 +2036,10 @@ def ejecutar(
         rutas.raiz_codigo())
     ruta_rotulo = rutas.resolver(configuracion.obtener("cartografia.rotulo"),
                                  base)
+    # Las composiciones ajustadas por el consultor viven en el ESTUDIO, no en la
+    # herramienta: son de este contrato y de estas planchas.
+    directorio_propias = rutas.resolver(
+        configuracion.obtener("cartografia.composiciones_propias"), base)
     # La tabla de simbologia se busca primero en el estudio y, si no esta, en la
     # herramienta: asi un estudio puede apartarse de la convencion poniendo la
     # suya, y queda constancia de que lo hizo.
@@ -2100,7 +2244,12 @@ def ejecutar(
                         "falta la capa de detalle %r: la plancha sale con un "
                         "solo marco", plancha.encuadre_detalle)
 
-            plantilla = (ruta_qpt_detalle
+            # LA COMPOSICION PROPIA DE LA PLANCHA TIENE PRECEDENCIA sobre la
+            # generica. Es donde queda lo que el consultor ajusto para ESA
+            # figura, encuadre y escala incluidos.
+            propia = directorio_propias / f"{plancha.identificador}.qpt"
+            plantilla = (propia if propia.is_file() else
+                         ruta_qpt_detalle
                          if plancha.con_detalle and encuadre_detalle is not None
                          else ruta_qpt)
             layout = _cargar_plantilla(plantilla)
@@ -2133,6 +2282,8 @@ def ejecutar(
             layout.setName(nombre_de_figura(numero, plancha, configuracion))
             proyecto.layoutManager().addLayout(layout.clone())
 
+            if detalle.get("composicion_propia"):
+                resultado.propias.append(plancha.identificador)
             detalle["archivos"] = [rutas.relativa(r, base) for r in escritas]
             resultado.planchas.append(detalle)
             resultado.productos.extend(detalle["archivos"])
@@ -2194,6 +2345,15 @@ def _resumir(resultado: ResultadoM16) -> list[Hallazgo]:
             f"no se pudo colocar {sin_logo}: la ruta no está declarada en el "
             "rótulo o el archivo no existe. La casilla queda con el nombre de "
             "la firma en texto y sin imagen.",
+        ))
+
+    if resultado.propias:
+        hallazgos.append(Hallazgo(
+            INFORMATIVO, "cartografia.composiciones_propias",
+            f"{len(resultado.propias)} plancha(s) se compusieron con la "
+            f"plantilla que el consultor ajustó: {sorted(resultado.propias)}. "
+            "Su encuadre, su escala y su marco se respetaron sin recalcular; "
+            "solo se refrescaron las capas.",
         ))
 
     if resultado.plantilla_creada:
@@ -2307,6 +2467,7 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "plantilla_creada": resultado.plantilla_creada,
         "rotulo": resultado.rotulo,
         "proyecto": resultado.proyecto,
+        "composiciones_propias": resultado.propias,
         "rotulo_faltante": resultado.rotulo_faltante,
         "planchas": resultado.planchas,
         "omitidas": resultado.omitidas,
@@ -2357,6 +2518,9 @@ def _analizar_argumentos(argv=None):
                             help="escribe la plantilla y no compone planchas")
     analizador.add_argument("--rotulo", action="store_true",
                             help="pregunta por consola los datos del rótulo")
+    analizador.add_argument("--absorber", type=Path, default=None,
+                            help="extrae composiciones y estilos de un .qgz "
+                                 "ajustado a mano")
     analizador.add_argument("--json", type=Path, default=None,
                             dest="json_salida")
     analizador.add_argument("--silencioso", action="store_true")
@@ -2367,6 +2531,40 @@ def main(argv=None) -> int:
     """Punto de entrada. Devuelve el codigo de salida del proceso."""
     argumentos = _analizar_argumentos(argv)
     try:
+        if argumentos.absorber is not None:
+            # ABSORBE EL TRABAJO DEL CONSULTOR. Guardar veintinueve
+            # composiciones y treinta y una simbologias a mano es una tarea tan
+            # larga como la que se quiere evitar; aqui se hace con un comando.
+            base = (Path(argumentos.raiz).resolve() if argumentos.raiz
+                    else rutas.raiz_proyecto())
+            configuracion = cargar(ruta=argumentos.config, raiz=base)
+            import sig
+            sig.iniciar_qgis(
+                configuracion.obtener("entornos.qgis.prefix_path"))
+            planchas = leer_declaracion(
+                rutas.resolver(configuracion.obtener("cartografia.declaracion"),
+                               base),
+                base,
+                rutas.resolver(configuracion.obtener("proyecto_qgis.estilos"),
+                               base))
+            detalle = absorber_proyecto(
+                argumentos.absorber, planchas,
+                rutas.resolver(
+                    configuracion.obtener("cartografia.composiciones_propias"),
+                    base),
+                rutas.resolver(configuracion.obtener("proyecto_qgis.estilos"),
+                               base),
+                configuracion)
+            print(f"Composiciones absorbidas: "
+                  f"{len(detalle['composiciones'])}")
+            print(f"Estilos absorbidos      : {len(detalle['estilos'])}")
+            if detalle["sin_ubicar"]:
+                print("SIN UBICAR (no se pudo saber a qué plancha o capa "
+                      "corresponden, y NO se guardaron):")
+                for nombre in detalle["sin_ubicar"]:
+                    print(f"  {nombre}")
+            return SALIDA_CORRECTA
+
         if argumentos.rotulo:
             # Es el UNICO modo interactivo del modulo, y esta fuera de la
             # cadena a proposito: la cadena corre sin intervencion.

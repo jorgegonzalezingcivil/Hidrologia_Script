@@ -1501,6 +1501,12 @@ cartografia:
   # que la cadena reproduzca esa correccion en cada corrida.
   proyecto: "planchas.qgz"
 
+  # COMPOSICIONES AJUSTADAS POR EL CONSULTOR, una por plancha. Si existe la de
+  # una plancha, manda entera: su encuadre, su escala y su marco se respetan sin
+  # recalcular y solo se refrescan las capas. Se llenan con --absorber, que las
+  # extrae del proyecto que el consultor guarde.
+  composiciones_propias: "data/03_SIG/proyecto/planchas"
+
   # Sistema en que se PRESENTAN las planchas. La cadena calcula en CTM12, que es
   # el origen unico nacional; la entrega se presenta en el que declaro el
   # consultor con las coordenadas del punto de descarga. Vacio adopta ese.

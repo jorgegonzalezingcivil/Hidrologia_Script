@@ -1329,6 +1329,8 @@ ESQUEMA: dict[str, Campo] = {
     "cartografia.ajustar_marco_al_contenido": booleano(
         "estrechar el marco hasta la forma del contenido"),
     "cartografia.proyecto": texto("proyecto QGIS con las composiciones"),
+    "cartografia.composiciones_propias": ruta(
+        "composiciones .qpt ajustadas por el consultor"),
     "cartografia.plancha.alto_rotulo_mm": numero(
         "alto del rótulo inferior", minimo=0.0),
     "cartografia.plancha.separacion_mm": numero(
