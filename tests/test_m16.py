@@ -336,17 +336,35 @@ class PruebaSimbologia(unittest.TestCase):
         # Significa que el estudio no la sobreescribe, no que falte algo.
         self.assertEqual(m16.leer_simbologia(Path("no_existe.csv")), {})
 
-    def test_toda_capa_de_la_declaracion_tiene_convencion(self) -> None:
-        # El rol de simbología es el nombre del estilo, y toda capa declarada
-        # debe tener el suyo en la tabla: si no, sale con color aleatorio.
+    def test_ninguna_capa_queda_sin_origen_de_simbologia(self) -> None:
+        """
+        Toda capa declarada tiene de dónde sacar su aspecto.
+
+        SON TRES ORIGENES Y BASTA UNO: el .qml que el consultor guarde tras
+        calibrar en QGIS, la simbología graduada o categorizada que la propia
+        plancha declara, o la fila de la tabla de convenciones. Una capa sin
+        ninguno sale con el color aleatorio de QGIS, y eso no es entregable.
+        """
         tmp = Path(tempfile.mkdtemp())
-        roles = set()
+        huerfanas = []
         for plancha in m16.leer_declaracion(
                 _RAIZ_REPO / "config" / "mapas.yaml", tmp, tmp):
             for capa in plancha.capas:
-                if capa.estilo:
-                    roles.add(Path(capa.estilo).stem)
-        self.assertEqual(sorted(roles - set(self.tabla)), [])
+                rol = Path(capa.estilo).stem if capa.estilo else ""
+                if capa.simbologia or (rol and rol in self.tabla):
+                    continue
+                huerfanas.append(capa.identificador)
+        self.assertEqual(sorted(set(huerfanas)), [])
+
+    def test_toda_capa_declara_su_archivo_de_estilo(self) -> None:
+        # Sin .qml declarado, lo que el consultor ajuste en QGIS no tiene dónde
+        # guardarse y se pierde en la siguiente corrida de la cadena.
+        tmp = Path(tempfile.mkdtemp())
+        sin_estilo = [capa.identificador
+                      for plancha in m16.leer_declaracion(
+                          _RAIZ_REPO / "config" / "mapas.yaml", tmp, tmp)
+                      for capa in plancha.capas if not capa.estilo]
+        self.assertEqual(sorted(set(sin_estilo)), [])
 
 
 if __name__ == "__main__":

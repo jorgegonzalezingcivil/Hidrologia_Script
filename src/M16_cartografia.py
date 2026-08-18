@@ -52,7 +52,7 @@ import math
 import re
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -850,7 +850,8 @@ def _numero(texto: Any) -> float | None:
 
 
 def capa_unida(capa_base, union: dict[str, Any], base: Path,
-               delimitador: str = ";", logger=None):
+               delimitador: str = ";", logger=None,
+               destino_disco: Path | None = None):
     """
     Copia en memoria de la capa con las columnas de una tabla ya incorporadas.
 
@@ -929,6 +930,20 @@ def capa_unida(capa_base, union: dict[str, Any], base: Path,
     proveedor.addFeatures(entidades)
     memoria.updateExtents()
 
+    # SE ESCRIBE A DISCO, NO SE DEJA EN MEMORIA. Una capa en memoria se dibuja
+    # igual de bien, pero el .qgz no guarda sus datos: al reabrir el proyecto
+    # aparece vacía. Y el proyecto es justamente lo que permite al consultor
+    # calibrar la simbología una vez y que la cadena la respete siempre, de modo
+    # que una capa que no sobrevive al guardado invalida esa calibración.
+    if destino_disco is not None:
+        escrita = _escribir_a_disco(memoria, Path(destino_disco), pedidos)
+        if escrita is not None:
+            escrita.setName(capa_base.name())
+            setattr(escrita, "_sin_fila", sin_fila)
+            setattr(escrita, "_total", len(entidades))
+            setattr(escrita, "_renombres", getattr(memoria, "_renombres", {}))
+            memoria = escrita
+
     if sin_fila and logger is not None:
         logger.warning(
             "%d de %d entidad(es) de %s no encontraron fila en %s: la clave "
@@ -937,6 +952,48 @@ def capa_unida(capa_base, union: dict[str, Any], base: Path,
     setattr(memoria, "_sin_fila", sin_fila)
     setattr(memoria, "_total", len(entidades))
     return memoria
+
+
+def _escribir_a_disco(capa_memoria, destino: Path, campos: Sequence[str]):
+    """
+    Vuelca una capa en memoria a shapefile y la devuelve cargada desde disco.
+
+    EL NOMBRE DE CAMPO DEL SHAPEFILE SE LIMITA A DIEZ CARACTERES (CLAUDE.md,
+    sección 5), de modo que 'escorrentia_budyko_mm' llega truncado y la
+    simbología apuntaría a un campo que ya no se llama así. El truncamiento se
+    devuelve como diccionario para que quien la use rectifique la referencia, y
+    se escribe además el diccionario de equivalencias que exige la convención.
+    """
+    from qgis.core import (
+        QgsCoordinateTransformContext, QgsVectorFileWriter, QgsVectorLayer,
+    )
+
+    destino = Path(destino)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    opciones = QgsVectorFileWriter.SaveVectorOptions()
+    opciones.driverName = "ESRI Shapefile"
+    opciones.fileEncoding = "UTF-8"
+    resultado = QgsVectorFileWriter.writeAsVectorFormatV3(
+        capa_memoria, str(destino), QgsCoordinateTransformContext(), opciones)
+    if resultado[0] != QgsVectorFileWriter.NoError:
+        return None
+
+    cargada = QgsVectorLayer(str(destino), capa_memoria.name(), "ogr")
+    if not cargada.isValid():
+        return None
+
+    existentes = [c.name() for c in cargada.fields()]
+    renombres = {}
+    for campo in campos:
+        if campo in existentes:
+            continue
+        recorte = campo[:10]
+        coincide = next((n for n in existentes if n.lower() == recorte.lower()),
+                        None)
+        if coincide:
+            renombres[campo] = coincide
+    setattr(cargada, "_renombres", renombres)
+    return cargada
 
 
 def _aplicar_graduado(capa, regla: dict[str, Any]) -> bool:
@@ -1093,9 +1150,21 @@ def _cargar_capa(capa: CapaDeclarada, estilos: Path, simbologia=None,
             logger.warning("la capa %s no es válida y se omite", capa.ruta.name)
         return None
     if capa.union:
+        destino = None
+        if base_estudio is not None:
+            destino = (Path(base_estudio) / "data" / "03_SIG" / "vector"
+                       / "tematicas" / f"{capa.identificador}.shp")
         cargada = capa_unida(cargada, capa.union, base_estudio or Path("."),
-                             delimitador, logger)
+                             delimitador, logger, destino_disco=destino)
         cargada.setName(etiqueta)
+        # El truncamiento a diez caracteres puede haber cambiado el nombre del
+        # campo por el que se gradúa: se rectifica la referencia.
+        renombres = getattr(cargada, "_renombres", {}) or {}
+        if renombres and capa.simbologia:
+            campo = str(capa.simbologia.get("campo", ""))
+            if campo in renombres:
+                capa = replace(capa, simbologia=dict(
+                    capa.simbologia, campo=renombres[campo]))
 
     # LA SIMBOLOGIA PROPIA MANDA SOBRE LA TABLA DE CONVENCIONES. Un campo
     # graduado es del mapa concreto, no de la capa: el mismo shapefile de
@@ -1103,6 +1172,17 @@ def _cargar_capa(capa: CapaDeclarada, estilos: Path, simbologia=None,
     # uno lo pinta por su columna.
     if capa.etiquetas:
         _aplicar_etiquetas(cargada, capa.etiquetas)
+
+    # EL .qml DEL CONSULTOR MANDA SOBRE TODO LO DEMÁS, incluida la simbología
+    # declarada. Es lo que hace recuperable una calibración hecha en QGIS: el
+    # consultor ajusta los rangos o las categorías, guarda el estilo, y la
+    # cadena lo respeta en todas las corridas siguientes. Con la precedencia al
+    # revés su trabajo se perdía en la primera reejecución.
+    ruta_estilo = Path(estilos) / capa.estilo if capa.estilo else None
+    if ruta_estilo is not None and ruta_estilo.is_file():
+        cargada.loadNamedStyle(str(ruta_estilo))
+        cargada.triggerRepaint()
+        return cargada
 
     if capa.simbologia and _aplicar_graduado(cargada, capa.simbologia):
         cargada.triggerRepaint()

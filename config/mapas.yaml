@@ -135,6 +135,7 @@ capas:
     nombre: "Número de curva"
     tipo: vector
     ruta: "data/03_SIG/vector/subcuencas.shp"
+    estilo: "cn_subcuenca.qml"
     union: {tabla: "data/02_procesado/morfometria/subcuencas.csv",
             clave_capa: name, clave_tabla: subcuenca, campos: [cn]}
     simbologia: {modo: graduado, campo: cn, decimales: 0, clases: 6, rampa: YlOrBr}
@@ -143,6 +144,7 @@ capas:
     nombre: "Tiempo de rezago (min)"
     tipo: vector
     ruta: "data/03_SIG/vector/subcuencas.shp"
+    estilo: "rezago_subcuenca.qml"
     union: {tabla: "data/02_procesado/morfometria/subcuencas.csv",
             clave_capa: name, clave_tabla: subcuenca, campos: [tlag_minutos]}
     simbologia: {modo: graduado, campo: tlag_minutos, decimales: 0, clases: 6, rampa: Purples}
@@ -151,6 +153,7 @@ capas:
     nombre: "Escorrentía media (mm/año)"
     tipo: vector
     ruta: "data/03_SIG/vector/subcuencas.shp"
+    estilo: "escorrentia_subcuenca.qml"
     union: {tabla: "data/02_procesado/balance/balance_multianual.csv",
             clave_capa: name, clave_tabla: subcuenca,
             campos: [escorrentia_budyko_mm]}
@@ -161,6 +164,7 @@ capas:
     nombre: "Evapotranspiración real (mm/año)"
     tipo: vector
     ruta: "data/03_SIG/vector/subcuencas.shp"
+    estilo: "etr_subcuenca.qml"
     union: {tabla: "data/02_procesado/balance/balance_multianual.csv",
             clave_capa: name, clave_tabla: subcuenca, campos: [etr_budyko_mm]}
     simbologia: {modo: graduado, campo: etr_budyko_mm, decimales: 0, clases: 6, rampa: BuGn}
@@ -169,6 +173,7 @@ capas:
     nombre: "Evapotranspiración potencial (mm/año)"
     tipo: vector
     ruta: "data/03_SIG/vector/subcuencas.shp"
+    estilo: "etp_subcuenca.qml"
     union: {tabla: "data/02_procesado/balance/balance_multianual.csv",
             clave_capa: name, clave_tabla: subcuenca, campos: [etp_mm]}
     simbologia: {modo: graduado, campo: etp_mm, decimales: 0, clases: 6, rampa: OrRd}
@@ -177,6 +182,7 @@ capas:
     nombre: "Temperatura media (grados C)"
     tipo: vector
     ruta: "data/03_SIG/vector/subcuencas.shp"
+    estilo: "temperatura_subcuenca.qml"
     union: {tabla: "data/02_procesado/temperatura/temperatura_por_subcuenca.csv",
             clave_capa: name, clave_tabla: subcuenca, campos: [t_media_c]}
     simbologia: {modo: graduado, campo: t_media_c, decimales: 1, clases: 6, rampa: RdYlBu,
@@ -186,6 +192,7 @@ capas:
     nombre: "Coeficiente de infiltración"
     tipo: vector
     ruta: "data/03_SIG/vector/subcuencas.shp"
+    estilo: "infiltracion_subcuenca.qml"
     union: {tabla: "data/02_procesado/infiltracion/coeficientes_por_subcuenca.csv",
             clave_capa: name, clave_tabla: subcuenca, campos: [c]}
     simbologia: {modo: graduado, campo: c, decimales: 2, clases: 5, rampa: PuBu}
@@ -194,6 +201,7 @@ capas:
     nombre: "Precipitación media anual (mm)"
     tipo: vector
     ruta: "data/03_SIG/vector/subcuencas.shp"
+    estilo: "precipitacion_subcuenca.qml"
     union: {tabla: "data/02_procesado/precipitacion/precipitacion_anual_por_subcuenca.csv",
             clave_capa: name, clave_tabla: subcuenca, campos: [p_anual_mm]}
     simbologia: {modo: graduado, campo: p_anual_mm, decimales: 0, clases: 6, rampa: Blues}
@@ -203,18 +211,21 @@ capas:
     nombre: "Orden de Strahler"
     tipo: vector
     ruta: "data/03_SIG/vector/red_topologica.shp"
+    estilo: "orden_strahler.qml"
     simbologia: {modo: categorizado, campo: orden, rampa: Blues}
 
   cobertura_clase:
     nombre: "Cobertura, nivel 2 CLC"
     tipo: vector
     ruta: "data/03_SIG/vector/cobertura_clc_area.shp"
+    estilo: "cobertura_clase.qml"
     simbologia: {modo: categorizado, campo: nivel_2, rampa: Spectral}
 
   estaciones_categoria:
     nombre: "Categoría de estación"
     tipo: vector
     ruta: "data/03_SIG/vector/estaciones_seleccionadas.shp"
+    estilo: "estaciones_categoria.qml"
     simbologia: {modo: categorizado, campo: categoria, rampa: Spectral}
 
 
