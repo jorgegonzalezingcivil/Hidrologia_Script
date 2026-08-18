@@ -10,7 +10,7 @@
      <Option name="type" type="QString" value="collection"/>
     </Option>
    </data_defined_properties>
-   <layer class="SimpleFill" enabled="1" id="{0564984b-08d7-41f9-82dc-b72cb8b91c98}" locked="0" pass="0">
+   <layer class="SimpleFill" enabled="1" id="{bfaaf5de-9368-4655-881c-2ccc9e080c80}" locked="0" pass="0">
     <Option type="Map">
      <Option name="border_width_map_unit_scale" type="QString" value="3x:0,0,0,0,0,0"/>
      <Option name="color" type="QString" value="255,255,255,255,rgb:1,1,1,1"/>
@@ -33,7 +33,7 @@
     </data_defined_properties>
    </layer>
   </symbol>
-  <LayoutItem background="true" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" id="" itemRotation="0" opacity="1" outlineWidthM="0.3,mm" position="0,0,mm" positionLock="false" positionOnPage="0,0,mm" referencePoint="0" size="432,279,mm" templateUuid="{5f2fb352-608b-4cc0-8092-b9ab63b44621}" type="65638" uuid="{5f2fb352-608b-4cc0-8092-b9ab63b44621}" visibility="1" zValue="0">
+  <LayoutItem background="true" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" id="" itemRotation="0" opacity="1" outlineWidthM="0.3,mm" position="0,0,mm" positionLock="false" positionOnPage="0,0,mm" referencePoint="0" size="432,279,mm" templateUuid="{7bdde2a6-c5d0-4355-aad5-64dda78eb8ab}" type="65638" uuid="{7bdde2a6-c5d0-4355-aad5-64dda78eb8ab}" visibility="1" zValue="0">
    <FrameColor alpha="255" blue="0" green="0" red="0"/>
    <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
    <LayoutObject>
@@ -56,7 +56,7 @@
       <Option name="type" type="QString" value="collection"/>
      </Option>
     </data_defined_properties>
-    <layer class="SimpleFill" enabled="1" id="{9a4d7fb1-680b-478f-934d-9a19b9b4d8ab}" locked="0" pass="0">
+    <layer class="SimpleFill" enabled="1" id="{313eb240-a79d-427c-bbff-a511bb75a481}" locked="0" pass="0">
      <Option type="Map">
       <Option name="border_width_map_unit_scale" type="QString" value="3x:0,0,0,0,0,0"/>
       <Option name="color" type="QString" value="255,255,255,255,rgb:1,1,1,1"/>
@@ -82,7 +82,7 @@
   </LayoutItem>
   <GuideCollection visible="1"/>
  </PageCollection>
- <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="4" htmlState="0" id="rot_consultor" itemRotation="0" labelText="" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="369.34,266,mm" positionLock="false" positionOnPage="369.34,266,mm" referencePoint="0" size="53.16,4.5,mm" templateUuid="{1d4a524e-4b7f-4655-b3f2-5c8d32f87555}" type="65641" uuid="{1d4a524e-4b7f-4655-b3f2-5c8d32f87555}" valign="32" visibility="1" zValue="15">
+ <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="4" htmlState="0" id="rot_consultor" itemRotation="0" labelText="" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="369.34,266,mm" positionLock="false" positionOnPage="369.34,266,mm" referencePoint="0" size="53.16,4.5,mm" templateUuid="{614bf170-11ec-4d3d-90bf-d315bf573bc7}" type="65641" uuid="{614bf170-11ec-4d3d-90bf-d315bf573bc7}" valign="32" visibility="1" zValue="15">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -144,7 +144,7 @@
    </dd_properties>
   </text-style>
  </LayoutItem>
- <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="4" htmlState="0" id="rot_contratante" itemRotation="0" labelText="" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="9.5,266,mm" positionLock="false" positionOnPage="9.5,266,mm" referencePoint="0" size="49,4.5,mm" templateUuid="{50fff238-8fae-4ded-87d1-ed40f3608e37}" type="65641" uuid="{50fff238-8fae-4ded-87d1-ed40f3608e37}" valign="32" visibility="1" zValue="14">
+ <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="4" htmlState="0" id="rot_contratante" itemRotation="0" labelText="" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="9.5,266,mm" positionLock="false" positionOnPage="9.5,266,mm" referencePoint="0" size="49,4.5,mm" templateUuid="{3d5cd5c0-f07c-4def-ac41-aeb40f679b56}" type="65641" uuid="{3d5cd5c0-f07c-4def-ac41-aeb40f679b56}" valign="32" visibility="1" zValue="14">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -206,7 +206,7 @@
    </dd_properties>
   </text-style>
  </LayoutItem>
- <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="4" htmlState="0" id="rot_referencia" itemRotation="0" labelText="" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="290.8,243,mm" positionLock="false" positionOnPage="290.8,243,mm" referencePoint="0" size="75.04,26,mm" templateUuid="{acaa22e8-ac80-4413-9a64-ba889835f815}" type="65641" uuid="{acaa22e8-ac80-4413-9a64-ba889835f815}" valign="32" visibility="1" zValue="13">
+ <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="4" htmlState="0" id="rot_referencia" itemRotation="0" labelText="" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="290.8,243,mm" positionLock="false" positionOnPage="290.8,243,mm" referencePoint="0" size="75.04,26,mm" templateUuid="{34157dff-f58c-46bb-a4ed-82166fb1d7b4}" type="65641" uuid="{34157dff-f58c-46bb-a4ed-82166fb1d7b4}" valign="32" visibility="1" zValue="13">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -268,7 +268,7 @@
    </dd_properties>
   </text-style>
  </LayoutItem>
- <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="1" htmlState="0" id="rot_contenido" itemRotation="0" labelText="" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="190.8,249,mm" positionLock="false" positionOnPage="190.8,249,mm" referencePoint="0" size="96,20,mm" templateUuid="{7c0e755c-f844-4f64-9cdf-fc735d3a0519}" type="65641" uuid="{7c0e755c-f844-4f64-9cdf-fc735d3a0519}" valign="32" visibility="1" zValue="12">
+ <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="1" htmlState="0" id="rot_contenido" itemRotation="0" labelText="" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="190.8,249,mm" positionLock="false" positionOnPage="190.8,249,mm" referencePoint="0" size="96,20,mm" templateUuid="{99df0cc6-524d-4edb-beae-2836fa7ac56e}" type="65641" uuid="{99df0cc6-524d-4edb-beae-2836fa7ac56e}" valign="32" visibility="1" zValue="12">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -330,7 +330,7 @@
    </dd_properties>
   </text-style>
  </LayoutItem>
- <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="1" htmlState="0" id="rotulo_contenido_titulo" itemRotation="0" labelText="CONTENIDO:" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="186.8,243,mm" positionLock="false" positionOnPage="186.8,243,mm" referencePoint="0" size="100,5,mm" templateUuid="{3844ca95-3ef2-4e95-9b80-0b6b75aba76a}" type="65641" uuid="{3844ca95-3ef2-4e95-9b80-0b6b75aba76a}" valign="32" visibility="1" zValue="11">
+ <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="1" htmlState="0" id="rotulo_contenido_titulo" itemRotation="0" labelText="CONTENIDO:" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="186.8,243,mm" positionLock="false" positionOnPage="186.8,243,mm" referencePoint="0" size="100,5,mm" templateUuid="{cfc3ae41-0c2d-478f-bc49-06aedc8aa549}" type="65641" uuid="{cfc3ae41-0c2d-478f-bc49-06aedc8aa549}" valign="32" visibility="1" zValue="11">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -392,7 +392,7 @@
    </dd_properties>
   </text-style>
  </LayoutItem>
- <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="1" htmlState="0" id="rot_proyecto" itemRotation="0" labelText="" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="66,249,mm" positionLock="false" positionOnPage="66,249,mm" referencePoint="0" size="116.8,20,mm" templateUuid="{def1c1c6-970e-493c-a03b-dbd5dd0004af}" type="65641" uuid="{def1c1c6-970e-493c-a03b-dbd5dd0004af}" valign="32" visibility="1" zValue="10">
+ <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="1" htmlState="0" id="rot_proyecto" itemRotation="0" labelText="" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="66,249,mm" positionLock="false" positionOnPage="66,249,mm" referencePoint="0" size="116.8,20,mm" templateUuid="{6040aa1a-90dd-4679-a427-387dc568b8a6}" type="65641" uuid="{6040aa1a-90dd-4679-a427-387dc568b8a6}" valign="32" visibility="1" zValue="10">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -454,7 +454,7 @@
    </dd_properties>
   </text-style>
  </LayoutItem>
- <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="1" htmlState="0" id="rotulo_proyecto_titulo" itemRotation="0" labelText="PROYECTO:" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="62,243,mm" positionLock="false" positionOnPage="62,243,mm" referencePoint="0" size="120.8,5,mm" templateUuid="{0389ae62-6b1b-4227-b55a-3d981f48647c}" type="65641" uuid="{0389ae62-6b1b-4227-b55a-3d981f48647c}" valign="32" visibility="1" zValue="9">
+ <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="1" htmlState="0" id="rotulo_proyecto_titulo" itemRotation="0" labelText="PROYECTO:" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="62,243,mm" positionLock="false" positionOnPage="62,243,mm" referencePoint="0" size="120.8,5,mm" templateUuid="{94b017c6-0df2-4cb1-9000-d96eb4341cc4}" type="65641" uuid="{94b017c6-0df2-4cb1-9000-d96eb4341cc4}" valign="32" visibility="1" zValue="9">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -516,7 +516,7 @@
    </dd_properties>
   </text-style>
  </LayoutItem>
- <LayoutItem anchorPoint="0" background="false" blendMode="0" excludeFromExports="0" file="" frame="false" frameJoinStyle="miter" groupUuid="" id="logo_consultor" itemRotation="0" mapUuid="" mode="2" northMode="0" northOffset="0" opacity="1" outlineWidthM="0.3,mm" pictureHeight="nan" pictureRotation="0" pictureWidth="nan" position="369.34,242.5,mm" positionLock="false" positionOnPage="369.34,242.5,mm" referencePoint="0" resizeMode="0" size="53.16,27,mm" svgBorderColor="0,0,0,255,rgb:0,0,0,1" svgBorderWidth="0.2" svgFillColor="255,255,255,255,rgb:1,1,1,1" templateUuid="{c46199d4-176a-4728-b1b2-afad9effd0ac}" type="65640" uuid="{c46199d4-176a-4728-b1b2-afad9effd0ac}" visibility="1" zValue="8">
+ <LayoutItem anchorPoint="0" background="false" blendMode="0" excludeFromExports="0" file="" frame="false" frameJoinStyle="miter" groupUuid="" id="logo_consultor" itemRotation="0" mapUuid="" mode="2" northMode="0" northOffset="0" opacity="1" outlineWidthM="0.3,mm" pictureHeight="nan" pictureRotation="0" pictureWidth="nan" position="369.34,242.5,mm" positionLock="false" positionOnPage="369.34,242.5,mm" referencePoint="0" resizeMode="0" size="53.16,27,mm" svgBorderColor="0,0,0,255,rgb:0,0,0,1" svgBorderWidth="0.2" svgFillColor="255,255,255,255,rgb:1,1,1,1" templateUuid="{75d7a5ec-a18a-4abc-94cf-97428551c656}" type="65640" uuid="{75d7a5ec-a18a-4abc-94cf-97428551c656}" visibility="1" zValue="8">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -532,7 +532,7 @@
    </customproperties>
   </LayoutObject>
  </LayoutItem>
- <LayoutItem anchorPoint="0" background="false" blendMode="0" excludeFromExports="0" file="" frame="false" frameJoinStyle="miter" groupUuid="" id="logo_contratante" itemRotation="0" mapUuid="" mode="2" northMode="0" northOffset="0" opacity="1" outlineWidthM="0.3,mm" pictureHeight="nan" pictureRotation="0" pictureWidth="nan" position="9.5,242.5,mm" positionLock="false" positionOnPage="9.5,242.5,mm" referencePoint="0" resizeMode="0" size="49,27,mm" svgBorderColor="0,0,0,255,rgb:0,0,0,1" svgBorderWidth="0.2" svgFillColor="255,255,255,255,rgb:1,1,1,1" templateUuid="{3fb21def-cbd5-4d28-8772-813914b9eee9}" type="65640" uuid="{3fb21def-cbd5-4d28-8772-813914b9eee9}" visibility="1" zValue="7">
+ <LayoutItem anchorPoint="0" background="false" blendMode="0" excludeFromExports="0" file="" frame="false" frameJoinStyle="miter" groupUuid="" id="logo_contratante" itemRotation="0" mapUuid="" mode="2" northMode="0" northOffset="0" opacity="1" outlineWidthM="0.3,mm" pictureHeight="nan" pictureRotation="0" pictureWidth="nan" position="9.5,242.5,mm" positionLock="false" positionOnPage="9.5,242.5,mm" referencePoint="0" resizeMode="0" size="49,27,mm" svgBorderColor="0,0,0,255,rgb:0,0,0,1" svgBorderWidth="0.2" svgFillColor="255,255,255,255,rgb:1,1,1,1" templateUuid="{1b2fcda1-0119-4afc-8938-e88592758008}" type="65640" uuid="{1b2fcda1-0119-4afc-8938-e88592758008}" visibility="1" zValue="7">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -548,7 +548,7 @@
    </customproperties>
   </LayoutObject>
  </LayoutItem>
- <LayoutItem background="false" blendMode="0" cornerRadiusMeasure="0,mm" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" id="panel_rotulo" itemRotation="0" opacity="1" outlineWidthM="0.3,mm" position="8,241,mm" positionLock="false" positionOnPage="8,241,mm" referencePoint="0" shapeType="1" size="416,30,mm" templateUuid="{a0249f8e-1904-4a07-a39e-7b5a9106ddf8}" type="65643" uuid="{a0249f8e-1904-4a07-a39e-7b5a9106ddf8}" visibility="1" zValue="6">
+ <LayoutItem background="false" blendMode="0" cornerRadiusMeasure="0,mm" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" id="panel_rotulo" itemRotation="0" opacity="1" outlineWidthM="0.3,mm" position="8,241,mm" positionLock="false" positionOnPage="8,241,mm" referencePoint="0" shapeType="1" size="416,30,mm" templateUuid="{8486e7c4-7edb-400a-bddf-76adb73cc90b}" type="65643" uuid="{8486e7c4-7edb-400a-bddf-76adb73cc90b}" visibility="1" zValue="6">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -571,7 +571,7 @@
      <Option name="type" type="QString" value="collection"/>
     </Option>
    </data_defined_properties>
-   <layer class="SimpleFill" enabled="1" id="{8254edd7-3b23-4a95-ac02-8d835af873c9}" locked="0" pass="0">
+   <layer class="SimpleFill" enabled="1" id="{823c2da1-b8bf-4560-bde7-a0bd078d4f16}" locked="0" pass="0">
     <Option type="Map">
      <Option name="border_width_map_unit_scale" type="QString" value="3x:0,0,0,0,0,0"/>
      <Option name="color" type="QString" value="255,255,255,255,rgb:1,1,1,1"/>
@@ -595,7 +595,7 @@
    </layer>
   </symbol>
  </LayoutItem>
- <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="1" htmlState="0" id="escala_numerica" itemRotation="0" labelText="Escala 1:0" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="352,228,mm" positionLock="false" positionOnPage="352,228,mm" referencePoint="0" size="68,6,mm" templateUuid="{479d19a1-e31a-4e04-9e78-761c069bb8af}" type="65641" uuid="{479d19a1-e31a-4e04-9e78-761c069bb8af}" valign="32" visibility="1" zValue="5">
+ <LayoutItem background="false" blendMode="0" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" halign="1" htmlState="0" id="escala_numerica" itemRotation="0" labelText="Escala 1:0" marginX="0" marginY="0" opacity="1" outlineWidthM="0.3,mm" position="352,228,mm" positionLock="false" positionOnPage="352,228,mm" referencePoint="0" size="68,6,mm" templateUuid="{07e3c71e-9445-4e8b-ba8b-cf61834880cc}" type="65641" uuid="{07e3c71e-9445-4e8b-ba8b-cf61834880cc}" valign="32" visibility="1" zValue="5">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -657,7 +657,7 @@
    </dd_properties>
   </text-style>
  </LayoutItem>
- <LayoutItem alignment="0" background="true" blendMode="0" boxContentSpace="1" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" height="3" id="escala_grafica" itemRotation="0" labelBarSpace="3" labelHorizontalPlacement="0" labelVerticalPlacement="0" lineCapStyle="square" lineJoinStyle="miter" mapUuid="{05fdd2af-1c8b-4bb7-8145-56e6c8881545}" maxBarWidth="150" method="HorizontalAverage" minBarWidth="50" numMapUnitsPerScaleBarUnit="1" numSegments="4" numSegmentsLeft="0" numSubdivisions="1" numUnitsPerSegment="1" opacity="1" outlineWidth="0.3" outlineWidthM="0.3,mm" position="352,214,mm" positionLock="false" positionOnPage="352,214,mm" referencePoint="0" segmentMillimeters="0" segmentSizeMode="0" size="68,13.7502,mm" style="Single Box" subdivisionsHeight="1.5" templateUuid="{1fb46ba4-cbb5-4961-87b2-9a81485fa571}" type="65646" unitLabel="km" unitType="km" uuid="{1fb46ba4-cbb5-4961-87b2-9a81485fa571}" visibility="1" zValue="4">
+ <LayoutItem alignment="0" background="true" blendMode="0" boxContentSpace="1.5" excludeFromExports="0" frame="false" frameJoinStyle="miter" groupUuid="" height="4" id="escala_grafica" itemRotation="0" labelBarSpace="3" labelHorizontalPlacement="0" labelVerticalPlacement="0" lineCapStyle="square" lineJoinStyle="miter" mapUuid="{926e2f63-b126-48be-9c9c-ef01a685f43e}" maxBarWidth="150" method="HorizontalAverage" minBarWidth="50" numMapUnitsPerScaleBarUnit="1" numSegments="4" numSegmentsLeft="0" numSubdivisions="1" numUnitsPerSegment="1" opacity="1" outlineWidth="0.3" outlineWidthM="0.3,mm" position="342,210,mm" positionLock="false" positionOnPage="342,210,mm" referencePoint="0" segmentMillimeters="0" segmentSizeMode="0" size="78,17,mm" style="Single Box" subdivisionsHeight="1.5" templateUuid="{04a98fa9-07e2-4bef-a4b2-af6e684b139a}" type="65646" unitLabel="km" unitType="km" uuid="{04a98fa9-07e2-4bef-a4b2-af6e684b139a}" visibility="1" zValue="4">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -672,7 +672,7 @@
     <Option/>
    </customproperties>
   </LayoutObject>
-  <text-style allowHtml="0" blendMode="0" capitalization="0" fontFamily="Segoe UI" fontItalic="0" fontKerning="1" fontLetterSpacing="0" fontSize="12" fontSizeMapUnitScale="3x:0,0,0,0,0,0" fontSizeUnit="Point" fontStrikeout="0" fontUnderline="0" fontWeight="400" fontWordSpacing="0" forcedBold="0" forcedItalic="0" multilineHeight="1" multilineHeightUnit="Percentage" namedStyle="" previewBkgrdColor="255,255,255,255,rgb:1,1,1,1" tabStopDistance="6" tabStopDistanceMapUnitScale="3x:0,0,0,0,0,0" tabStopDistanceUnit="Percentage" textColor="0,0,0,255,rgb:0,0,0,1" textOpacity="1" textOrientation="horizontal">
+  <text-style allowHtml="0" blendMode="0" capitalization="0" fontFamily="Arial" fontItalic="0" fontKerning="1" fontLetterSpacing="0" fontSize="9" fontSizeMapUnitScale="3x:0,0,0,0,0,0" fontSizeUnit="Point" fontStrikeout="0" fontUnderline="0" fontWeight="400" fontWordSpacing="0" forcedBold="0" forcedItalic="0" multilineHeight="1" multilineHeightUnit="Percentage" namedStyle="" previewBkgrdColor="255,255,255,255,rgb:1,1,1,1" tabStopDistance="6" tabStopDistanceMapUnitScale="3x:0,0,0,0,0,0" tabStopDistanceUnit="Percentage" textColor="0,0,0,255,rgb:0,0,0,1" textOpacity="1" textOrientation="horizontal">
    <families/>
    <text-buffer bufferBlendMode="0" bufferColor="255,255,255,255,rgb:1,1,1,1" bufferDraw="0" bufferJoinStyle="128" bufferNoFill="1" bufferOpacity="1" bufferSize="1" bufferSizeMapUnitScale="3x:0,0,0,0,0,0" bufferSizeUnits="MM"/>
    <text-mask maskEnabled="0" maskJoinStyle="128" maskOpacity="1" maskSize="1.5" maskSize2="1.5" maskSizeMapUnitScale="3x:0,0,0,0,0,0" maskSizeUnits="MM" maskType="0" maskedSymbolLayers=""/>
@@ -741,7 +741,7 @@
       <Option name="type" type="QString" value="collection"/>
      </Option>
     </data_defined_properties>
-    <layer class="SimpleLine" enabled="1" id="{224ddf40-0bef-491d-8464-488dee254bdc}" locked="0" pass="0">
+    <layer class="SimpleLine" enabled="1" id="{cf74f7ea-fe06-44c1-b2be-25864dbf7628}" locked="0" pass="0">
      <Option type="Map">
       <Option name="align_dash_pattern" type="QString" value="0"/>
       <Option name="capstyle" type="QString" value="square"/>
@@ -790,7 +790,7 @@
       <Option name="type" type="QString" value="collection"/>
      </Option>
     </data_defined_properties>
-    <layer class="SimpleLine" enabled="1" id="{224ddf40-0bef-491d-8464-488dee254bdc}" locked="0" pass="0">
+    <layer class="SimpleLine" enabled="1" id="{cf74f7ea-fe06-44c1-b2be-25864dbf7628}" locked="0" pass="0">
      <Option type="Map">
       <Option name="align_dash_pattern" type="QString" value="0"/>
       <Option name="capstyle" type="QString" value="square"/>
@@ -839,7 +839,7 @@
       <Option name="type" type="QString" value="collection"/>
      </Option>
     </data_defined_properties>
-    <layer class="SimpleLine" enabled="1" id="{224ddf40-0bef-491d-8464-488dee254bdc}" locked="0" pass="0">
+    <layer class="SimpleLine" enabled="1" id="{cf74f7ea-fe06-44c1-b2be-25864dbf7628}" locked="0" pass="0">
      <Option type="Map">
       <Option name="align_dash_pattern" type="QString" value="0"/>
       <Option name="capstyle" type="QString" value="square"/>
@@ -888,7 +888,7 @@
       <Option name="type" type="QString" value="collection"/>
      </Option>
     </data_defined_properties>
-    <layer class="SimpleFill" enabled="1" id="{364a5988-a0a7-432a-aff7-973821d9a177}" locked="0" pass="0">
+    <layer class="SimpleFill" enabled="1" id="{6d02b9df-387d-4107-87d4-f059b3b8ba85}" locked="0" pass="0">
      <Option type="Map">
       <Option name="border_width_map_unit_scale" type="QString" value="3x:0,0,0,0,0,0"/>
       <Option name="color" type="QString" value="0,0,0,255,rgb:0,0,0,1"/>
@@ -921,7 +921,7 @@
       <Option name="type" type="QString" value="collection"/>
      </Option>
     </data_defined_properties>
-    <layer class="SimpleFill" enabled="1" id="{d3830a66-433d-41f9-8f30-8f136701d272}" locked="0" pass="0">
+    <layer class="SimpleFill" enabled="1" id="{0103a014-6cff-40da-a1b7-68e572b409a0}" locked="0" pass="0">
      <Option type="Map">
       <Option name="border_width_map_unit_scale" type="QString" value="3x:0,0,0,0,0,0"/>
       <Option name="color" type="QString" value="255,255,255,255,rgb:1,1,1,1"/>
@@ -946,7 +946,7 @@
    </symbol>
   </fillSymbol2>
  </LayoutItem>
- <LayoutItem anchorPoint="0" background="false" blendMode="0" excludeFromExports="0" file="arrows/NorthArrow_02.svg" frame="false" frameJoinStyle="miter" groupUuid="" id="norte" itemRotation="0" mapUuid="" mode="2" northMode="0" northOffset="0" opacity="1" outlineWidthM="0.3,mm" pictureHeight="18" pictureRotation="0" pictureWidth="11.3196" position="402,192,mm" positionLock="false" positionOnPage="402,192,mm" referencePoint="0" resizeMode="0" size="18,18,mm" svgBorderColor="0,0,0,255,rgb:0,0,0,1" svgBorderWidth="0.2" svgFillColor="255,255,255,255,rgb:1,1,1,1" templateUuid="{c2d4e919-8c8f-4d21-9e54-5bca69ce5c19}" type="65640" uuid="{c2d4e919-8c8f-4d21-9e54-5bca69ce5c19}" visibility="1" zValue="3">
+ <LayoutItem anchorPoint="0" background="false" blendMode="0" excludeFromExports="0" file="arrows/NorthArrow_02.svg" frame="false" frameJoinStyle="miter" groupUuid="" id="norte" itemRotation="0" mapUuid="" mode="2" northMode="0" northOffset="0" opacity="1" outlineWidthM="0.3,mm" pictureHeight="18" pictureRotation="0" pictureWidth="11.3196" position="402,192,mm" positionLock="false" positionOnPage="402,192,mm" referencePoint="0" resizeMode="0" size="18,18,mm" svgBorderColor="0,0,0,255,rgb:0,0,0,1" svgBorderWidth="0.2" svgFillColor="255,255,255,255,rgb:1,1,1,1" templateUuid="{0959311a-9ea2-4381-b548-6931e39951e3}" type="65640" uuid="{0959311a-9ea2-4381-b548-6931e39951e3}" visibility="1" zValue="3">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -962,7 +962,7 @@
    </customproperties>
   </LayoutObject>
  </LayoutItem>
- <LayoutItem background="true" blendMode="0" boxSpace="2" columnCount="1" columnSpace="2" equalColumnWidth="0" excludeFromExports="0" frame="true" frameJoinStyle="miter" groupUuid="" id="leyenda" itemRotation="0" legendFilterByAtlas="0" map_uuid="{05fdd2af-1c8b-4bb7-8145-56e6c8881545}" maxSymbolSize="0" minSymbolSize="0" opacity="1" outlineWidthM="0.3,mm" position="363,11,mm" positionLock="false" positionOnPage="363,11,mm" rasterBorder="1" rasterBorderColor="0,0,0,255,rgb:0,0,0,1" rasterBorderWidth="0" referencePoint="0" resizeToContents="0" size="58,95,mm" splitLayer="0" symbolAlignment="1" symbolHeight="4" symbolWidth="7" syncMode="AllProjectLayers" templateUuid="{358452d0-749e-4d66-ba93-c3236829a59e}" title="CONVENCIONES" titleAlignment="1" type="65642" uuid="{358452d0-749e-4d66-ba93-c3236829a59e}" visibility="1" wmsLegendHeight="25" wmsLegendWidth="50" wrapChar="" zValue="2">
+ <LayoutItem background="true" blendMode="0" boxSpace="2" columnCount="1" columnSpace="2" equalColumnWidth="0" excludeFromExports="0" frame="true" frameJoinStyle="miter" groupUuid="" id="leyenda" itemRotation="0" legendFilterByAtlas="0" map_uuid="{926e2f63-b126-48be-9c9c-ef01a685f43e}" maxSymbolSize="0" minSymbolSize="0" opacity="1" outlineWidthM="0.3,mm" position="353,11,mm" positionLock="false" positionOnPage="353,11,mm" rasterBorder="1" rasterBorderColor="0,0,0,255,rgb:0,0,0,1" rasterBorderWidth="0" referencePoint="0" resizeToContents="0" size="68,105,mm" splitLayer="0" symbolAlignment="1" symbolHeight="4" symbolWidth="7" syncMode="AllProjectLayers" templateUuid="{bded63e3-f69b-476c-a351-159d6e359101}" title="CONVENCIONES" titleAlignment="1" type="65642" uuid="{bded63e3-f69b-476c-a351-159d6e359101}" visibility="1" wmsLegendHeight="25" wmsLegendWidth="50" wrapChar="" zValue="2">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -1220,7 +1220,7 @@
    </style>
   </styles>
  </LayoutItem>
- <LayoutItem background="true" blendMode="0" drawCanvasItems="true" enableZRange="0" excludeFromExports="0" followPreset="false" followPresetName="" frame="true" frameJoinStyle="miter" groupUuid="" id="mapa" isTemporal="0" itemRotation="0" keepLayerSet="false" labelMargin="0,mm" mapFlags="0" mapRotation="0" opacity="1" outlineWidthM="0.3,mm" position="8,8,mm" positionLock="false" positionOnPage="8,8,mm" referencePoint="0" size="416,230,mm" templateUuid="{05fdd2af-1c8b-4bb7-8145-56e6c8881545}" type="65639" uuid="{05fdd2af-1c8b-4bb7-8145-56e6c8881545}" visibility="1" zValue="1">
+ <LayoutItem background="true" blendMode="0" drawCanvasItems="true" enableZRange="0" excludeFromExports="0" followPreset="false" followPresetName="" frame="true" frameJoinStyle="miter" groupUuid="" id="mapa" isTemporal="0" itemRotation="0" keepLayerSet="false" labelMargin="0,mm" mapFlags="0" mapRotation="0" opacity="1" outlineWidthM="0.3,mm" position="8,8,mm" positionLock="false" positionOnPage="8,8,mm" referencePoint="0" size="416,230,mm" templateUuid="{926e2f63-b126-48be-9c9c-ef01a685f43e}" type="65639" uuid="{926e2f63-b126-48be-9c9c-ef01a685f43e}" visibility="1" zValue="1">
   <FrameColor alpha="255" blue="0" green="0" red="0"/>
   <BackgroundColor alpha="255" blue="255" green="255" red="255"/>
   <LayoutObject>
@@ -1237,7 +1237,7 @@
   </LayoutObject>
   <Extent xmax="-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368" xmin="179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368" ymax="-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368" ymin="179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368"/>
   <LayerSet/>
-  <ComposerMapGrid annotationExpression="" annotationFormat="0" annotationPrecision="0" blendMode="0" bottomAnnotationDirection="0" bottomAnnotationDisplay="0" bottomAnnotationPosition="1" bottomFrameDivisions="0" crossLength="3" frameAnnotationDistance="1" frameFillColor1="255,255,255,255,rgb:1,1,1,1" frameFillColor2="0,0,0,255,rgb:0,0,0,1" gridFrameMargin="0" gridFramePenColor="0,0,0,255,rgb:0,0,0,1" gridFramePenThickness="0.29999999999999999" gridFrameSideFlags="15" gridFrameStyle="2" gridFrameWidth="2" gridStyle="3" intervalX="0" intervalY="0" leftAnnotationDirection="2" leftAnnotationDisplay="0" leftAnnotationPosition="1" leftFrameDivisions="0" maximumIntervalWidth="100" minimumIntervalWidth="50" name="Grid 1" offsetX="0" offsetY="0" position="3" rightAnnotationDirection="2" rightAnnotationDisplay="0" rightAnnotationPosition="1" rightFrameDivisions="0" rotatedAnnotationsEnabled="0" rotatedAnnotationsLengthMode="0" rotatedAnnotationsMarginToCorner="0" rotatedAnnotationsMinimumAngle="0" rotatedTicksEnabled="0" rotatedTicksLengthMode="0" rotatedTicksMarginToCorner="0" rotatedTicksMinimumAngle="0" show="1" showAnnotation="1" topAnnotationDirection="0" topAnnotationDisplay="0" topAnnotationPosition="1" topFrameDivisions="0" unit="0" uuid="{cc5c3c6b-a1ed-4af2-bdc6-02cc117ec06a}">
+  <ComposerMapGrid annotationExpression="" annotationFormat="0" annotationPrecision="0" blendMode="0" bottomAnnotationDirection="0" bottomAnnotationDisplay="0" bottomAnnotationPosition="1" bottomFrameDivisions="0" crossLength="2" frameAnnotationDistance="1" frameFillColor1="255,255,255,255,rgb:1,1,1,1" frameFillColor2="0,0,0,255,rgb:0,0,0,1" gridFrameMargin="0" gridFramePenColor="0,0,0,255,rgb:0,0,0,1" gridFramePenThickness="0.20000000000000001" gridFrameSideFlags="15" gridFrameStyle="1" gridFrameWidth="2" gridStyle="1" intervalX="0" intervalY="0" leftAnnotationDirection="2" leftAnnotationDisplay="0" leftAnnotationPosition="1" leftFrameDivisions="0" maximumIntervalWidth="100" minimumIntervalWidth="50" name="Grid 1" offsetX="0" offsetY="0" position="3" rightAnnotationDirection="2" rightAnnotationDisplay="0" rightAnnotationPosition="1" rightFrameDivisions="0" rotatedAnnotationsEnabled="0" rotatedAnnotationsLengthMode="0" rotatedAnnotationsMarginToCorner="0" rotatedAnnotationsMinimumAngle="0" rotatedTicksEnabled="0" rotatedTicksLengthMode="0" rotatedTicksMarginToCorner="0" rotatedTicksMinimumAngle="0" show="1" showAnnotation="1" topAnnotationDirection="0" topAnnotationDisplay="0" topAnnotationPosition="1" topFrameDivisions="0" unit="0" uuid="{2c4e7226-fd9b-41f2-a095-91f4b8b01168}">
    <lineStyle>
     <symbol alpha="1" clip_to_extent="1" force_rhr="0" frame_rate="10" is_animated="0" name="" type="line">
      <data_defined_properties>
@@ -1247,7 +1247,7 @@
        <Option name="type" type="QString" value="collection"/>
       </Option>
      </data_defined_properties>
-     <layer class="SimpleLine" enabled="1" id="{04f3aa67-0f97-4dba-a698-906a9bc9a412}" locked="0" pass="0">
+     <layer class="SimpleLine" enabled="1" id="{f62c7b13-5284-4412-afab-c09b6e1bdf4e}" locked="0" pass="0">
       <Option type="Map">
        <Option name="align_dash_pattern" type="QString" value="0"/>
        <Option name="capstyle" type="QString" value="flat"/>
@@ -1296,7 +1296,7 @@
        <Option name="type" type="QString" value="collection"/>
       </Option>
      </data_defined_properties>
-     <layer class="SimpleMarker" enabled="1" id="{a26ae813-7b1d-4adb-9cde-faee96306e86}" locked="0" pass="0">
+     <layer class="SimpleMarker" enabled="1" id="{55f853ae-78e5-4b61-b982-f99aeb3e8092}" locked="0" pass="0">
       <Option type="Map">
        <Option name="angle" type="QString" value="0"/>
        <Option name="cap_style" type="QString" value="square"/>
@@ -1329,12 +1329,12 @@
     </symbol>
    </markerStyle>
    <spatialrefsys nativeFormat="Wkt">
-    <wkt>PROJCRS["MAGNA-SIRGAS 2018 / Origen-Nacional",BASEGEOGCRS["MAGNA-SIRGAS 2018",DATUM["Marco Geocentrico Nacional de Referencia 2018",ELLIPSOID["GRS 1980",6378137,298.257222101,LENGTHUNIT["metre",1]]],PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],ID["EPSG",20046]],CONVERSION["Colombia Transverse Mercator",METHOD["Transverse Mercator",ID["EPSG",9807]],PARAMETER["Latitude of natural origin",4,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8801]],PARAMETER["Longitude of natural origin",-73,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8802]],PARAMETER["Scale factor at natural origin",0.9992,SCALEUNIT["unity",1],ID["EPSG",8805]],PARAMETER["False easting",5000000,LENGTHUNIT["metre",1],ID["EPSG",8806]],PARAMETER["False northing",2000000,LENGTHUNIT["metre",1],ID["EPSG",8807]]],CS[Cartesian,2],AXIS["northing (N)",north,ORDER[1],LENGTHUNIT["metre",1]],AXIS["easting (E)",east,ORDER[2],LENGTHUNIT["metre",1]],USAGE[SCOPE["Cadastre, topographic mapping."],AREA["Colombia - onshore and offshore. Includes San Andres y Providencia, Malpelo Islands, Roncador Bank, Serrana Bank and Serranilla Bank."],BBOX[-4.23,-84.77,15.51,-66.87]],ID["EPSG",9377]]</wkt>
-    <proj4>+proj=tmerc +lat_0=4 +lon_0=-73 +k=0.9992 +x_0=5000000 +y_0=2000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs</proj4>
-    <srsid>63408</srsid>
-    <srid>520003408</srid>
-    <authid>EPSG:9377</authid>
-    <description>MAGNA-SIRGAS 2018 / Origen-Nacional</description>
+    <wkt>PROJCRS["MAGNA-SIRGAS / Colombia Bogota zone",BASEGEOGCRS["MAGNA-SIRGAS",DATUM["Marco Geocentrico Nacional de Referencia",ELLIPSOID["GRS 1980",6378137,298.257222101,LENGTHUNIT["metre",1]]],PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]],ID["EPSG",4686]],CONVERSION["Colombia MAGNA Bogota zone",METHOD["Transverse Mercator",ID["EPSG",9807]],PARAMETER["Latitude of natural origin",4.59620041666667,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8801]],PARAMETER["Longitude of natural origin",-74.0775079166667,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8802]],PARAMETER["Scale factor at natural origin",1,SCALEUNIT["unity",1],ID["EPSG",8805]],PARAMETER["False easting",1000000,LENGTHUNIT["metre",1],ID["EPSG",8806]],PARAMETER["False northing",1000000,LENGTHUNIT["metre",1],ID["EPSG",8807]]],CS[Cartesian,2],AXIS["northing (N)",north,ORDER[1],LENGTHUNIT["metre",1]],AXIS["easting (E)",east,ORDER[2],LENGTHUNIT["metre",1]],USAGE[SCOPE["Engineering survey, topographic mapping (large scale)."],AREA["Colombia - onshore between 1°30'W and 1°30'E of Bogota (approximately 75°35'W and 72°35'W of Greenwich)."],BBOX[-2.51,-75.59,11.82,-72.58]],ID["EPSG",3116]]</wkt>
+    <proj4>+proj=tmerc +lat_0=4.59620041666667 +lon_0=-74.0775079166667 +k=1 +x_0=1000000 +y_0=1000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs</proj4>
+    <srsid>1079</srsid>
+    <srid>3116</srid>
+    <authid>EPSG:3116</authid>
+    <description>MAGNA-SIRGAS / Colombia Bogota zone</description>
     <projectionacronym>tmerc</projectionacronym>
     <ellipsoidacronym>EPSG:7019</ellipsoidacronym>
     <geographicflag>false</geographicflag>

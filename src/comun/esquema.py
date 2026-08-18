@@ -1321,6 +1321,11 @@ ESQUEMA: dict[str, Campo] = {
     "cartografia.plantilla_qpt_detalle": ruta(
         "composición .qpt de la plancha con marco de detalle"),
     "cartografia.rotulo": ruta("datos del rótulo del estudio"),
+    "cartografia.crs": texto("sistema en que se presentan las planchas",
+                             requerido=False),
+    "cartografia.numerar_figuras": booleano("numerar los archivos de figura"),
+    "cartografia.prefijo_figura": texto("prefijo del nombre de figura"),
+    "cartografia.escala_uniforme": booleano("una sola escala por grupo"),
     "cartografia.plancha.alto_rotulo_mm": numero(
         "alto del rótulo inferior", minimo=0.0),
     "cartografia.plancha.separacion_mm": numero(

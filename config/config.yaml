@@ -1480,7 +1480,21 @@ cartografia:
   plantilla_qpt_detalle: "templates/mapas/plancha_detalle.qpt"
   escribir_plantilla_inicial: true   # la crea si no existe; nunca la sobrescribe
 
-  formato_salida: [pdf, png]
+  # SOLO PDF. El PNG duplicaba cada plancha sin aportar: el informe inserta la
+  # figura y el anexo cartografico se entrega en PDF. La numeracion del archivo
+  # es la del indice de figuras, de modo que el anexo se arma sin renombrar.
+  formato_salida: [pdf]
+  numerar_figuras: true
+  prefijo_figura: "Figura"
+
+  # UNA SOLA ESCALA POR GRUPO de planchas. El consultor compara entre figuras y
+  # eso exige que midan lo mismo. Se adopta la mayor que exige el grupo.
+  escala_uniforme: true
+
+  # Sistema en que se PRESENTAN las planchas. La cadena calcula en CTM12, que es
+  # el origen unico nacional; la entrega se presenta en el que declaro el
+  # consultor con las coordenadas del punto de descarga. Vacio adopta ese.
+  crs: ""
   dpi: 300
 
   # Divisiones aproximadas de la grilla de coordenadas a lo ancho del marco. El

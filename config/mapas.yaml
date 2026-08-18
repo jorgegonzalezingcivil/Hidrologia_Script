@@ -43,6 +43,7 @@ capas:
     tipo: vector
     ruta: "data/03_SIG/vector/subzona_intersectada.shp"
     estilo: "subzona_intersectada.qml"
+    etiquetas: {campo: nom_szh, tamano: 9}
   area_influencia:
     nombre: "Área de influencia"
     tipo: vector
@@ -116,11 +117,13 @@ capas:
     tipo: vector
     ruta: "data/03_SIG/vector/estaciones_seleccionadas.shp"
     estilo: "estaciones_seleccionadas.qml"
+    etiquetas: {campo: codigo, tamano: 6.5}
   estaciones_descartadas:
     nombre: "Estaciones descartadas"
     tipo: vector
     ruta: "data/03_SIG/vector/estaciones_descartadas.shp"
     estilo: "estaciones_descartadas.qml"
+    etiquetas: {campo: codigo, tamano: 5.5, negrita: false}
 
   # --- Temáticas por subcuenca ---------------------------------------------
   # LA MISMA GEOMETRÍA, PINTADA POR COLUMNAS DISTINTAS. Las subcuencas llevan
@@ -234,6 +237,7 @@ capas:
 mapas:
 
   - id: localizacion
+    grupo_escala: regional
     titulo: "Localización general"
     subtitulo: "Cuenca de estudio en su subzona hidrográfica"
     encuadre: subzona_intersectada
@@ -242,6 +246,20 @@ mapas:
     nota: >-
       La subzona hidrográfica procede de la Zonificación Hidrográfica del IDEAM
       (2013). El punto de descarga es el declarado por el consultor.
+
+  - id: zonificacion_hidrografica
+    titulo: "Zonificación hidrográfica"
+    figura: "Zonificacion Hidrografica"
+    subtitulo: "Subzona hidrográfica del IDEAM y cuenca de estudio"
+    encuadre: subzona_intersectada
+    grupo_escala: regional
+    esenciales: [subzona_intersectada]
+    capas: [subzona_intersectada, drenaje_sencillo, drenaje_doble,
+            area_influencia, subcuencas, punto_descarga]
+    nota: >-
+      La subzona procede de la Zonificación Hidrográfica del IDEAM (2013) y es
+      la unidad con la que se contrasta el rendimiento hídrico del estudio
+      contra el Estudio Nacional del Agua.
 
   - id: area_influencia
     titulo: "Área de influencia"
@@ -307,6 +325,7 @@ mapas:
       de infiltración, por la tabla de homologación del estudio.
 
   - id: estaciones
+    grupo_escala: regional
     titulo: "Estaciones hidrometeorológicas"
     subtitulo: "Seleccionadas y descartadas del Catálogo Nacional"
     encuadre: subzona_intersectada
@@ -429,6 +448,7 @@ mapas:
 series:
 
   - id: "isoyetas_{token}"
+    figura: "Precipitación Total Multianual Año {token}"
     patron: "data/03_SIG/raster/isoyetas/isoyetas_*.tif"
     titulo: "Isoyetas de precipitación total"
     subtitulo: "Fase ENSO: {token}"
@@ -441,7 +461,8 @@ series:
          estilo: "curvas_isoyetas.qml", nombre: "Isoyeta"}
       - {tipo: vector,
          ruta: "data/03_SIG/vector/isoyetas/estaciones_isoyetas_{token}.shp",
-         estilo: "estaciones_isoyetas.qml", nombre: "Estación"}
+         estilo: "estaciones_isoyetas.qml", nombre: "Estación",
+         etiquetas: {campo: codigo, tamano: 6.5}}
     capas: [area_influencia, drenaje_sencillo]
     nota: >-
       Interpolación IDW sobre la precipitación total mensual multianual de la
@@ -449,9 +470,10 @@ series:
       extrapolación.
 
   - id: "pmax_{token}"
+    figura: "Precipitación Máxima Tr {token_limpio} Años"
     patron: "data/03_SIG/raster/isoyetas/pmax_*.tif"
     titulo: "Isoyetas de precipitación máxima en 24 horas"
-    subtitulo: "Periodo de retorno {token}"
+    subtitulo: "Periodo de retorno {token_limpio} años"
     encuadre: area_influencia
     capas_extra:
       - {tipo: raster, ruta: "data/03_SIG/raster/isoyetas/pmax_{token}.tif",
@@ -460,7 +482,8 @@ series:
          estilo: "curvas_pmax.qml", nombre: "Isolínea de Pmáx"}
       - {tipo: vector,
          ruta: "data/03_SIG/vector/isoyetas/estaciones_pmax_{token}.shp",
-         estilo: "estaciones_pmax.qml", nombre: "Estación"}
+         estilo: "estaciones_pmax.qml", nombre: "Estación",
+         etiquetas: {campo: codigo, tamano: 6.5}}
     capas: [area_influencia, drenaje_sencillo]
     nota: >-
       Cada estación aporta el cuantil de la distribución que el M07 adoptó para

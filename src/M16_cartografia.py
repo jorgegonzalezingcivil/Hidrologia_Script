@@ -101,6 +101,7 @@ class CapaDeclarada:
     nombre: str = ""
     union: dict | None = None
     simbologia: dict | None = None
+    etiquetas: dict | None = None
 
     @property
     def existe(self) -> bool:
@@ -120,6 +121,8 @@ class Plancha:
     esenciales: tuple[str, ...] = ()
     escala_forzada: int | None = None
     encuadre_detalle: str = ""
+    figura: str = ""
+    grupo_escala: str = "estudio"
 
     @property
     def con_detalle(self) -> bool:
@@ -498,7 +501,8 @@ def _capa_desde(bruto: dict[str, Any], identificador: str, base: Path,
         estilo=str(estilo) if estilo else None,
         nombre=str(bruto.get("nombre", "") or "").strip(),
         union=bruto.get("union") or None,
-        simbologia=bruto.get("simbologia") or None)
+        simbologia=bruto.get("simbologia") or None,
+        etiquetas=bruto.get("etiquetas") or None)
 
 
 def _token_del_patron(patron: str, ruta: str) -> str | None:
@@ -576,7 +580,21 @@ def leer_declaracion(ruta: Path, base: Path, estilos: Path) -> list[Plancha]:
     def construir(bruto: dict[str, Any], token: str | None) -> Plancha:
         """Resuelve una declaración, sustituyendo {token} si viene de una serie."""
         def sustituir(texto: str) -> str:
-            return texto.replace("{token}", token) if token else texto
+            """
+            Resuelve {token} y {token_limpio} en la declaracion de una serie.
+
+            EL TOKEN SIRVE PARA NOMBRAR ARCHIVOS Y PARA ROTULAR, y no es lo
+            mismo: 'T2_33' identifica sin ambiguedad la capa en disco, pero en
+            el titulo de una figura se lee '2.33'.
+            """
+            if not token:
+                return texto
+            limpio = token[1:] if token[:1].upper() == "T" else token
+            limpio = limpio.replace("_", ".")
+            return (texto.replace("{token_limpio}", limpio)
+                    .replace("{token}", token))
+
+        sustituir_token = sustituir
 
         identificador = sustituir(str(bruto.get("id", "")).strip())
         if not identificador:
@@ -624,6 +642,9 @@ def leer_declaracion(ruta: Path, base: Path, estilos: Path) -> list[Plancha]:
             capas=tuple(capas),
             esenciales=esenciales,
             encuadre_detalle=detalle,
+            figura=sustituir(str(bruto.get("figura", "") or "")),
+            grupo_escala=str(bruto.get("grupo_escala", "estudio")
+                             or "estudio"),
             escala_forzada=int(forzada) if forzada else None,
         )
 
@@ -643,12 +664,36 @@ def leer_declaracion(ruta: Path, base: Path, estilos: Path) -> list[Plancha]:
     return planchas
 
 
+def nombre_de_figura(numero: int, plancha: Plancha,
+                     configuracion: Config) -> str:
+    """
+    Nombre del archivo de la plancha, numerado como el índice de figuras.
+
+    SE NUMERA EN EL ORDEN DE LA DECLARACIÓN, que es el orden del informe. Un
+    juego cuyos archivos se ordenan alfabéticamente obliga a renombrarlos a mano
+    para armar el anexo, y ahí es donde se pierde la correspondencia con el
+    texto.
+
+    Los caracteres que Windows no admite en un nombre de archivo se sustituyen.
+    """
+    if not configuracion.obtener("cartografia.numerar_figuras", True):
+        return plancha.identificador
+    prefijo = str(configuracion.obtener("cartografia.prefijo_figura", "Figura"))
+    limpio = re.sub(r'[<>:"/\\|?*]', "-", plancha.figura or plancha.titulo)
+    return f"{prefijo} {numero}. {limpio.strip()}"
+
+
 def catalogo_de_capas(planchas: Sequence[Plancha]) -> list[CapaDeclarada]:
     """Capas distintas del juego, en orden de primera aparición."""
+    # SE DEDUPLICA POR IDENTIFICADOR, NO POR RUTA. Diez capas tematicas
+    # comparten subcuencas.shp y se distinguen por la columna que se les une y
+    # por como se gradua: agruparlas por archivo hacia que todas las planchas
+    # recibieran la primera, es decir la capa plana sin clasificar, y el mapa
+    # salia con el contorno de las subcuencas y sin tema.
     vistas: dict[str, CapaDeclarada] = {}
     for plancha in planchas:
         for capa in plancha.capas:
-            vistas.setdefault(str(capa.ruta), capa)
+            vistas.setdefault(capa.identificador, capa)
     return list(vistas.values())
 
 
@@ -946,7 +991,9 @@ def _aplicar_graduado(capa, regla: dict[str, Any]) -> bool:
     # LAS ETIQUETAS DE CLASE SE REDONDEAN. Los cuantiles caen en cifras rotas y
     # la leyenda sale con '76.2667 - 78.0333', que nadie lee: el numero de curva
     # se informa entero y una lamina en milimetros con un decimal basta.
-    decimales = int(regla.get("decimales", 1) or 0)
+    # DOS DECIMALES COMO MAXIMO. Los cuantiles caen en cifras rotas y una
+    # leyenda con '76.2667 - 78.0333' no se lee.
+    decimales = min(2, max(0, int(regla.get("decimales", 2) or 0)))
     try:
         from qgis.core import QgsRendererRangeLabelFormat
         formato = QgsRendererRangeLabelFormat("%1 - %2", decimales)
@@ -961,6 +1008,59 @@ def _aplicar_graduado(capa, regla: dict[str, Any]) -> bool:
         capa.setRenderer(renderizador)
         return True
     return False
+
+
+def _aplicar_etiquetas(capa, regla: dict[str, Any]) -> bool:
+    """
+    Rotula las entidades con un campo. Cierto si pudo aplicarlo.
+
+    UN MAPA DE ESTACIONES SIN CODIGOS NO SE PUEDE CONTRASTAR contra la tabla del
+    informe. Lo mismo con las subcuencas: el hidrograma se reporta por nombre de
+    elemento, y sin el nombre sobre el poligono no hay forma de encontrarlo.
+    """
+    from qgis.core import (
+        QgsPalLayerSettings, QgsTextBufferSettings, QgsTextFormat,
+        QgsVectorLayerSimpleLabeling,
+    )
+    from qgis.PyQt.QtGui import QColor, QFont
+
+    campo = str(regla.get("campo", "")).strip()
+    if not campo or capa.fields().indexOf(campo) < 0:
+        return False
+
+    formato = QgsTextFormat()
+    fuente = QFont("Arial")
+    fuente.setBold(bool(regla.get("negrita", True)))
+    formato.setFont(fuente)
+    formato.setSize(float(regla.get("tamano", 7.0)))
+    formato.setColor(QColor(str(regla.get("color", "#1a1a1a"))))
+
+    # EL HALO ES LO QUE HACE LEGIBLE UN ROTULO sobre un raster o sobre la red:
+    # sin el, el texto se pierde contra el fondo justo donde hay mas contenido.
+    halo = QgsTextBufferSettings()
+    halo.setEnabled(True)
+    halo.setSize(float(regla.get("halo_mm", 0.8)))
+    halo.setColor(QColor("#ffffff"))
+    formato.setBuffer(halo)
+
+    ajustes = QgsPalLayerSettings()
+    ajustes.fieldName = campo
+    ajustes.setFormat(formato)
+    try:
+        ajustes.placement = QgsPalLayerSettings.Placement.OverPoint \
+            if capa.geometryType() == 0 else QgsPalLayerSettings.Placement.Line \
+            if capa.geometryType() == 1 else \
+            QgsPalLayerSettings.Placement.Horizontal
+    except AttributeError:
+        pass
+    # No se amontonan: si no cabe, no se dibuja, en lugar de superponerse.
+    try:
+        ajustes.obstacle = True
+    except AttributeError:
+        pass
+    capa.setLabeling(QgsVectorLayerSimpleLabeling(ajustes))
+    capa.setLabelsEnabled(True)
+    return True
 
 
 def _cargar_capa(capa: CapaDeclarada, estilos: Path, simbologia=None,
@@ -1000,6 +1100,9 @@ def _cargar_capa(capa: CapaDeclarada, estilos: Path, simbologia=None,
     # graduado es del mapa concreto, no de la capa: el mismo shapefile de
     # subcuencas sirve al mapa de numero de curva y al de rendimiento, y cada
     # uno lo pinta por su columna.
+    if capa.etiquetas:
+        _aplicar_etiquetas(cargada, capa.etiquetas)
+
     if capa.simbologia and _aplicar_graduado(cargada, capa.simbologia):
         cargada.triggerRepaint()
         return cargada
@@ -1114,8 +1217,14 @@ def _marco_de_mapa(layout, identificador: str, x: float, y: float,
     grilla.setAnnotationPrecision(0)
     try:
         from qgis.core import QgsLayoutItemMapGrid
-        grilla.setStyle(QgsLayoutItemMapGrid.FrameAnnotationsOnly)
-        grilla.setFrameStyle(QgsLayoutItemMapGrid.InteriorTicks)
+        # LA GRILLA SE DIBUJA, no solo se rotula. Con FrameAnnotationsOnly
+        # salian las cifras en el margen y ningun eje dentro del mapa, de modo
+        # que no habia forma de leer la coordenada de un punto.
+        grilla.setStyle(QgsLayoutItemMapGrid.Cross)
+        grilla.setCrossLength(2.0)
+        grilla.setFrameStyle(QgsLayoutItemMapGrid.Zebra)
+        grilla.setFrameWidth(2.0)
+        grilla.setFramePenSize(0.2)
         bordes = (QgsLayoutItemMapGrid.Left, QgsLayoutItemMapGrid.Right,
                   QgsLayoutItemMapGrid.Top, QgsLayoutItemMapGrid.Bottom)
         for borde in bordes:
@@ -1148,7 +1257,7 @@ def _guarnicion(layout, mapa_ref, x: float, y: float, ancho: float,
         QgsLayoutItemScaleBar, QgsLayoutPoint, QgsLayoutSize, QgsUnitTypes,
     )
 
-    ancho_leyenda = 58.0
+    ancho_leyenda = 68.0
     x_leyenda = x + ancho - ancho_leyenda - 3.0
     leyenda = QgsLayoutItemLegend(layout)
     leyenda.setId("leyenda")
@@ -1159,7 +1268,7 @@ def _guarnicion(layout, mapa_ref, x: float, y: float, ancho: float,
     leyenda.setFrameEnabled(True)
     leyenda.attemptMove(QgsLayoutPoint(x_leyenda, y + 3.0,
                                        QgsUnitTypes.LayoutMillimeters))
-    leyenda.attemptResize(QgsLayoutSize(ancho_leyenda, 95.0,
+    leyenda.attemptResize(QgsLayoutSize(ancho_leyenda, 105.0,
                                         QgsUnitTypes.LayoutMillimeters))
     layout.addLayoutItem(leyenda)
 
@@ -1185,9 +1294,22 @@ def _guarnicion(layout, mapa_ref, x: float, y: float, ancho: float,
     barra.setNumberOfSegments(4)
     barra.setNumberOfSegmentsLeft(0)
     barra.setBackgroundEnabled(True)
-    barra.attemptMove(QgsLayoutPoint(x + ancho - 72.0, y + alto - 24.0,
+    # LA ESCALA GRAFICA SE LEE O NO SIRVE. Una barra de 13 mm con rotulos de 6
+    # puntos es decorativa; se le da altura y tipo grande sobre fondo blanco.
+    barra.setHeight(4.0)
+    barra.setBoxContentSpace(1.5)
+    try:
+        from qgis.core import QgsTextFormat
+        from qgis.PyQt.QtGui import QFont
+        formato_barra = QgsTextFormat()
+        formato_barra.setFont(QFont("Arial"))
+        formato_barra.setSize(9.0)
+        barra.setTextFormat(formato_barra)
+    except (ImportError, AttributeError):
+        pass
+    barra.attemptMove(QgsLayoutPoint(x + ancho - 82.0, y + alto - 28.0,
                                      QgsUnitTypes.LayoutMillimeters))
-    barra.attemptResize(QgsLayoutSize(68.0, 13.0,
+    barra.attemptResize(QgsLayoutSize(78.0, 17.0,
                                       QgsUnitTypes.LayoutMillimeters))
     layout.addLayoutItem(barra)
 
@@ -1330,9 +1452,28 @@ def _cargar_plantilla(ruta: Path):
 # =============================================================================
 # QGIS: composición y exportación
 # =============================================================================
-def _extension_de(capa) -> tuple[float, float, float, float]:
-    """Extensión de una capa cargada, como tupla."""
+def _extension_de(capa, crs_destino: str | None = None
+                  ) -> tuple[float, float, float, float]:
+    """
+    Extensión de una capa cargada, en el sistema pedido.
+
+    LA EXTENSION SE REPROYECTA ANTES DE MEDIR. Las capas están en el sistema de
+    cálculo y las planchas se presentan en el declarado por el consultor; medir
+    en uno y encuadrar en otro da una escala que no corresponde y desplaza el
+    contenido fuera del marco.
+    """
+    from qgis.core import (
+        QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject,
+    )
+
     caja = capa.extent()
+    if crs_destino:
+        origen = capa.crs()
+        destino = QgsCoordinateReferenceSystem(crs_destino)
+        if origen.isValid() and destino.isValid() and origen != destino:
+            transformacion = QgsCoordinateTransform(
+                origen, destino, QgsProject.instance())
+            caja = transformacion.transformBoundingBox(caja)
     return (caja.xMinimum(), caja.yMinimum(), caja.xMaximum(), caja.yMaximum())
 
 
@@ -1351,7 +1492,7 @@ def _encuadrar(mapa, capas_cargadas, capa_encuadre, configuracion, crs_id,
 
     ancho_marco = mapa.rect().width()
     alto_marco = mapa.rect().height()
-    extension = _extension_de(capa_encuadre)
+    extension = _extension_de(capa_encuadre, crs_id)
     ancho_m = extension[2] - extension[0]
     alto_m = extension[3] - extension[1]
     serie = configuracion.obtener("cartografia.serie_escalas")
@@ -1418,6 +1559,7 @@ def componer(
     capas_detalle: Sequence[Any] = (),
     capa_encuadre_detalle: Any = None,
     base: Path | None = None,
+    escala_de_grupo: int | None = None,
 ) -> dict[str, Any]:
     """
     Rellena la composición con las capas, la extensión, la leyenda y el rótulo.
@@ -1437,7 +1579,7 @@ def componer(
             "dibujar.")
 
     detalle = _encuadrar(mapa, capas_cargadas, capa_encuadre, configuracion,
-                         crs_id, plancha.escala_forzada)
+                         crs_id, plancha.escala_forzada or escala_de_grupo)
 
     mapa_detalle = layout.itemById("mapa_detalle")
     if mapa_detalle is not None and capa_encuadre_detalle is not None:
@@ -1516,7 +1658,11 @@ def exportar(layout, destino_sin_extension: Path, formatos: Sequence[str],
 
     for formato in formatos:
         formato = str(formato).strip().lower()
-        destino = destino_sin_extension.with_suffix(f".{formato}")
+        # CON with_suffix, 'Figura 1. Localización general' pierde el título:
+        # Path toma por extensión todo lo que sigue al último punto. El nombre
+        # de figura lleva puntos y hay que concatenar.
+        destino = destino_sin_extension.parent / (
+            destino_sin_extension.name + f".{formato}")
         if formato == "pdf":
             ajustes = QgsLayoutExporter.PdfExportSettings()
             ajustes.dpi = float(dpi)
@@ -1562,7 +1708,14 @@ def ejecutar(
     import sig
     sig.iniciar_qgis(configuracion.obtener("entornos.qgis.prefix_path"))
 
-    crs_id = configuracion.obtener("crs.calculo")
+    # EL SISTEMA DE LAS PLANCHAS ES EL QUE EL CONSULTOR DECLARO al entregar las
+    # coordenadas del punto de descarga, no el de calculo. La cadena calcula en
+    # CTM12 porque es el origen unico nacional, pero la entrega se presenta en
+    # el sistema que pide el contrato, y reproyectar es del dibujo, no del
+    # calculo: ningun numero del estudio cambia por esto.
+    crs_id = (configuracion.obtener("cartografia.crs", None)
+              or configuracion.obtener("punto_descarga.crs"))
+    crs_calculo = configuracion.obtener("crs.calculo")
     plancha_cfg = configuracion.obtener("cartografia.plancha")
     estilos = rutas.resolver(configuracion.obtener("proyecto_qgis.estilos"),
                              base)
@@ -1655,7 +1808,7 @@ def ejecutar(
 
     with registro.bloque(logger, "Capas"):
         for capa in catalogo_de_capas(planchas):
-            clave = str(capa.ruta)
+            clave = capa.identificador
             if not capa.existe:
                 resultado.capas_ausentes.append(
                     rutas.relativa(capa.ruta, base))
@@ -1681,20 +1834,52 @@ def ejecutar(
                     len(CAMPOS_ROTULO) - len(faltan_rotulo),
                     len(CAMPOS_ROTULO))
 
+    # --- Escala uniforme por grupo -------------------------------------------
+    # UNA SOLA ESCALA POR GRUPO. Un juego de planchas donde cada figura lleva su
+    # escala obliga a recalibrar la vista en cada pagina; el consultor compara
+    # entre figuras y eso exige que midan lo mismo. Se toma la mayor que exige
+    # el grupo, que es la unica que hace caber a todas.
+    escalas_de_grupo: dict[str, int] = {}
+    if configuracion.obtener("cartografia.escala_uniforme", True):
+        marco_ancho, marco_alto = marco_del_mapa(plancha_cfg)[2:]
+        serie = configuracion.obtener("cartografia.serie_escalas")
+        holgura = float(configuracion.obtener("cartografia.margen_encuadre",
+                                              0.05))
+        for plancha in planchas:
+            objetivo = next((c for c in plancha.capas
+                             if c.identificador == plancha.encuadre), None)
+            capa_objetivo = (cargadas.get(objetivo.identificador)
+                             if objetivo is not None else None)
+            if capa_objetivo is None:
+                continue
+            try:
+                caja = _extension_de(capa_objetivo, crs_id)
+                pedida = escala_normalizada(
+                    caja[2] - caja[0], caja[3] - caja[1], marco_ancho,
+                    marco_alto, serie, holgura)
+            except ErrorHidrologia:
+                continue
+            grupo = plancha.grupo_escala
+            escalas_de_grupo[grupo] = max(escalas_de_grupo.get(grupo, 0),
+                                          pedida)
+        for grupo, valor in sorted(escalas_de_grupo.items()):
+            logger.info("grupo de escala %-10s -> %s", grupo,
+                        escala_como_texto(valor))
+
     # --- Planchas ------------------------------------------------------------
-    for plancha in planchas:
+    for numero, plancha in enumerate(planchas, start=1):
         with registro.bloque(logger, f"Plancha {plancha.identificador}"):
             encuadre = None
             for capa in plancha.capas:
                 if capa.identificador == plancha.encuadre:
-                    encuadre = cargadas.get(str(capa.ruta))
+                    encuadre = cargadas.get(capa.identificador)
                     break
             if encuadre is None:
                 # Puede no estar entre las dibujadas: se carga solo para medir.
                 suelta = next((c for c in plancha.capas
                                if c.identificador == plancha.encuadre), None)
                 if suelta is not None:
-                    encuadre = cargadas.get(str(suelta.ruta))
+                    encuadre = cargadas.get(suelta.identificador)
             if encuadre is None:
                 resultado.omitidas.append({
                     "id": plancha.identificador,
@@ -1711,7 +1896,7 @@ def ejecutar(
             faltan = sorted(
                 c.identificador for c in plancha.capas
                 if c.identificador in plancha.esenciales
-                and str(c.ruta) not in cargadas)
+                and c.identificador not in cargadas)
             if faltan:
                 resultado.omitidas.append({
                     "id": plancha.identificador,
@@ -1721,8 +1906,8 @@ def ejecutar(
                                ", ".join(faltan))
                 continue
 
-            visibles = [cargadas[str(c.ruta)] for c in plancha.capas
-                        if str(c.ruta) in cargadas]
+            visibles = [cargadas[c.identificador] for c in plancha.capas
+                        if c.identificador in cargadas]
             if not visibles:
                 resultado.omitidas.append({
                     "id": plancha.identificador,
@@ -1740,7 +1925,7 @@ def ejecutar(
                                if c.identificador == plancha.encuadre_detalle),
                               None)
                 if suelta is not None:
-                    encuadre_detalle = cargadas.get(str(suelta.ruta))
+                    encuadre_detalle = cargadas.get(suelta.identificador)
                 if encuadre_detalle is None:
                     logger.warning(
                         "falta la capa de detalle %r: la plancha sale con un "
@@ -1750,12 +1935,29 @@ def ejecutar(
                          if plancha.con_detalle and encuadre_detalle is not None
                          else ruta_qpt)
             layout = _cargar_plantilla(plantilla)
-            detalle = componer(
-                plancha, list(reversed(visibles)), encuadre, layout,
-                configuracion, crs_id, datos_rotulo,
-                capa_encuadre_detalle=encuadre_detalle, base=base)
-            escritas = exportar(layout, salida / plancha.identificador,
-                                formatos, dpi)
+            # UNA PLANCHA QUE NO SE PUEDE ENCUADRAR SE OMITE, no detiene el
+            # juego. Una capa de encuadre que desborda el estudio, o una vacía,
+            # es un problema de esa plancha: abortar el módulo dejaría sin
+            # producir las demás.
+            try:
+                detalle = componer(
+                    plancha, list(reversed(visibles)), encuadre, layout,
+                    configuracion, crs_id, datos_rotulo,
+                    capa_encuadre_detalle=encuadre_detalle, base=base,
+                    escala_de_grupo=escalas_de_grupo.get(plancha.grupo_escala))
+            except (ErrorHidrologia, ErrorFormato) as fallo:
+                resultado.omitidas.append({
+                    "id": plancha.identificador,
+                    "motivo": f"no se pudo encuadrar: {fallo}",
+                })
+                logger.warning("se omite: %s", fallo)
+                continue
+            # NUMERADAS COMO EL JUEGO DE REFERENCIA. El nombre del archivo
+            # es el que aparece en el indice de figuras del informe, de modo
+            # que el anexo y el texto se corresponden sin renombrar nada a
+            # mano.
+            escritas = exportar(layout, salida / nombre_de_figura(
+                numero, plancha, configuracion), formatos, dpi)
             detalle["archivos"] = [rutas.relativa(r, base) for r in escritas]
             resultado.planchas.append(detalle)
             resultado.productos.extend(detalle["archivos"])
