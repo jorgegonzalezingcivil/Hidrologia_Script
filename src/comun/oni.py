@@ -62,6 +62,13 @@ FASE_NINO = "nino"
 FASE_NINA = "nina"
 FASE_NEUTRAL = "neutral"
 
+# NO ES UNA FASE, ES SU AGREGADO. El año compuesto reúne todos los meses sin
+# separarlos por episodio, y representa el régimen medio del sitio: es la lámina
+# que va al balance hídrico y la que el informe presenta antes de abrir el
+# análisis por fase. Se nombra aquí junto a las tres para que ningún módulo la
+# escriba con otra etiqueta.
+FASE_COMPUESTA = "compuesto"
+
 CABECERA_ESPERADA = ("SEAS", "YR", "TOTAL", "ANOM")
 
 

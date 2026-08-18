@@ -212,6 +212,56 @@ def totales_por_fase(
             "n_muestras": muestras,
             "anios_equivalentes": round(muestras / 12.0, 1),
         })
+    filas.extend(_totales_compuestos(ciclo))
+    return filas
+
+
+def _totales_compuestos(
+    ciclo: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Total anual multianual del AÑO COMPUESTO, sin separar por fase.
+
+    Es la lámina que representa el régimen medio del sitio, la que se lleva al
+    balance hídrico y la que el informe presenta antes de abrir el análisis por
+    fase. Sin ella el estudio solo sabe describir años anómalos.
+
+    CADA MES SE PESA POR SUS OBSERVACIONES, no por la fase. Promediar las tres
+    medias mensuales por igual daría a un enero de Niño, que aparece en pocos
+    años, el mismo peso que a un enero neutral, que aparece en la mayoría: el
+    resultado no sería el año medio sino la media de tres regímenes, y saldría
+    sesgado hacia el extremo menos frecuente.
+
+    Se reutiliza el ciclo ya calculado en lugar de releer la serie: son las
+    mismas medias mensuales, y recalcularlas desde el dato crudo abriría la
+    puerta a que las dos cifras del informe no coincidieran.
+    """
+    por_estacion_mes: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    for fila in ciclo:
+        por_estacion_mes.setdefault(
+            (fila["codigo"], int(fila["mes"])), []).append(fila)
+
+    acumulado: dict[str, dict[int, tuple[float, int]]] = {}
+    for (codigo, mes), registros in por_estacion_mes.items():
+        peso = sum(int(r["n_meses"]) for r in registros)
+        if peso <= 0:
+            continue
+        media = sum(float(r["media_mm"]) * int(r["n_meses"])
+                    for r in registros) / peso
+        acumulado.setdefault(codigo, {})[mes] = (media, peso)
+
+    filas: list[dict[str, Any]] = []
+    for codigo, meses in sorted(acumulado.items()):
+        muestras = sum(peso for _, peso in meses.values())
+        filas.append({
+            "codigo": codigo,
+            "fase": oni.FASE_COMPUESTA,
+            "total_anual_mm": round(sum(m for m, _ in meses.values()), 1),
+            "meses_del_anio": len(meses),
+            "completo": len(meses) == 12,
+            "n_muestras": muestras,
+            "anios_equivalentes": round(muestras / 12.0, 1),
+        })
     return filas
 
 
