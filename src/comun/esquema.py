@@ -446,6 +446,8 @@ ESQUEMA: dict[str, Campo] = {
     "dem.delimitacion.detener_si_toca_borde": booleano(
         "detener si la cuenca delimitada toca el borde del DEM",
     ),
+    "dem.delimitacion.salida_pendiente": ruta(
+        "raster de pendiente en porcentaje"),
     "dem.delimitacion.salida_dem": texto("ráster de elevación recortado",
                                          no_vacio=True),
     "dem.delimitacion.salida_cuenca": texto("cuenca preliminar", no_vacio=True),

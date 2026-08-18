@@ -139,6 +139,7 @@ class ResultadoM16:
     rotulo: str = ""
     proyecto: str = ""
     propias: list[str] = field(default_factory=list)
+    retiradas: list[str] = field(default_factory=list)
     rotulo_faltante: list[str] = field(default_factory=list)
     planchas: list[dict[str, Any]] = field(default_factory=list)
     omitidas: list[dict[str, Any]] = field(default_factory=list)
@@ -2097,6 +2098,7 @@ def ejecutar(
                        SALIDA_CORRECTA)
 
     planchas = leer_declaracion(declaracion, base, estilos)
+    todas = list(planchas)
     if solo:
         pedidos = {str(s) for s in solo}
         desconocidos = pedidos - {p.identificador for p in planchas}
@@ -2107,6 +2109,11 @@ def ejecutar(
                 f"{sorted(desconocidos)}.",
             ))
         planchas = [p for p in planchas if p.identificador in pedidos]
+
+    # EL NUMERO DE FIGURA ES EL DE LA DECLARACION COMPLETA, no el del
+    # subconjunto. Con --solo, numerar sobre lo filtrado renombraria la plancha
+    # a 'Figura 1' y pisaria la que ya existe con ese numero.
+    numeros = {p.identificador: n for n, p in enumerate(todas, start=1)}
 
     # --- Capas ---------------------------------------------------------------
     from qgis.core import QgsProject
@@ -2180,7 +2187,8 @@ def ejecutar(
                         escala_como_texto(valor))
 
     # --- Planchas ------------------------------------------------------------
-    for numero, plancha in enumerate(planchas, start=1):
+    for plancha in planchas:
+        numero = numeros[plancha.identificador]
         with registro.bloque(logger, f"Plancha {plancha.identificador}"):
             encuadre = None
             for capa in plancha.capas:
@@ -2314,6 +2322,23 @@ def ejecutar(
         else:
             logger.warning("QGIS no pudo escribir %s", ruta_proyecto)
 
+    # LA CARPETA DE ENTREGA REFLEJA SOLO ESTA CORRIDA. Al renumerar o renombrar
+    # una figura, la anterior se queda en disco con su nombre viejo, y el
+    # informe podria citar una lamina que ya no corresponde al calculo. Se
+    # retiran las que este juego no produjo, y se reporta cuales.
+    if not solo:
+        producidos = {Path(a).name for d in resultado.planchas
+                      for a in d.get("archivos", [])}
+        prefijo = str(configuracion.obtener("cartografia.prefijo_figura",
+                                            "Figura"))
+        for archivo in sorted(salida.glob(f"{prefijo} *")):
+            if archivo.is_file() and archivo.name not in producidos:
+                archivo.unlink()
+                resultado.retiradas.append(archivo.name)
+        if resultado.retiradas:
+            logger.info("%d figura(s) de corridas anteriores retiradas",
+                        len(resultado.retiradas))
+
     resultado.hallazgos.extend(_resumir(resultado))
     codigo = (SALIDA_BLOQUEANTE
               if any(h.severidad == BLOQUEANTE for h in resultado.hallazgos)
@@ -2345,6 +2370,15 @@ def _resumir(resultado: ResultadoM16) -> list[Hallazgo]:
             f"no se pudo colocar {sin_logo}: la ruta no está declarada en el "
             "rótulo o el archivo no existe. La casilla queda con el nombre de "
             "la firma en texto y sin imagen.",
+        ))
+
+    if resultado.retiradas:
+        hallazgos.append(Hallazgo(
+            INFORMATIVO, "cartografia.retiradas",
+            f"{len(resultado.retiradas)} figura(s) de corridas anteriores se "
+            "retiraron de la carpeta de entrega porque este juego no las "
+            f"produjo: {sorted(resultado.retiradas)}. Dejarlas permitiria que "
+            "el informe citara una lamina que ya no corresponde al calculo.",
         ))
 
     if resultado.propias:
@@ -2468,6 +2502,7 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "rotulo": resultado.rotulo,
         "proyecto": resultado.proyecto,
         "composiciones_propias": resultado.propias,
+        "retiradas": resultado.retiradas,
         "rotulo_faltante": resultado.rotulo_faltante,
         "planchas": resultado.planchas,
         "omitidas": resultado.omitidas,

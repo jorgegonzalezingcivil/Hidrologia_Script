@@ -860,6 +860,85 @@ def acotar_por_red(configuracion, base, logger):
 # =============================================================================
 # Orquestación
 # =============================================================================
+def derivar_pendiente(configuracion, base: Path, ruta_dem: Path,
+                      ruta_area: Path, crs_calculo: str, logger=None) -> Path:
+    """
+    Ráster de pendiente en PORCENTAJE, recortado al área de influencia.
+
+    POR QUÉ AQUÍ Y NO EN EL M10. La declaración del proyecto QGIS asignaba este
+    producto al M10, que corre en el venv, y ese entorno no tiene con qué
+    escribir un GeoTIFF: comun/raster.py solo lee. El M02 ya tiene el modelo de
+    elevación delante y corre bajo QGIS, de modo que GDAL resuelve en un paso lo
+    que en el venv exigiría duplicar un escritor de TIFF.
+
+    EN PORCENTAJE Y NO EN GRADOS, por decisión del consultor y porque es la
+    unidad con la que se lee una ladera en obra. Conviene tener presente que el
+    término Kp del coeficiente de infiltración del M18b se alimenta de pendiente
+    en m/m: son la misma magnitud con un factor de cien, y mezclarlas produce un
+    coeficiente que nadie detecta después.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si falta el modelo de elevación o el área.
+    ErrorHidrologia
+        Si el algoritmo no produce salida.
+    """
+    import processing
+
+    ruta_dem, ruta_area = Path(ruta_dem), Path(ruta_area)
+    if not ruta_dem.is_file():
+        raise ErrorRutas(f"no se encuentra el modelo de elevación en {ruta_dem}.")
+    if not ruta_area.is_file():
+        raise ErrorRutas(f"no se encuentra el área de influencia en {ruta_area}.")
+
+    destino = rutas.resolver(
+        configuracion.obtener("dem.delimitacion.salida_pendiente"), base)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    temporal = rutas.directorio("sig_temp", base, crear=True)
+    cruda = temporal / "pendiente_cruda.tif"
+
+    processing.run("gdal:slope", {
+        "INPUT": str(ruta_dem),
+        "BAND": 1,
+        "SCALE": 1.0,
+        "AS_PERCENT": True,
+        "COMPUTE_EDGES": True,
+        # Horn, el mismo estimador que el M10 usa para sus estadísticos: dos
+        # pendientes distintas para la misma cuenca no serían defendibles.
+        "ZEVENBERGEN": False,
+        "OPTIONS": "COMPRESS=LZW",
+        "OUTPUT": str(cruda),
+    })
+    if not cruda.is_file():
+        raise ErrorHidrologia(
+            "gdal:slope no produjo salida sobre el modelo de elevación.")
+
+    processing.run("gdal:cliprasterbymasklayer", {
+        "INPUT": str(cruda),
+        "MASK": str(ruta_area),
+        "SOURCE_CRS": crs_calculo,
+        "TARGET_CRS": crs_calculo,
+        "CROP_TO_CUTLINE": True,
+        "KEEP_RESOLUTION": True,
+        "OPTIONS": "COMPRESS=LZW",
+        "OUTPUT": str(destino),
+    })
+    if not destino.is_file():
+        raise ErrorHidrologia(
+            f"no se pudo recortar la pendiente al área en {destino}.")
+
+    if logger is not None:
+        from comun import raster as mod_raster
+        try:
+            info = mod_raster.leer_info(destino)
+            logger.info("pendiente en %% escrita: %d x %d celdas de %.1f m",
+                        info.ancho, info.alto, abs(info.tamano_x))
+        except Exception:  # noqa: BLE001
+            logger.info("pendiente en %% escrita en %s", destino.name)
+    return destino
+
+
 def ejecutar(
     raiz: Path | None = None,
     ruta_config: Path | None = None,
@@ -1008,6 +1087,15 @@ def ejecutar(
     with registro.bloque(logger, "Escritura del área de influencia"):
         _escribir_area(configuracion, base, area, escenario, ruta_dem,
                        crs_calculo, resultado, logger, solo_area)
+
+    if fase != "preliminar" and ruta_dem is not None:
+        with registro.bloque(logger, "Pendiente del terreno"):
+            ruta_area_influencia = (rutas.directorio("sig_vector", base)
+                                    / "area_influencia.shp")
+            ruta_pendiente = derivar_pendiente(
+                configuracion, base, ruta_dem, ruta_area_influencia,
+                crs_calculo, logger)
+            resultado.capas.append(rutas.relativa(ruta_pendiente, base))
 
     codigo = (SALIDA_BLOQUEANTE if esquema.hay_bloqueantes(resultado.hallazgos)
               else SALIDA_CORRECTA)

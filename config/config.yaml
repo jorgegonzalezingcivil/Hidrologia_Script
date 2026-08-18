@@ -300,6 +300,10 @@ dem:
     radio_ajuste_m: 250.0        # búsqueda del cauce alrededor del punto
     detener_si_toca_borde: true  # una cuenca truncada no es utilizable
     salida_dem: "data/03_SIG/raster/dem_recortado.tif"
+    # Pendiente en PORCENTAJE, derivada del DEM y recortada al area. Se
+    # produce aqui y no en el M10 porque escribir un GeoTIFF exige GDAL, y
+    # el M10 corre en el venv, donde comun/raster.py solo lee.
+    salida_pendiente: "data/03_SIG/raster/pendiente.tif"
     salida_cuenca: "data/03_SIG/vector/cuenca_preliminar.shp"
     salida_envolvente: "data/03_SIG/vector/envolvente.shp"
     salida_area_influencia: "data/03_SIG/vector/area_influencia.shp"
