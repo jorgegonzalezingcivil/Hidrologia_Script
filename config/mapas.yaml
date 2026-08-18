@@ -122,6 +122,99 @@ capas:
     ruta: "data/03_SIG/vector/estaciones_descartadas.shp"
     estilo: "estaciones_descartadas.qml"
 
+  # --- Temáticas por subcuenca ---------------------------------------------
+  # LA MISMA GEOMETRÍA, PINTADA POR COLUMNAS DISTINTAS. Las subcuencas llevan
+  # solo los parámetros geométricos de HEC-HMS; todo lo demás vive en los CSV
+  # que dejan los módulos, y se incorpora por unión sobre la clave declarada.
+  # Copiar en memoria en lugar de unir en QGIS conserva el nombre real de la
+  # columna, que es el que la simbología declara.
+  cn_subcuenca:
+    nombre: "Número de curva"
+    tipo: vector
+    ruta: "data/03_SIG/vector/subcuencas.shp"
+    union: {tabla: "data/02_procesado/morfometria/subcuencas.csv",
+            clave_capa: name, clave_tabla: subcuenca, campos: [cn]}
+    simbologia: {modo: graduado, campo: cn, decimales: 0, clases: 6, rampa: YlOrBr}
+
+  rezago_subcuenca:
+    nombre: "Tiempo de rezago (min)"
+    tipo: vector
+    ruta: "data/03_SIG/vector/subcuencas.shp"
+    union: {tabla: "data/02_procesado/morfometria/subcuencas.csv",
+            clave_capa: name, clave_tabla: subcuenca, campos: [tlag_minutos]}
+    simbologia: {modo: graduado, campo: tlag_minutos, decimales: 0, clases: 6, rampa: Purples}
+
+  escorrentia_subcuenca:
+    nombre: "Escorrentía media (mm/año)"
+    tipo: vector
+    ruta: "data/03_SIG/vector/subcuencas.shp"
+    union: {tabla: "data/02_procesado/balance/balance_multianual.csv",
+            clave_capa: name, clave_tabla: subcuenca,
+            campos: [escorrentia_budyko_mm]}
+    simbologia: {modo: graduado, campo: escorrentia_budyko_mm, decimales: 0, clases: 6,
+                 rampa: GnBu}
+
+  etr_subcuenca:
+    nombre: "Evapotranspiración real (mm/año)"
+    tipo: vector
+    ruta: "data/03_SIG/vector/subcuencas.shp"
+    union: {tabla: "data/02_procesado/balance/balance_multianual.csv",
+            clave_capa: name, clave_tabla: subcuenca, campos: [etr_budyko_mm]}
+    simbologia: {modo: graduado, campo: etr_budyko_mm, decimales: 0, clases: 6, rampa: BuGn}
+
+  etp_subcuenca:
+    nombre: "Evapotranspiración potencial (mm/año)"
+    tipo: vector
+    ruta: "data/03_SIG/vector/subcuencas.shp"
+    union: {tabla: "data/02_procesado/balance/balance_multianual.csv",
+            clave_capa: name, clave_tabla: subcuenca, campos: [etp_mm]}
+    simbologia: {modo: graduado, campo: etp_mm, decimales: 0, clases: 6, rampa: OrRd}
+
+  temperatura_subcuenca:
+    nombre: "Temperatura media (grados C)"
+    tipo: vector
+    ruta: "data/03_SIG/vector/subcuencas.shp"
+    union: {tabla: "data/02_procesado/temperatura/temperatura_por_subcuenca.csv",
+            clave_capa: name, clave_tabla: subcuenca, campos: [t_media_c]}
+    simbologia: {modo: graduado, campo: t_media_c, decimales: 1, clases: 6, rampa: RdYlBu,
+                 invertir: si}
+
+  infiltracion_subcuenca:
+    nombre: "Coeficiente de infiltración"
+    tipo: vector
+    ruta: "data/03_SIG/vector/subcuencas.shp"
+    union: {tabla: "data/02_procesado/infiltracion/coeficientes_por_subcuenca.csv",
+            clave_capa: name, clave_tabla: subcuenca, campos: [c]}
+    simbologia: {modo: graduado, campo: c, decimales: 2, clases: 5, rampa: PuBu}
+
+  precipitacion_subcuenca:
+    nombre: "Precipitación media anual (mm)"
+    tipo: vector
+    ruta: "data/03_SIG/vector/subcuencas.shp"
+    union: {tabla: "data/02_procesado/precipitacion/precipitacion_anual_por_subcuenca.csv",
+            clave_capa: name, clave_tabla: subcuenca, campos: [p_anual_mm]}
+    simbologia: {modo: graduado, campo: p_anual_mm, decimales: 0, clases: 6, rampa: Blues}
+
+  # --- Categorizadas sin unión: el atributo ya está en la capa --------------
+  orden_strahler:
+    nombre: "Orden de Strahler"
+    tipo: vector
+    ruta: "data/03_SIG/vector/red_topologica.shp"
+    simbologia: {modo: categorizado, campo: orden, rampa: Blues}
+
+  cobertura_clase:
+    nombre: "Cobertura, nivel 2 CLC"
+    tipo: vector
+    ruta: "data/03_SIG/vector/cobertura_clc_area.shp"
+    simbologia: {modo: categorizado, campo: nivel_2, rampa: Spectral}
+
+  estaciones_categoria:
+    nombre: "Categoría de estación"
+    tipo: vector
+    ruta: "data/03_SIG/vector/estaciones_seleccionadas.shp"
+    simbologia: {modo: categorizado, campo: categoria, rampa: Spectral}
+
+
 # -----------------------------------------------------------------------------
 # PLANCHAS
 # El orden de 'capas' es el orden de DIBUJO: la primera queda al fondo. Es el
@@ -196,7 +289,7 @@ mapas:
   - id: subcuencas
     titulo: "Subcuencas del modelo hidrológico"
     subtitulo: "Delimitación asistida en HEC-HMS"
-    encuadre: area_influencia
+    encuadre: subcuencas
     esenciales: [subcuencas]
     capas: [dem, subcuencas, red_topologica, area_influencia, punto_descarga]
     nota: >-
@@ -223,6 +316,110 @@ mapas:
     nota: >-
       El criterio de descarte de cada estación queda registrado en el reporte
       del M03 y en el capítulo correspondiente del informe.
+
+  # --- Temáticas ------------------------------------------------------------
+  - id: numero_curva
+    titulo: "Número de curva"
+    subtitulo: "CN ponderado por subcuenca"
+    encuadre: cn_subcuenca
+    esenciales: [cn_subcuenca]
+    capas: [cn_subcuenca, drenaje_sencillo, area_influencia, punto_descarga]
+    nota: >-
+      El CN sale del cruce de cobertura y grupo hidrológico de suelo por la
+      tabla de homologación del estudio. Gobierna la pérdida inicial y el
+      volumen de escorrentía del modelo.
+
+  - id: tiempo_rezago
+    titulo: "Tiempo de rezago"
+    subtitulo: "Criterio adoptado, por subcuenca"
+    encuadre: rezago_subcuenca
+    esenciales: [rezago_subcuenca]
+    capas: [rezago_subcuenca, drenaje_sencillo, area_influencia]
+    nota: >-
+      El tiempo de concentración se adopta como mediana del subconjunto de
+      fórmulas aplicables a cada subcuenca. El rezago se deriva de él con el
+      criterio declarado en la configuración.
+
+  - id: orden_strahler
+    titulo: "Orden de la red de drenaje"
+    subtitulo: "Clasificación de Strahler sobre la red topológica"
+    encuadre: area_influencia
+    esenciales: [orden_strahler]
+    capas: [orden_strahler, area_influencia, punto_descarga]
+    nota: >-
+      La red se construye reponiendo el eje de los cauces dobles; sin ese eje la
+      cadena queda cortada y el orden no se propaga aguas abajo.
+
+  - id: cobertura_clase
+    titulo: "Cobertura de la tierra por clase"
+    subtitulo: "Corine Land Cover, nivel 2"
+    encuadre: area_influencia
+    esenciales: [cobertura_clase]
+    capas: [cobertura_clase, drenaje_sencillo, area_influencia]
+    nota: >-
+      La clase de cobertura alimenta el número de curva y el término Kv del
+      coeficiente de infiltración.
+
+  - id: escorrentia
+    titulo: "Escorrentía media multianual"
+    subtitulo: "Lámina por subcuenca, balance de Budyko"
+    encuadre: escorrentia_subcuenca
+    esenciales: [escorrentia_subcuenca]
+    capas: [escorrentia_subcuenca, drenaje_sencillo, area_influencia,
+            punto_descarga]
+    nota: >-
+      Balance sin almacenamiento: la lámina es la diferencia entre precipitación
+      y evapotranspiración real en el largo plazo.
+
+  - id: evapotranspiracion_real
+    titulo: "Evapotranspiración real"
+    subtitulo: "Formulación de Budyko, por subcuenca"
+    encuadre: etr_subcuenca
+    esenciales: [etr_subcuenca]
+    capas: [etr_subcuenca, drenaje_sencillo, area_influencia]
+    nota: >-
+      Aplicar una curva cóncava al promedio no da el promedio de aplicarla mes a
+      mes. El multianual por subcuenca y el mensual por cuenca se contrastan en
+      el informe.
+
+  - id: evapotranspiracion_potencial
+    titulo: "Evapotranspiración potencial"
+    subtitulo: "Por subcuenca, escala multianual"
+    encuadre: etp_subcuenca
+    esenciales: [etp_subcuenca]
+    capas: [etp_subcuenca, drenaje_sencillo, area_influencia]
+    nota: >-
+      Se calcula por dos vías y se declara el factor de ajuste entre ellas.
+
+  - id: temperatura
+    titulo: "Temperatura media"
+    subtitulo: "Ajustada por gradiente altitudinal"
+    encuadre: temperatura_subcuenca
+    esenciales: [temperatura_subcuenca]
+    capas: [temperatura_subcuenca, drenaje_sencillo, area_influencia]
+    nota: >-
+      El campo térmico se ajusta contra la elevación y no por distancia: en
+      montaña la cota lo explica mucho mejor que la vecindad horizontal.
+
+  - id: infiltracion
+    titulo: "Coeficiente de infiltración"
+    subtitulo: "Schosinsky y Losilla: C = Kfc + Kp + Kv"
+    encuadre: infiltracion_subcuenca
+    esenciales: [infiltracion_subcuenca]
+    capas: [infiltracion_subcuenca, drenaje_sencillo, area_influencia]
+    nota: >-
+      Los parámetros salen del suelo, la pendiente y la cobertura de este
+      estudio, no de un valor tomado de otra zona.
+
+  - id: precipitacion_media
+    titulo: "Precipitación media anual"
+    subtitulo: "Por subcuenca, interpolada de las estaciones del estudio"
+    encuadre: precipitacion_subcuenca
+    esenciales: [precipitacion_subcuenca]
+    capas: [precipitacion_subcuenca, drenaje_sencillo, area_influencia]
+    nota: >-
+      La lluvia se interpola por proximidad y no por elevación, porque en este
+      estudio la cota no explica la precipitación total.
 
 # -----------------------------------------------------------------------------
 # SERIES

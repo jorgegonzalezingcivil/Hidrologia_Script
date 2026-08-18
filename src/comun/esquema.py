@@ -1318,6 +1318,13 @@ ESQUEMA: dict[str, Campo] = {
     "cartografia.declaracion": ruta("catálogo de capas y planchas"),
     "cartografia.salida": ruta("directorio de las planchas exportadas"),
     "cartografia.plantilla_qpt": ruta("composición .qpt de la plancha"),
+    "cartografia.plantilla_qpt_detalle": ruta(
+        "composición .qpt de la plancha con marco de detalle"),
+    "cartografia.rotulo": ruta("datos del rótulo del estudio"),
+    "cartografia.plancha.alto_rotulo_mm": numero(
+        "alto del rótulo inferior", minimo=0.0),
+    "cartografia.plancha.separacion_mm": numero(
+        "separación entre el marco del mapa y el rótulo", minimo=0.0),
     "cartografia.escribir_plantilla_inicial": booleano(
         "escribir la plantilla de partida si no existe"),
     # NO ES LA ESCALA DEL MAPA, sino el juego del que se elige. La escala de

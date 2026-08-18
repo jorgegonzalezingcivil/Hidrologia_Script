@@ -1458,13 +1458,26 @@ cartografia:
 
   # Plancha. El tamaño está aquí y no en el código: otro estudio con formato
   # institucional obligatorio cambia estas cifras y la plantilla .qpt.
+  #
+  # TABLOID (432 x 279 mm), no A3, porque es el formato de las planchas de
+  # referencia del consultor. El rótulo va abajo y ocupa el ancho completo, que
+  # es donde caben el logo del contratante, el bloque de proyecto, el de
+  # contenido, el sistema de coordenadas y el logo del consultor.
   plancha:
-    ancho_mm: 420                # A3 horizontal
-    alto_mm: 297
-    margen_mm: 10
-    ancho_panel_mm: 95           # franja derecha de leyenda, norte y rótulo
+    ancho_mm: 432
+    alto_mm: 279
+    margen_mm: 8
+    alto_rotulo_mm: 30
+    separacion_mm: 3          # entre el marco del mapa y el rótulo
+    ancho_panel_mm: 0         # el panel lateral se sustituyó por el rótulo inferior
 
-  plantilla_qpt: "templates/mapas/plancha_a3.qpt"
+  # Datos del rótulo. Se declaran en el estudio, no aquí: son de cada contrato.
+  # Si el archivo no existe, el M16 lo crea vacío y lo reporta; con --rotulo
+  # pregunta por consola y lo diligencia.
+  rotulo: "config/rotulo.yaml"
+
+  plantilla_qpt: "templates/mapas/plancha.qpt"
+  plantilla_qpt_detalle: "templates/mapas/plancha_detalle.qpt"
   escribir_plantilla_inicial: true   # la crea si no existe; nunca la sobrescribe
 
   formato_salida: [pdf, png]

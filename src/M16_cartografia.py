@@ -99,6 +99,8 @@ class CapaDeclarada:
     ruta: Path
     estilo: str | None
     nombre: str = ""
+    union: dict | None = None
+    simbologia: dict | None = None
 
     @property
     def existe(self) -> bool:
@@ -117,6 +119,12 @@ class Plancha:
     capas: tuple[CapaDeclarada, ...]
     esenciales: tuple[str, ...] = ()
     escala_forzada: int | None = None
+    encuadre_detalle: str = ""
+
+    @property
+    def con_detalle(self) -> bool:
+        """Cierto si la plancha lleva un segundo marco de sitio de proyecto."""
+        return bool(self.encuadre_detalle)
 
 
 @dataclass
@@ -125,6 +133,8 @@ class ResultadoM16:
 
     plantilla: str = ""
     plantilla_creada: bool = False
+    rotulo: str = ""
+    rotulo_faltante: list[str] = field(default_factory=list)
     planchas: list[dict[str, Any]] = field(default_factory=list)
     omitidas: list[dict[str, Any]] = field(default_factory=list)
     capas_ausentes: list[str] = field(default_factory=list)
@@ -140,31 +150,73 @@ def marco_del_mapa(plancha: dict[str, Any]) -> tuple[float, float, float, float]
     """
     Rectángulo del marco cartográfico dentro de la plancha, en milímetros.
 
-    Devuelve (x, y, ancho, alto). El panel de leyenda y rótulo ocupa la franja
-    derecha, de modo que el mapa toma lo que queda entre los márgenes.
+    Devuelve (x, y, ancho, alto). El rótulo ocupa la franja inferior a lo ancho
+    de la hoja y el mapa toma lo que queda; si además se declara un panel
+    lateral, se descuenta de la derecha.
 
     Excepciones
     -----------
     ErrorConfiguracion
         Si las cifras dejan un marco de ancho o alto no positivo.
     """
+    ancho, alto, margen, panel, rotulo, separacion = _cifras_de_plancha(plancha)
+    ancho_marco = ancho - 2 * margen - (panel + margen if panel > 0 else 0.0)
+    alto_marco = alto - 2 * margen - (rotulo + separacion if rotulo > 0 else 0.0)
+    if ancho_marco <= 0 or alto_marco <= 0:
+        raise ErrorConfiguracion(
+            f"la plancha de {ancho:g} x {alto:g} mm con margen {margen:g} mm, "
+            f"panel {panel:g} mm y rótulo {rotulo:g} mm no deja marco de mapa "
+            f"({ancho_marco:g} x {alto_marco:g} mm).")
+    return margen, margen, ancho_marco, alto_marco
+
+
+def marco_del_rotulo(plancha: dict[str, Any]) -> tuple[float, float, float, float]:
+    """
+    Rectángulo del rótulo inferior, en milímetros. Devuelve (x, y, ancho, alto).
+
+    VA A LO ANCHO DE LA HOJA porque es donde caben las cinco cosas que lleva:
+    logo del contratante, bloque de proyecto, bloque de contenido, sistema de
+    coordenadas y logo del consultor.
+    """
+    ancho, alto, margen, _, rotulo, _ = _cifras_de_plancha(plancha)
+    return margen, alto - margen - rotulo, ancho - 2 * margen, rotulo
+
+
+def marcos_de_dos_mapas(
+    plancha: dict[str, Any], reparto: float = 0.58
+) -> tuple[tuple[float, float, float, float], tuple[float, float, float, float]]:
+    """
+    Los dos marcos de una plancha con detalle, general a la izquierda.
+
+    EL GENERAL VA MÁS ANCHO. Es el que lleva el contexto, las estaciones que
+    quedan fuera de la cuenca y la red completa; el de detalle solo enfoca el
+    sitio del proyecto y se lee bien en menos espacio.
+    """
+    x, y, ancho, alto = marco_del_mapa(plancha)
+    _, _, margen, _, _, separacion = _cifras_de_plancha(plancha)
+    hueco = max(separacion, 2.0)
+    ancho_general = (ancho - hueco) * float(reparto)
+    ancho_detalle = ancho - hueco - ancho_general
+    if ancho_general <= 0 or ancho_detalle <= 0:
+        raise ErrorConfiguracion(
+            f"el reparto {reparto:g} no deja dos marcos utilizables.")
+    return ((x, y, ancho_general, alto),
+            (x + ancho_general + hueco, y, ancho_detalle, alto))
+
+
+def _cifras_de_plancha(
+    plancha: dict[str, Any]
+) -> tuple[float, float, float, float, float, float]:
+    """Las seis medidas de la plancha, validadas."""
     try:
-        ancho = float(plancha["ancho_mm"])
-        alto = float(plancha["alto_mm"])
-        margen = float(plancha["margen_mm"])
-        panel = float(plancha["ancho_panel_mm"])
+        return (float(plancha["ancho_mm"]), float(plancha["alto_mm"]),
+                float(plancha["margen_mm"]),
+                float(plancha.get("ancho_panel_mm", 0.0) or 0.0),
+                float(plancha.get("alto_rotulo_mm", 0.0) or 0.0),
+                float(plancha.get("separacion_mm", 3.0) or 0.0))
     except (KeyError, TypeError, ValueError) as exc:
         raise ErrorConfiguracion(
             f"la plancha declarada no es utilizable: {exc}.") from exc
-
-    ancho_marco = ancho - 2 * margen - panel - margen
-    alto_marco = alto - 2 * margen
-    if ancho_marco <= 0 or alto_marco <= 0:
-        raise ErrorConfiguracion(
-            f"la plancha de {ancho:g} x {alto:g} mm con margen {margen:g} mm y "
-            f"panel {panel:g} mm no deja marco de mapa "
-            f"({ancho_marco:g} x {alto_marco:g} mm).")
-    return margen, margen, ancho_marco, alto_marco
 
 
 def escala_normalizada(
@@ -264,6 +316,168 @@ def escala_como_texto(escala: int) -> str:
 
 
 # =============================================================================
+# Rótulo
+# =============================================================================
+PLANTILLA_ROTULO = '''\
+# =============================================================================
+# DATOS DEL RÓTULO DE LAS PLANCHAS  (insumo del M16)
+# -----------------------------------------------------------------------------
+# Son datos DEL CONTRATO, no de la herramienta, y por eso viven en el estudio.
+# El M16 creó este archivo vacío porque no existía. Mientras los campos estén en
+# blanco las planchas salen con el rótulo incompleto y el módulo lo reporta.
+#
+# Puede diligenciarse a mano o por consola:
+#     python src/M16_cartografia.py --rotulo
+#
+# LAS RUTAS DE LOGO son relativas a la raíz del estudio. Se admite PNG, JPG y
+# SVG. Si el archivo no existe, el recuadro del logo queda vacío y se advierte.
+# =============================================================================
+
+contratante:
+  nombre: ""          # entidad que contrata, tal como debe figurar
+  logo: ""            # p. ej. "data/00_insumos_usuario/logos/contratante.png"
+
+consultor:
+  nombre: ""          # firma que elabora
+  logo: ""
+
+proyecto:
+  titulo: ""          # p. ej. "ESTUDIOS HIDROLÓGICOS"
+  subtitulo: ""       # p. ej. "PROYECTO PLAN PARCIAL JUANAMBÚ"
+  fecha: ""           # p. ej. "AGOSTO DE 2026"
+
+responsable: ""       # quien firma la plancha
+'''
+
+CAMPOS_ROTULO = (
+    ("proyecto.titulo", "Título del estudio (p. ej. ESTUDIOS HIDROLÓGICOS)"),
+    ("proyecto.subtitulo", "Nombre del proyecto"),
+    ("proyecto.fecha", "Fecha del rótulo (p. ej. AGOSTO DE 2026)"),
+    ("contratante.nombre", "Entidad contratante"),
+    ("contratante.logo", "Ruta del logo del contratante, relativa al estudio"),
+    ("consultor.nombre", "Firma consultora"),
+    ("consultor.logo", "Ruta del logo del consultor, relativa al estudio"),
+    ("responsable", "Responsable que firma"),
+)
+
+
+def _anidado(datos: dict, clave: str) -> str:
+    """Valor de 'a.b' en un diccionario anidado, o cadena vacía."""
+    actual: Any = datos
+    for parte in clave.split("."):
+        if not isinstance(actual, dict):
+            return ""
+        actual = actual.get(parte)
+    return str(actual or "").strip()
+
+
+def _fijar_anidado(datos: dict, clave: str, valor: str) -> None:
+    """Escribe 'a.b' en un diccionario anidado, creando lo que falte."""
+    partes = clave.split(".")
+    actual = datos
+    for parte in partes[:-1]:
+        actual = actual.setdefault(parte, {})
+    actual[partes[-1]] = valor
+
+
+def leer_rotulo(ruta: Path) -> tuple[dict, list[str]]:
+    """
+    Datos del rótulo y lista de campos sin diligenciar.
+
+    SI EL ARCHIVO NO EXISTE SE CREA VACÍO, con sus comentarios. Es preferible a
+    fallar: el consultor ve qué se le pide y dónde ponerlo, y las planchas se
+    producen igual con el rótulo incompleto y una advertencia que dice cuáles
+    faltan.
+    """
+    ruta = Path(ruta)
+    if not ruta.is_file():
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        ruta.write_text(PLANTILLA_ROTULO, encoding="utf-8")
+        return leer_yaml(ruta) or {}, [c for c, _ in CAMPOS_ROTULO]
+    datos = leer_yaml(ruta) or {}
+    faltan = [c for c, _ in CAMPOS_ROTULO if not _anidado(datos, c)]
+    return datos, faltan
+
+
+def preguntar_rotulo(ruta: Path) -> dict:
+    """
+    Pregunta por consola los datos del rótulo y los escribe.
+
+    NO SE LLAMA DESDE LA CADENA. La cadena corre sin intervención (CLAUDE.md,
+    sección 4); esto es para diligenciar el rótulo una vez, a mano, con
+    'M16_cartografia.py --rotulo'. Lo ya diligenciado se ofrece por defecto y se
+    conserva pulsando Intro.
+    """
+    ruta = Path(ruta)
+    datos, _ = leer_rotulo(ruta)
+    print("Datos del rótulo de las planchas. "
+          "Intro conserva el valor actual.")
+    print()
+    for clave, pregunta in CAMPOS_ROTULO:
+        actual = _anidado(datos, clave)
+        sufijo = f" [{actual}]" if actual else ""
+        try:
+            respuesta = input(f"  {pregunta}{sufijo}: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            print("Se conserva lo que ya estaba.")
+            return datos
+        if respuesta:
+            _fijar_anidado(datos, clave, respuesta)
+
+    cabecera = PLANTILLA_ROTULO.split("contratante:", 1)[0]
+    lineas = [cabecera.rstrip()]
+    for grupo in ("contratante", "consultor", "proyecto"):
+        lineas.append("")
+        lineas.append(f"{grupo}:")
+        for sub in ("nombre", "logo", "titulo", "subtitulo", "fecha"):
+            valor = (datos.get(grupo) or {}).get(sub)
+            if valor is not None:
+                lineas.append(f'  {sub}: "{valor}"')
+    lineas.append("")
+    lineas.append(f'responsable: "{datos.get("responsable", "")}"')
+    lineas.append("")
+    ruta.write_text("\n".join(lineas), encoding="utf-8")
+    print()
+    print(f"Escrito en {ruta}")
+    return datos
+
+
+def texto_del_rotulo(datos: dict, configuracion: Config, crs_id: str,
+                     titulo: str, subtitulo: str, escala: str) -> dict[str, str]:
+    """
+    Lo que va en cada casilla del rótulo, ya compuesto.
+
+    EL BLOQUE DE REFERENCIA DECLARA EL ORIGEN, no solo el código EPSG. Una
+    plancha que dice 'EPSG:9377' y nada más obliga a quien la revisa a
+    buscarlo; el nombre del origen es lo que permite verificar de un vistazo
+    que no se mezclaron sistemas.
+    """
+    partes_proyecto = [
+        _anidado(datos, "proyecto.titulo"),
+        (_anidado(datos, "proyecto.subtitulo")
+         or str(configuracion.obtener("proyecto.nombre", "") or "")),
+        _anidado(datos, "proyecto.fecha"),
+    ]
+    referencia = [f"Sistema de coordenadas: {crs_id}"]
+    if str(crs_id).strip().upper().endswith("9377"):
+        referencia.append("MAGNA-SIRGAS / Origen Nacional CTM12")
+    referencia.append("Unidades: metros")
+    referencia.append(f"Escala: {escala}")
+    responsable = _anidado(datos, "responsable")
+    if responsable:
+        referencia.append(f"Elaboró: {responsable}")
+
+    return {
+        "rot_proyecto": "\n".join(x for x in partes_proyecto if x),
+        "rot_contenido": "\n".join(x for x in (titulo.upper(), subtitulo) if x),
+        "rot_referencia": "\n".join(referencia),
+        "rot_contratante": _anidado(datos, "contratante.nombre"),
+        "rot_consultor": _anidado(datos, "consultor.nombre"),
+    }
+
+
+# =============================================================================
 # Lectura de la declaración
 # =============================================================================
 def _capa_desde(bruto: dict[str, Any], identificador: str, base: Path,
@@ -282,7 +496,9 @@ def _capa_desde(bruto: dict[str, Any], identificador: str, base: Path,
         identificador=identificador, tipo=tipo,
         ruta=rutas.resolver(ruta_bruta, base),
         estilo=str(estilo) if estilo else None,
-        nombre=str(bruto.get("nombre", "") or "").strip())
+        nombre=str(bruto.get("nombre", "") or "").strip(),
+        union=bruto.get("union") or None,
+        simbologia=bruto.get("simbologia") or None)
 
 
 def _token_del_patron(patron: str, ruta: str) -> str | None:
@@ -383,10 +599,12 @@ def leer_declaracion(ruta: Path, base: Path, estilos: Path) -> list[Plancha]:
             capas.append(catalogo[str(nombre)])
 
         encuadre = str(bruto.get("encuadre", "")).strip()
-        if encuadre and encuadre not in catalogo:
-            raise ErrorFormato(
-                f"la plancha {identificador!r} encuadra por {encuadre!r}, que "
-                "el catálogo no declara.")
+        detalle = str(bruto.get("encuadre_detalle", "")).strip()
+        for nombre_encuadre in (encuadre, detalle):
+            if nombre_encuadre and nombre_encuadre not in catalogo:
+                raise ErrorFormato(
+                    f"la plancha {identificador!r} encuadra por "
+                    f"{nombre_encuadre!r}, que el catálogo no declara.")
 
         esenciales = tuple(str(e) for e in (bruto.get("esenciales") or []))
         declaradas = {c.identificador for c in capas}
@@ -405,6 +623,7 @@ def leer_declaracion(ruta: Path, base: Path, estilos: Path) -> list[Plancha]:
             encuadre=encuadre,
             capas=tuple(capas),
             esenciales=esenciales,
+            encuadre_detalle=detalle,
             escala_forzada=int(forzada) if forzada else None,
         )
 
@@ -505,6 +724,8 @@ def _aplicar_simbologia(capa_cargada, regla: dict[str, str], tipo: str) -> bool:
         # LA PRECISION VA ANTES DE CLASIFICAR: classifyColorRamp escribe las
         # etiquetas, y fijarla despues no las reescribe. La leyenda salia con
         # '133.09996' en lugar de '133'.
+        # LA PRECISION VA ANTES DE CLASIFICAR: classifyColorRamp escribe las
+        # etiquetas, y fijarla despues no las reescribe.
         rampa_shader.setLabelPrecision(0)
         rampa_shader.classifyColorRamp(255, 1)
         sombreado.setRasterShaderFunction(rampa_shader)
@@ -551,8 +772,200 @@ def _aplicar_simbologia(capa_cargada, regla: dict[str, str], tipo: str) -> bool:
     return True
 
 
+def leer_tabla(ruta: Path, delimitador: str = ";") -> list[dict[str, str]]:
+    """
+    Filas de un CSV de la cadena, con la codificación que escriben los módulos.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si la tabla no existe.
+    """
+    import csv
+
+    ruta = Path(ruta)
+    if not ruta.is_file():
+        raise ErrorRutas(f"no se encuentra la tabla {ruta}.")
+    with ruta.open(encoding="utf-8-sig", newline="") as archivo:
+        return list(csv.DictReader(archivo, delimiter=delimitador))
+
+
+def _numero(texto: Any) -> float | None:
+    """Valor numérico de una celda, admitiendo coma decimal. None si no lo es."""
+    if texto is None:
+        return None
+    limpio = str(texto).strip().replace(",", ".")
+    if not limpio:
+        return None
+    try:
+        return float(limpio)
+    except ValueError:
+        return None
+
+
+def capa_unida(capa_base, union: dict[str, Any], base: Path,
+               delimitador: str = ";", logger=None):
+    """
+    Copia en memoria de la capa con las columnas de una tabla ya incorporadas.
+
+    SE COPIA EN LUGAR DE UNIR. La unión de QGIS renombra los campos con un
+    prefijo y deja el nombre real dependiendo de opciones de la unión, de modo
+    que la simbología apuntaría a un campo cuyo nombre no está declarado en
+    ninguna parte. Copiando, la columna se llama como en el CSV y la
+    declaración dice la verdad.
+
+    NINGUNA ENTIDAD SE PIERDE. Una entidad sin fila en la tabla conserva su
+    geometría con el campo vacío, y el módulo reporta cuántas quedaron así: es
+    la señal de que la clave no corresponde.
+
+    Excepciones
+    -----------
+    ErrorFormato
+        Si la tabla no tiene la columna clave o alguna de las pedidas.
+    """
+    from qgis.core import (
+        QgsFeature, QgsField, QgsVectorLayer, QgsWkbTypes,
+    )
+    from qgis.PyQt.QtCore import QVariant
+
+    ruta_tabla = rutas.resolver(str(union["tabla"]), base)
+    clave_capa = str(union.get("clave_capa", "")).strip()
+    clave_tabla = str(union.get("clave_tabla", "")).strip()
+    pedidos = [str(c).strip() for c in (union.get("campos") or [])]
+    if not (clave_capa and clave_tabla and pedidos):
+        raise ErrorFormato(
+            f"la unión con {ruta_tabla.name} debe declarar clave_capa, "
+            "clave_tabla y campos.")
+
+    filas = leer_tabla(ruta_tabla, delimitador)
+    if not filas:
+        raise ErrorFormato(f"la tabla {ruta_tabla.name} está vacía.")
+    columnas = set(filas[0].keys())
+    faltan = [c for c in [clave_tabla] + pedidos if c not in columnas]
+    if faltan:
+        raise ErrorFormato(
+            f"{ruta_tabla.name} no tiene la(s) columna(s) {faltan}. Tiene: "
+            f"{sorted(columnas)}.")
+
+    indice = {str(f[clave_tabla]).strip(): f for f in filas}
+    # Los campos numéricos se detectan por la primera fila con valor: un CN es
+    # un número y debe graduarse como tal, no ordenarse como texto.
+    numericos = {c: any(_numero(f.get(c)) is not None for f in filas)
+                 for c in pedidos}
+
+    tipo = QgsWkbTypes.displayString(capa_base.wkbType())
+    memoria = QgsVectorLayer(
+        f"{tipo}?crs={capa_base.crs().authid()}", capa_base.name(), "memory")
+    proveedor = memoria.dataProvider()
+    campos_originales = capa_base.fields()
+    nuevos = [QgsField(c, QVariant.Double if numericos[c] else QVariant.String)
+              for c in pedidos]
+    proveedor.addAttributes(list(campos_originales) + nuevos)
+    memoria.updateFields()
+
+    sin_fila = 0
+    entidades = []
+    for entidad in capa_base.getFeatures():
+        copia = QgsFeature(memoria.fields())
+        copia.setGeometry(entidad.geometry())
+        valores = list(entidad.attributes())
+        llave = str(entidad[clave_capa]).strip() if clave_capa in \
+            [f.name() for f in campos_originales] else ""
+        fila = indice.get(llave)
+        if fila is None:
+            sin_fila += 1
+        for campo in pedidos:
+            crudo = fila.get(campo) if fila else None
+            valores.append(_numero(crudo) if numericos[campo]
+                           else (str(crudo).strip() if crudo else None))
+        copia.setAttributes(valores)
+        entidades.append(copia)
+    proveedor.addFeatures(entidades)
+    memoria.updateExtents()
+
+    if sin_fila and logger is not None:
+        logger.warning(
+            "%d de %d entidad(es) de %s no encontraron fila en %s: la clave "
+            "%r no corresponde", sin_fila, capa_base.featureCount(),
+            capa_base.name(), ruta_tabla.name, clave_capa)
+    setattr(memoria, "_sin_fila", sin_fila)
+    setattr(memoria, "_total", len(entidades))
+    return memoria
+
+
+def _aplicar_graduado(capa, regla: dict[str, Any]) -> bool:
+    """
+    Simbología graduada o categorizada sobre un campo. Cierto si la aplicó.
+
+    EL MODO SE DECLARA, NO SE ADIVINA. Un número de curva se gradúa en clases y
+    una cobertura se categoriza por su valor: aplicar lo uno donde toca lo otro
+    produce un mapa que se lee mal y no avisa.
+    """
+    from qgis.core import (
+        QgsCategorizedSymbolRenderer, QgsClassificationQuantile,
+        QgsClassificationEqualInterval, QgsGraduatedSymbolRenderer,
+        QgsRendererCategory, QgsStyle, QgsSymbol,
+    )
+
+    campo = str(regla.get("campo", "")).strip()
+    if not campo or capa.fields().indexOf(campo) < 0:
+        return False
+    modo = str(regla.get("modo", "graduado")).strip().lower()
+    nombre_rampa = str(regla.get("rampa", "") or "Blues").strip()
+    rampa = QgsStyle.defaultStyle().colorRamp(nombre_rampa)
+    if rampa is None:
+        return False
+    if str(regla.get("invertir", "")).strip().lower() in ("si", "sí", "true"):
+        rampa.invert()
+
+    if modo == "categorizado":
+        valores = sorted({e[campo] for e in capa.getFeatures()
+                          if e[campo] not in (None, "")},
+                         key=lambda v: str(v))
+        if not valores:
+            return False
+        categorias = []
+        for posicion, valor in enumerate(valores):
+            simbolo = QgsSymbol.defaultSymbol(capa.geometryType())
+            simbolo.setColor(rampa.color(
+                posicion / max(1, len(valores) - 1)))
+            categorias.append(QgsRendererCategory(valor, simbolo, str(valor)))
+        capa.setRenderer(QgsCategorizedSymbolRenderer(campo, categorias))
+        return True
+
+    clases = int(regla.get("clases", 5) or 5)
+    renderizador = QgsGraduatedSymbolRenderer(campo, [])
+    renderizador.setSourceSymbol(QgsSymbol.defaultSymbol(capa.geometryType()))
+    renderizador.setSourceColorRamp(rampa)
+    metodo = (QgsClassificationEqualInterval()
+              if str(regla.get("metodo", "")).strip().lower() in
+              ("intervalo", "igual", "equalinterval")
+              else QgsClassificationQuantile())
+    renderizador.setClassificationMethod(metodo)
+    renderizador.updateClasses(capa, clases)
+    # LAS ETIQUETAS DE CLASE SE REDONDEAN. Los cuantiles caen en cifras rotas y
+    # la leyenda sale con '76.2667 - 78.0333', que nadie lee: el numero de curva
+    # se informa entero y una lamina en milimetros con un decimal basta.
+    decimales = int(regla.get("decimales", 1) or 0)
+    try:
+        from qgis.core import QgsRendererRangeLabelFormat
+        formato = QgsRendererRangeLabelFormat("%1 - %2", decimales)
+        renderizador.setLabelFormat(formato, True)
+    except (ImportError, AttributeError):
+        for indice, rango in enumerate(renderizador.ranges()):
+            renderizador.updateRangeLabel(
+                indice,
+                f"{rango.lowerValue():.{decimales}f} - "
+                f"{rango.upperValue():.{decimales}f}")
+    if renderizador.ranges():
+        capa.setRenderer(renderizador)
+        return True
+    return False
+
+
 def _cargar_capa(capa: CapaDeclarada, estilos: Path, simbologia=None,
-                 logger=None):
+                 logger=None, base_estudio: Path | None = None,
+                 delimitador: str = ";"):
     """
     Carga una capa y la simboliza. Devuelve None si no es válida.
 
@@ -578,6 +991,19 @@ def _cargar_capa(capa: CapaDeclarada, estilos: Path, simbologia=None,
         if logger is not None:
             logger.warning("la capa %s no es válida y se omite", capa.ruta.name)
         return None
+    if capa.union:
+        cargada = capa_unida(cargada, capa.union, base_estudio or Path("."),
+                             delimitador, logger)
+        cargada.setName(etiqueta)
+
+    # LA SIMBOLOGIA PROPIA MANDA SOBRE LA TABLA DE CONVENCIONES. Un campo
+    # graduado es del mapa concreto, no de la capa: el mismo shapefile de
+    # subcuencas sirve al mapa de numero de curva y al de rendimiento, y cada
+    # uno lo pinta por su columna.
+    if capa.simbologia and _aplicar_graduado(cargada, capa.simbologia):
+        cargada.triggerRepaint()
+        return cargada
+
     ruta_estilo = Path(estilos) / capa.estilo if capa.estilo else None
     if ruta_estilo is not None and ruta_estilo.is_file():
         cargada.loadNamedStyle(str(ruta_estilo))
@@ -605,16 +1031,18 @@ def _cargar_capa(capa: CapaDeclarada, estilos: Path, simbologia=None,
 # QGIS: plantilla de la plancha
 # =============================================================================
 def _texto(layout, identificador: str, contenido: str, tamano: float,
-           x: float, y: float, ancho: float, alto: float, negrita: bool = False):
-    """Rótulo del panel, con identificador para que el M16 lo rellene luego."""
+           x: float, y: float, ancho: float, alto: float, negrita: bool = False,
+           centrado: bool = False):
+    """Rótulo con identificador, para que la composición lo rellene después."""
     from qgis.core import QgsLayoutItemLabel, QgsLayoutPoint, QgsLayoutSize
     from qgis.core import QgsUnitTypes
+    from qgis.PyQt.QtCore import Qt
     from qgis.PyQt.QtGui import QFont
 
     etiqueta = QgsLayoutItemLabel(layout)
     etiqueta.setId(identificador)
     etiqueta.setText(contenido)
-    fuente = QFont("Arial", int(tamano))
+    fuente = QFont("Arial", max(1, int(tamano)))
     fuente.setBold(negrita)
     try:
         from qgis.core import QgsTextFormat
@@ -625,6 +1053,14 @@ def _texto(layout, identificador: str, contenido: str, tamano: float,
         etiqueta.setTextFormat(formato)
     except (ImportError, AttributeError):  # QGIS anterior a la API de formato
         etiqueta.setFont(fuente)
+    # QT6 MOVIO LOS ENUMERADOS A SU PROPIO ESPACIO DE NOMBRES. QGIS 4 usa
+    # PyQt6, donde Qt.AlignTop ya no existe y hay que pedir
+    # Qt.AlignmentFlag.AlignTop. Se resuelve para las dos versiones porque el
+    # modulo tiene que sobrevivir a la actualizacion de QGIS.
+    alineacion = getattr(Qt, "AlignmentFlag", Qt)
+    if centrado:
+        etiqueta.setHAlign(alineacion.AlignHCenter)
+    etiqueta.setVAlign(alineacion.AlignTop)
     etiqueta.attemptMove(QgsLayoutPoint(x, y, QgsUnitTypes.LayoutMillimeters))
     etiqueta.attemptResize(QgsLayoutSize(ancho, alto,
                                          QgsUnitTypes.LayoutMillimeters))
@@ -632,47 +1068,41 @@ def _texto(layout, identificador: str, contenido: str, tamano: float,
     return etiqueta
 
 
-def plantilla_por_defecto(destino: Path, plancha: dict[str, Any],
-                          crs_id: str) -> Path:
-    """
-    Escribe un .qpt de partida con toda la guarnición de una plancha.
-
-    ES UN PUNTO DE PARTIDA, NO UN RESULTADO. Se abre en QGIS, se ajusta al
-    formato de casa y se guarda: desde ese momento manda el del consultor, y
-    este módulo no lo vuelve a tocar.
-
-    Los identificadores de los elementos son el contrato con la composición:
-    'mapa', 'titulo', 'subtitulo', 'leyenda', 'norte', 'escala_grafica',
-    'escala_numerica', 'creditos' y 'nota'. Mientras se conserven, el aspecto
-    puede cambiar libremente.
-    """
+def _recuadro(layout, identificador: str, x: float, y: float,
+              ancho: float, alto: float, relleno: str = "#ffffff"):
+    """Recuadro con borde, el fondo de las casillas del rótulo y la leyenda."""
     from qgis.core import (
-        QgsApplication, QgsCoordinateReferenceSystem, QgsLayoutItemLegend,
-        QgsLayoutItemMap, QgsLayoutItemPicture, QgsLayoutItemScaleBar,
-        QgsLayoutItemShape, QgsLayoutPoint, QgsLayoutSize, QgsPrintLayout,
-        QgsProject, QgsReadWriteContext, QgsUnitTypes,
+        QgsLayoutItemShape, QgsLayoutPoint, QgsLayoutSize, QgsFillSymbol,
+        QgsUnitTypes,
     )
 
-    ancho_hoja = float(plancha["ancho_mm"])
-    alto_hoja = float(plancha["alto_mm"])
-    margen = float(plancha["margen_mm"])
-    ancho_panel = float(plancha["ancho_panel_mm"])
-    x_marco, y_marco, ancho_marco, alto_marco = marco_del_mapa(plancha)
-    x_panel = x_marco + ancho_marco + margen
+    figura = QgsLayoutItemShape(layout)
+    figura.setId(identificador)
+    figura.setShapeType(QgsLayoutItemShape.Rectangle)
+    figura.setSymbol(QgsFillSymbol.createSimple({
+        "color": relleno, "style": "solid",
+        "outline_color": "#000000", "outline_width": "0.3",
+        "outline_width_unit": "MM",
+    }))
+    figura.attemptMove(QgsLayoutPoint(x, y, QgsUnitTypes.LayoutMillimeters))
+    figura.attemptResize(QgsLayoutSize(ancho, alto,
+                                       QgsUnitTypes.LayoutMillimeters))
+    layout.addLayoutItem(figura)
+    return figura
 
-    layout = QgsPrintLayout(QgsProject.instance())
-    layout.initializeDefaults()
-    layout.setName("Plancha")
-    pagina = layout.pageCollection().page(0)
-    pagina.setPageSize(QgsLayoutSize(ancho_hoja, alto_hoja,
-                                     QgsUnitTypes.LayoutMillimeters))
 
-    # --- Mapa, con su grilla de coordenadas ---------------------------------
+def _marco_de_mapa(layout, identificador: str, x: float, y: float,
+                   ancho: float, alto: float, crs_id: str):
+    """Un marco cartográfico con su grilla de coordenadas."""
+    from qgis.core import (
+        QgsCoordinateReferenceSystem, QgsLayoutItemMap, QgsLayoutPoint,
+        QgsLayoutSize, QgsUnitTypes,
+    )
+
     mapa = QgsLayoutItemMap(layout)
-    mapa.setId("mapa")
-    mapa.attemptMove(QgsLayoutPoint(x_marco, y_marco,
-                                    QgsUnitTypes.LayoutMillimeters))
-    mapa.attemptResize(QgsLayoutSize(ancho_marco, alto_marco,
+    mapa.setId(identificador)
+    mapa.attemptMove(QgsLayoutPoint(x, y, QgsUnitTypes.LayoutMillimeters))
+    mapa.attemptResize(QgsLayoutSize(ancho, alto,
                                      QgsUnitTypes.LayoutMillimeters))
     mapa.setFrameEnabled(True)
     layout.addLayoutItem(mapa)
@@ -686,70 +1116,67 @@ def plantilla_por_defecto(destino: Path, plancha: dict[str, Any],
         from qgis.core import QgsLayoutItemMapGrid
         grilla.setStyle(QgsLayoutItemMapGrid.FrameAnnotationsOnly)
         grilla.setFrameStyle(QgsLayoutItemMapGrid.InteriorTicks)
-        for borde in (QgsLayoutItemMapGrid.Left, QgsLayoutItemMapGrid.Right,
-                      QgsLayoutItemMapGrid.Top, QgsLayoutItemMapGrid.Bottom):
+        bordes = (QgsLayoutItemMapGrid.Left, QgsLayoutItemMapGrid.Right,
+                  QgsLayoutItemMapGrid.Top, QgsLayoutItemMapGrid.Bottom)
+        for borde in bordes:
             grilla.setAnnotationDisplay(QgsLayoutItemMapGrid.ShowAll, borde)
+            grilla.setAnnotationPosition(
+                QgsLayoutItemMapGrid.OutsideMapFrame, borde)
         # LOS ROTULOS DE LOS COSTADOS VAN GIRADOS. Una coordenada CTM12 tiene
         # siete cifras y ocupa unos 12 mm en horizontal, mas que el margen de la
         # hoja: escritos de lado se salen de la plancha y se cortan al exportar.
-        for borde in (QgsLayoutItemMapGrid.Left, QgsLayoutItemMapGrid.Right,
-                      QgsLayoutItemMapGrid.Top, QgsLayoutItemMapGrid.Bottom):
-            grilla.setAnnotationPosition(
-                QgsLayoutItemMapGrid.OutsideMapFrame, borde)
         for borde in (QgsLayoutItemMapGrid.Left, QgsLayoutItemMapGrid.Right):
             grilla.setAnnotationDirection(
                 QgsLayoutItemMapGrid.VerticalDescending, borde)
     except (ImportError, AttributeError):
         pass
+    return mapa
 
-    # --- Panel derecho -------------------------------------------------------
-    marco_panel = QgsLayoutItemShape(layout)
-    marco_panel.setId("panel")
-    marco_panel.setShapeType(QgsLayoutItemShape.Rectangle)
-    marco_panel.attemptMove(QgsLayoutPoint(x_panel, y_marco,
-                                           QgsUnitTypes.LayoutMillimeters))
-    marco_panel.attemptResize(QgsLayoutSize(ancho_panel, alto_marco,
-                                            QgsUnitTypes.LayoutMillimeters))
-    layout.addLayoutItem(marco_panel)
 
-    interior = x_panel + 3.0
-    util = ancho_panel - 6.0
-    cursor = y_marco + 4.0
+def _guarnicion(layout, mapa_ref, x: float, y: float, ancho: float,
+                alto: float) -> None:
+    """
+    Leyenda, norte y escala, FLOTANDO SOBRE EL MAPA.
 
-    _texto(layout, "titulo", "Título de la plancha", 13.0,
-           interior, cursor, util, 14.0, negrita=True)
-    cursor += 15.0
-    _texto(layout, "subtitulo", "Subtítulo", 9.0, interior, cursor, util, 10.0)
-    cursor += 12.0
+    Es la disposición de las planchas de referencia del consultor: el mapa toma
+    la hoja entera y la guarnición se apoya encima, en la esquina que quede
+    despejada. Gana superficie de mapa frente a un panel lateral, que reserva su
+    franja aunque esté medio vacía.
+    """
+    from qgis.core import (
+        QgsApplication, QgsLayoutItemLegend, QgsLayoutItemPicture,
+        QgsLayoutItemScaleBar, QgsLayoutPoint, QgsLayoutSize, QgsUnitTypes,
+    )
 
+    ancho_leyenda = 58.0
+    x_leyenda = x + ancho - ancho_leyenda - 3.0
     leyenda = QgsLayoutItemLegend(layout)
     leyenda.setId("leyenda")
-    leyenda.setTitle("Convenciones")
-    leyenda.setLinkedMap(mapa)
-    leyenda.setLegendFilterByMapEnabled(True)
+    leyenda.setTitle("CONVENCIONES")
+    leyenda.setLinkedMap(mapa_ref)
     leyenda.setResizeToContents(False)
-    leyenda.attemptMove(QgsLayoutPoint(interior, cursor,
+    leyenda.setBackgroundEnabled(True)
+    leyenda.setFrameEnabled(True)
+    leyenda.attemptMove(QgsLayoutPoint(x_leyenda, y + 3.0,
                                        QgsUnitTypes.LayoutMillimeters))
-    leyenda.attemptResize(QgsLayoutSize(util, 130.0,
+    leyenda.attemptResize(QgsLayoutSize(ancho_leyenda, 95.0,
                                         QgsUnitTypes.LayoutMillimeters))
     layout.addLayoutItem(leyenda)
-    cursor += 134.0
 
-    # Norte a la izquierda del panel y escala gráfica a su derecha.
     norte = QgsLayoutItemPicture(layout)
     norte.setId("norte")
     flecha = Path(QgsApplication.svgPaths()[0]) / "arrows" / "NorthArrow_02.svg"
     if flecha.is_file():
         norte.setPicturePath(str(flecha))
-    norte.attemptMove(QgsLayoutPoint(interior, cursor,
+    norte.attemptMove(QgsLayoutPoint(x + ancho - 22.0, y + alto - 46.0,
                                      QgsUnitTypes.LayoutMillimeters))
-    norte.attemptResize(QgsLayoutSize(22.0, 22.0,
+    norte.attemptResize(QgsLayoutSize(18.0, 18.0,
                                       QgsUnitTypes.LayoutMillimeters))
     layout.addLayoutItem(norte)
 
     barra = QgsLayoutItemScaleBar(layout)
     barra.setId("escala_grafica")
-    barra.setLinkedMap(mapa)
+    barra.setLinkedMap(mapa_ref)
     barra.applyDefaultSettings()
     barra.setStyle("Single Box")
     barra.setUnits(QgsUnitTypes.DistanceKilometers)
@@ -757,22 +1184,124 @@ def plantilla_por_defecto(destino: Path, plancha: dict[str, Any],
     barra.setUnitsPerSegment(1.0)
     barra.setNumberOfSegments(4)
     barra.setNumberOfSegmentsLeft(0)
-    barra.attemptMove(QgsLayoutPoint(interior + 26.0, cursor + 6.0,
+    barra.setBackgroundEnabled(True)
+    barra.attemptMove(QgsLayoutPoint(x + ancho - 72.0, y + alto - 24.0,
                                      QgsUnitTypes.LayoutMillimeters))
-    barra.attemptResize(QgsLayoutSize(util - 26.0, 14.0,
+    barra.attemptResize(QgsLayoutSize(68.0, 13.0,
                                       QgsUnitTypes.LayoutMillimeters))
     layout.addLayoutItem(barra)
-    cursor += 26.0
 
-    _texto(layout, "escala_numerica", "Escala 1:0", 9.0,
-           interior, cursor, util, 6.0, negrita=True)
-    cursor += 8.0
-    _texto(layout, "creditos",
-           "Sistema de referencia\nEstudio\nFecha", 7.0,
-           interior, cursor, util, 26.0)
-    cursor += 28.0
-    _texto(layout, "nota", "", 6.5, interior, cursor, util,
-           max(8.0, y_marco + alto_marco - cursor - 2.0))
+    _texto(layout, "escala_numerica", "Escala 1:0", 8.0,
+           x + ancho - 72.0, y + alto - 10.0, 68.0, 6.0, negrita=True)
+
+
+def _rotulo(layout, plancha: dict[str, Any]) -> None:
+    """
+    El rótulo inferior, con las cinco casillas de las planchas de referencia.
+
+    Los identificadores son el contrato con la composición: 'rot_proyecto',
+    'rot_contenido', 'rot_referencia', 'logo_contratante' y 'logo_consultor'.
+    Mientras se conserven, el consultor puede recolocarlos y restilarlos en QGIS
+    sin que el módulo deje de rellenarlos.
+    """
+    from qgis.core import (
+        QgsLayoutItemPicture, QgsLayoutPoint, QgsLayoutSize, QgsUnitTypes,
+    )
+
+    x, y, ancho, alto = marco_del_rotulo(plancha)
+    _recuadro(layout, "panel_rotulo", x, y, ancho, alto)
+
+    # Las cinco casillas, en fracción del ancho disponible.
+    ancho_logo = min(52.0, ancho * 0.13)
+    x_proyecto = x + ancho_logo
+    ancho_proyecto = ancho * 0.30
+    x_contenido = x_proyecto + ancho_proyecto
+    ancho_contenido = ancho * 0.25
+    x_referencia = x_contenido + ancho_contenido
+    ancho_referencia = ancho * 0.19
+    x_consultor = x_referencia + ancho_referencia
+    ancho_consultor = x + ancho - x_consultor
+
+    for identificador, izquierda, util in (
+            ("logo_contratante", x, ancho_logo),
+            ("logo_consultor", x_consultor, ancho_consultor)):
+        imagen = QgsLayoutItemPicture(layout)
+        imagen.setId(identificador)
+        imagen.attemptMove(QgsLayoutPoint(izquierda + 1.5, y + 1.5,
+                                          QgsUnitTypes.LayoutMillimeters))
+        imagen.attemptResize(QgsLayoutSize(util - 3.0, alto - 3.0,
+                                           QgsUnitTypes.LayoutMillimeters))
+        layout.addLayoutItem(imagen)
+
+    _texto(layout, "rotulo_proyecto_titulo", "PROYECTO:", 9.0,
+           x_proyecto + 2.0, y + 2.0, ancho_proyecto - 4.0, 5.0, negrita=True)
+    _texto(layout, "rot_proyecto", "", 9.0,
+           x_proyecto + 6.0, y + 8.0, ancho_proyecto - 8.0, alto - 10.0,
+           negrita=True)
+
+    _texto(layout, "rotulo_contenido_titulo", "CONTENIDO:", 9.0,
+           x_contenido + 2.0, y + 2.0, ancho_contenido - 4.0, 5.0, negrita=True)
+    _texto(layout, "rot_contenido", "", 8.5,
+           x_contenido + 6.0, y + 8.0, ancho_contenido - 8.0, alto - 10.0,
+           negrita=True)
+
+    _texto(layout, "rot_referencia", "", 6.0,
+           x_referencia + 2.0, y + 2.0, ancho_referencia - 4.0, alto - 4.0,
+           centrado=True)
+
+    # El nombre bajo cada logo: si el estudio no entrega la imagen, la casilla
+    # no queda muda.
+    _texto(layout, "rot_contratante", "", 6.0, x + 1.5, y + alto - 5.0,
+           ancho_logo - 3.0, 4.5, centrado=True)
+    _texto(layout, "rot_consultor", "", 6.0, x_consultor + 1.5, y + alto - 5.0,
+           ancho_consultor - 3.0, 4.5, centrado=True)
+
+
+def plantilla_por_defecto(destino: Path, plancha: dict[str, Any], crs_id: str,
+                          con_detalle: bool = False) -> Path:
+    """
+    Escribe un .qpt de partida con toda la guarnición de una plancha.
+
+    ES UN PUNTO DE PARTIDA, NO UN RESULTADO. Se abre en QGIS, se ajusta al
+    formato de casa y se guarda: desde ese momento manda el del consultor, y
+    este módulo no lo vuelve a tocar.
+
+    Con 'con_detalle' escribe la variante de dos marcos, general y sitio de
+    proyecto, que es la de las figuras de precipitación de referencia.
+
+    Excepciones
+    -----------
+    ErrorFormato
+        Si QGIS rechaza la escritura.
+    """
+    from qgis.core import (
+        QgsLayoutSize, QgsPrintLayout, QgsProject, QgsReadWriteContext,
+        QgsUnitTypes,
+    )
+
+    ancho_hoja, alto_hoja = (float(plancha["ancho_mm"]),
+                             float(plancha["alto_mm"]))
+
+    layout = QgsPrintLayout(QgsProject.instance())
+    layout.initializeDefaults()
+    layout.setName("Plancha con detalle" if con_detalle else "Plancha")
+    layout.pageCollection().page(0).setPageSize(
+        QgsLayoutSize(ancho_hoja, alto_hoja, QgsUnitTypes.LayoutMillimeters))
+
+    if con_detalle:
+        general, detalle = marcos_de_dos_mapas(plancha)
+        principal = _marco_de_mapa(layout, "mapa", *general, crs_id)
+        _marco_de_mapa(layout, "mapa_detalle", *detalle, crs_id)
+        _texto(layout, "titulo_detalle", "SITIO DE PROYECTO", 9.0,
+               detalle[0], detalle[1] + detalle[3] - 6.0, detalle[2], 5.0,
+               negrita=True, centrado=True)
+        _guarnicion(layout, principal, *general)
+    else:
+        marco = marco_del_mapa(plancha)
+        principal = _marco_de_mapa(layout, "mapa", *marco, crs_id)
+        _guarnicion(layout, principal, *marco)
+
+    _rotulo(layout, plancha)
 
     destino = Path(destino)
     destino.parent.mkdir(parents=True, exist_ok=True)
@@ -807,52 +1336,34 @@ def _extension_de(capa) -> tuple[float, float, float, float]:
     return (caja.xMinimum(), caja.yMinimum(), caja.xMaximum(), caja.yMaximum())
 
 
-def componer(
-    plancha: Plancha,
-    capas_cargadas: Sequence[Any],
-    capa_encuadre: Any,
-    layout,
-    configuracion: Config,
-    crs_id: str,
-    creditos: str,
-) -> dict[str, Any]:
+def _encuadrar(mapa, capas_cargadas, capa_encuadre, configuracion, crs_id,
+               escala_forzada=None) -> dict[str, Any]:
     """
-    Rellena la composición con las capas, la extensión y los rótulos.
-
-    Devuelve el detalle de la plancha, con su escala y su intervalo de grilla.
+    Fija capas, sistema, extensión, escala y grilla de un marco. Devuelve su
+    detalle.
 
     Excepciones
     -----------
-    ErrorFormato
-        Si la plantilla no tiene el elemento de mapa.
+    ErrorHidrologia
+        Si la extensión de la capa de encuadre no es utilizable.
     """
     from qgis.core import QgsCoordinateReferenceSystem, QgsRectangle
 
-    mapa = layout.itemById("mapa")
-    if mapa is None:
-        raise ErrorFormato(
-            "la plantilla no tiene un elemento de mapa con identificador "
-            "'mapa'. Es el único elemento imprescindible: sin él no hay dónde "
-            "dibujar.")
-
     ancho_marco = mapa.rect().width()
     alto_marco = mapa.rect().height()
-
     extension = _extension_de(capa_encuadre)
     ancho_m = extension[2] - extension[0]
     alto_m = extension[3] - extension[1]
     serie = configuracion.obtener("cartografia.serie_escalas")
     margen = float(configuracion.obtener("cartografia.margen_encuadre", 0.05))
 
-    if plancha.escala_forzada:
-        escala = int(plancha.escala_forzada)
-        minima = escala_normalizada(ancho_m, alto_m, ancho_marco, alto_marco,
-                                    serie, margen)
+    minima = escala_normalizada(ancho_m, alto_m, ancho_marco, alto_marco,
+                                serie, margen)
+    if escala_forzada:
+        escala = int(escala_forzada)
         desbordada = escala < minima
     else:
-        escala = escala_normalizada(ancho_m, alto_m, ancho_marco, alto_marco,
-                                    serie, margen)
-        desbordada = False
+        escala, desbordada = minima, False
 
     encuadrada = extension_para_escala(extension, escala, ancho_marco,
                                        alto_marco)
@@ -871,6 +1382,70 @@ def componer(
     grilla.setOffsetY(0.0)
     mapa.updateBoundingRect()
     mapa.refresh()
+    return {
+        "escala": escala,
+        "escala_texto": escala_como_texto(escala),
+        "escala_desbordada": desbordada,
+        "grilla_m": intervalo,
+        "extension_m": [round(v, 1) for v in encuadrada],
+    }
+
+
+def _poner_logo(layout, identificador: str, ruta: Path | None) -> bool:
+    """Coloca un logo. Falso si no hay archivo, y entonces la casilla queda vacía."""
+    elemento = layout.itemById(identificador)
+    if elemento is None or not hasattr(elemento, "setPicturePath"):
+        return False
+    if ruta is None or not Path(ruta).is_file():
+        return False
+    elemento.setPicturePath(str(ruta))
+    try:
+        from qgis.core import QgsLayoutItemPicture
+        elemento.setResizeMode(QgsLayoutItemPicture.Zoom)
+    except (ImportError, AttributeError):
+        pass
+    return True
+
+
+def componer(
+    plancha: Plancha,
+    capas_cargadas: Sequence[Any],
+    capa_encuadre: Any,
+    layout,
+    configuracion: Config,
+    crs_id: str,
+    rotulo: dict,
+    capas_detalle: Sequence[Any] = (),
+    capa_encuadre_detalle: Any = None,
+    base: Path | None = None,
+) -> dict[str, Any]:
+    """
+    Rellena la composición con las capas, la extensión, la leyenda y el rótulo.
+
+    Devuelve el detalle de la plancha, con su escala y su intervalo de grilla.
+
+    Excepciones
+    -----------
+    ErrorFormato
+        Si la plantilla no tiene el elemento de mapa.
+    """
+    mapa = layout.itemById("mapa")
+    if mapa is None:
+        raise ErrorFormato(
+            "la plantilla no tiene un elemento de mapa con identificador "
+            "'mapa'. Es el único elemento imprescindible: sin él no hay dónde "
+            "dibujar.")
+
+    detalle = _encuadrar(mapa, capas_cargadas, capa_encuadre, configuracion,
+                         crs_id, plancha.escala_forzada)
+
+    mapa_detalle = layout.itemById("mapa_detalle")
+    if mapa_detalle is not None and capa_encuadre_detalle is not None:
+        segundo = _encuadrar(mapa_detalle,
+                             capas_detalle or capas_cargadas,
+                             capa_encuadre_detalle, configuracion, crs_id)
+        detalle["escala_detalle"] = segundo["escala"]
+        detalle["escala_detalle_texto"] = segundo["escala_texto"]
 
     leyenda = layout.itemById("leyenda")
     if leyenda is not None:
@@ -887,30 +1462,39 @@ def componer(
             raiz.addLayer(capa_visible)
         leyenda.updateLegend()
 
-    for identificador, contenido in (
-            ("titulo", plancha.titulo),
-            ("subtitulo", plancha.subtitulo),
-            ("escala_numerica", f"Escala {escala_como_texto(escala)}"),
-            ("creditos", creditos),
-            ("nota", plancha.nota)):
+    escala_rotulo = detalle["escala_texto"]
+    if "escala_detalle_texto" in detalle:
+        escala_rotulo += f" / {detalle['escala_detalle_texto']}"
+    casillas = texto_del_rotulo(rotulo, configuracion, crs_id, plancha.titulo,
+                                plancha.subtitulo, escala_rotulo)
+    casillas["escala_numerica"] = f"Escala {escala_rotulo}"
+    casillas["nota"] = plancha.nota
+    casillas["titulo"] = plancha.titulo
+    casillas["subtitulo"] = plancha.subtitulo
+    for identificador, contenido in casillas.items():
         elemento = layout.itemById(identificador)
         if elemento is not None and hasattr(elemento, "setText"):
             elemento.setText(contenido)
 
+    raiz_estudio = Path(base) if base is not None else Path(".")
+    logos = {}
+    for identificador, clave in (("logo_contratante", "contratante.logo"),
+                                 ("logo_consultor", "consultor.logo")):
+        declarado = _anidado(rotulo, clave)
+        ruta = (rutas.resolver(declarado, raiz_estudio) if declarado else None)
+        logos[identificador] = _poner_logo(layout, identificador, ruta)
+
     layout.refresh()
-    return {
+    detalle.update({
         "id": plancha.identificador,
         "titulo": plancha.titulo,
-        "escala": escala,
-        "escala_texto": escala_como_texto(escala),
         "escala_forzada": bool(plancha.escala_forzada),
-        "escala_desbordada": desbordada,
-        "grilla_m": intervalo,
-        "extension_m": [round(v, 1) for v in encuadrada],
+        "logos": {k: v for k, v in logos.items()},
         "capas": [c.identificador for c in plancha.capas if c.existe],
         "capas_ausentes": [c.identificador for c in plancha.capas
                            if not c.existe],
-    }
+    })
+    return detalle
 
 
 def exportar(layout, destino_sin_extension: Path, formatos: Sequence[str],
@@ -985,9 +1569,15 @@ def ejecutar(
     declaracion = rutas.resolver(
         configuracion.obtener("cartografia.declaracion"), base)
     salida = rutas.resolver(configuracion.obtener("cartografia.salida"), base)
+    delimitador = configuracion.obtener("insumos_usuario.delimitador_csv", ";")
     ruta_qpt = rutas.resolver(
         configuracion.obtener("cartografia.plantilla_qpt"),
         rutas.raiz_codigo())
+    ruta_qpt_detalle = rutas.resolver(
+        configuracion.obtener("cartografia.plantilla_qpt_detalle"),
+        rutas.raiz_codigo())
+    ruta_rotulo = rutas.resolver(configuracion.obtener("cartografia.rotulo"),
+                                 base)
     # La tabla de simbologia se busca primero en el estudio y, si no esta, en la
     # herramienta: asi un estudio puede apartarse de la convencion poniendo la
     # suya, y queda constancia de que lo hizo.
@@ -1019,21 +1609,24 @@ def ejecutar(
 
     # --- Plantilla -----------------------------------------------------------
     with registro.bloque(logger, "Plantilla de la plancha"):
-        if not ruta_qpt.is_file():
-            if not configuracion.obtener(
-                    "cartografia.escribir_plantilla_inicial", True):
+        automatica = configuracion.obtener(
+            "cartografia.escribir_plantilla_inicial", True)
+        for ruta, con_detalle in ((ruta_qpt, False),
+                                  (ruta_qpt_detalle, True)):
+            if ruta.is_file():
+                logger.info("se usa la plantilla existente %s", ruta.name)
+                continue
+            if not automatica:
                 resultado.hallazgos.append(Hallazgo(
                     BLOQUEANTE, "cartografia.sin_plantilla",
-                    f"no existe la plantilla {ruta_qpt.name} y la creación "
+                    f"no existe la plantilla {ruta.name} y la creación "
                     "automática está desactivada.",
                 ))
                 return _cerrar(logger, resultado, base, ruta_json, inicio,
                                SALIDA_BLOQUEANTE)
-            plantilla_por_defecto(ruta_qpt, plancha_cfg, crs_id)
+            plantilla_por_defecto(ruta, plancha_cfg, crs_id, con_detalle)
             resultado.plantilla_creada = True
-            logger.info("plantilla de partida escrita en %s", ruta_qpt)
-        else:
-            logger.info("se usa la plantilla existente %s", ruta_qpt.name)
+            logger.info("plantilla de partida escrita en %s", ruta)
         resultado.plantilla = str(ruta_qpt)
 
     if solo_plantilla:
@@ -1067,7 +1660,8 @@ def ejecutar(
                 resultado.capas_ausentes.append(
                     rutas.relativa(capa.ruta, base))
                 continue
-            objeto = _cargar_capa(capa, estilos, simbologia, logger)
+            objeto = _cargar_capa(capa, estilos, simbologia, logger,
+                                  base_estudio=base, delimitador=delimitador)
             if objeto is None:
                 resultado.capas_ausentes.append(
                     rutas.relativa(capa.ruta, base))
@@ -1079,9 +1673,13 @@ def ejecutar(
         logger.info("%d capa(s) cargadas, %d ausentes",
                     len(cargadas), len(resultado.capas_ausentes))
 
-    creditos = (f"Sistema de referencia: {crs_id}\n"
-                f"Estudio: {configuracion.obtener('proyecto.nombre', '')}\n"
-                f"Elaboró: {configuracion.obtener('proyecto.consultor', '')}")
+    with registro.bloque(logger, "Rótulo"):
+        datos_rotulo, faltan_rotulo = leer_rotulo(ruta_rotulo)
+        resultado.rotulo = rutas.relativa(ruta_rotulo, base)
+        resultado.rotulo_faltante = faltan_rotulo
+        logger.info("%d de %d campo(s) del rótulo diligenciados",
+                    len(CAMPOS_ROTULO) - len(faltan_rotulo),
+                    len(CAMPOS_ROTULO))
 
     # --- Planchas ------------------------------------------------------------
     for plancha in planchas:
@@ -1136,9 +1734,26 @@ def ejecutar(
             # QGIS dibuja la PRIMERA capa de la lista encima. La declaración va
             # del fondo a la superficie, que es como se lee un mapa, de modo que
             # aquí se invierte.
-            layout = _cargar_plantilla(ruta_qpt)
-            detalle = componer(plancha, list(reversed(visibles)), encuadre,
-                               layout, configuracion, crs_id, creditos)
+            encuadre_detalle = None
+            if plancha.con_detalle:
+                suelta = next((c for c in plancha.capas
+                               if c.identificador == plancha.encuadre_detalle),
+                              None)
+                if suelta is not None:
+                    encuadre_detalle = cargadas.get(str(suelta.ruta))
+                if encuadre_detalle is None:
+                    logger.warning(
+                        "falta la capa de detalle %r: la plancha sale con un "
+                        "solo marco", plancha.encuadre_detalle)
+
+            plantilla = (ruta_qpt_detalle
+                         if plancha.con_detalle and encuadre_detalle is not None
+                         else ruta_qpt)
+            layout = _cargar_plantilla(plantilla)
+            detalle = componer(
+                plancha, list(reversed(visibles)), encuadre, layout,
+                configuracion, crs_id, datos_rotulo,
+                capa_encuadre_detalle=encuadre_detalle, base=base)
             escritas = exportar(layout, salida / plancha.identificador,
                                 formatos, dpi)
             detalle["archivos"] = [rutas.relativa(r, base) for r in escritas]
@@ -1160,6 +1775,28 @@ def ejecutar(
 def _resumir(resultado: ResultadoM16) -> list[Hallazgo]:
     """Lo que el módulo midió, con su severidad."""
     hallazgos: list[Hallazgo] = []
+
+    if resultado.rotulo_faltante:
+        pendientes = dict(CAMPOS_ROTULO)
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "cartografia.rotulo_incompleto",
+            f"{len(resultado.rotulo_faltante)} de {len(CAMPOS_ROTULO)} campos "
+            f"del rótulo están sin diligenciar en {resultado.rotulo}: "
+            + ", ".join(resultado.rotulo_faltante)
+            + ". Las planchas salen con esas casillas vacías. Se diligencia una "
+              "vez por estudio, a mano o con 'M16_cartografia.py --rotulo'.",
+        ))
+
+    sin_logo = sorted({nombre for detalle in resultado.planchas
+                       for nombre, puesto in (detalle.get("logos") or {}).items()
+                       if not puesto})
+    if sin_logo:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "cartografia.sin_logo",
+            f"no se pudo colocar {sin_logo}: la ruta no está declarada en el "
+            "rótulo o el archivo no existe. La casilla queda con el nombre de "
+            "la firma en texto y sin imagen.",
+        ))
 
     if resultado.plantilla_creada:
         hallazgos.append(Hallazgo(
@@ -1188,6 +1825,18 @@ def _resumir(resultado: ResultadoM16) -> list[Hallazgo]:
             + ", ".join(escala_como_texto(e) for e in escalas)
             + ". La escala se calcula desde la extensión y el marco, y se "
               "redondea hacia arriba a la serie normalizada.",
+        ))
+
+    holgadas = [(p["id"], p["holgura"]) for p in resultado.planchas
+                if (p.get("holgura") or 0) > 4.0]
+    if holgadas:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "cartografia.encuadre_holgado",
+            f"{len(holgadas)} plancha(s) cubren mas de cuatro veces la "
+            "superficie de su contenido: "
+            + ", ".join(f"{i} ({h:g} veces)" for i, h in holgadas)
+            + ". La capa de encuadre no acota el estudio, casi siempre porque "
+              "no quedo recortada al area de influencia.",
         ))
 
     desbordadas = [p["id"] for p in resultado.planchas
@@ -1258,6 +1907,8 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "modulo": MODULO,
         "plantilla": resultado.plantilla,
         "plantilla_creada": resultado.plantilla_creada,
+        "rotulo": resultado.rotulo,
+        "rotulo_faltante": resultado.rotulo_faltante,
         "planchas": resultado.planchas,
         "omitidas": resultado.omitidas,
         "capas_ausentes": sorted(set(resultado.capas_ausentes)),
@@ -1305,6 +1956,8 @@ def _analizar_argumentos(argv=None):
     analizador.add_argument("--solo-plantilla", action="store_true",
                             dest="solo_plantilla",
                             help="escribe la plantilla y no compone planchas")
+    analizador.add_argument("--rotulo", action="store_true",
+                            help="pregunta por consola los datos del rótulo")
     analizador.add_argument("--json", type=Path, default=None,
                             dest="json_salida")
     analizador.add_argument("--silencioso", action="store_true")
@@ -1315,6 +1968,15 @@ def main(argv=None) -> int:
     """Punto de entrada. Devuelve el codigo de salida del proceso."""
     argumentos = _analizar_argumentos(argv)
     try:
+        if argumentos.rotulo:
+            # Es el UNICO modo interactivo del modulo, y esta fuera de la
+            # cadena a proposito: la cadena corre sin intervencion.
+            base = (Path(argumentos.raiz).resolve() if argumentos.raiz
+                    else rutas.raiz_proyecto())
+            configuracion = cargar(ruta=argumentos.config, raiz=base)
+            preguntar_rotulo(rutas.resolver(
+                configuracion.obtener("cartografia.rotulo"), base))
+            return SALIDA_CORRECTA
         codigo, _ = ejecutar(
             raiz=argumentos.raiz, ruta_config=argumentos.config,
             ruta_json=argumentos.json_salida, solo=argumentos.solo,
