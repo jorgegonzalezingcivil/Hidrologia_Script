@@ -66,7 +66,7 @@ _DIRECTORIO_SRC = Path(__file__).resolve().parent
 if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
-from comun import esquema, oni, registro, rutas  # noqa: E402
+from comun import esquema, estaciones, oni, registro, rutas  # noqa: E402
 from comun.config import Config, cargar  # noqa: E402
 from comun.errores import (  # noqa: E402
     ErrorConfiguracion,
@@ -583,6 +583,120 @@ def _escribir_informe(destino, resultado, configuracion) -> None:
 # =============================================================================
 # Gráficas
 # =============================================================================
+def _figuras_enso_por_estacion(graficos, configuracion, base, resultado,
+                               estilo, logger) -> int:
+    """
+    Serie de precipitación de cada estación sobre la anomalía ONI.
+
+    ES LA FIGURA QUE SUSTENTA EL ANALISIS POR FASE. Las agregadas dicen cuánto
+    llueve de media bajo cada fase; esta deja ver si un episodio concreto se
+    corresponde con un déficit o un exceso en ESA estación, que es lo que el
+    consultor tiene que juzgar antes de aceptar el promedio.
+
+    La anomalía va en el eje derecho y rellena contra el cero, separada por
+    signo. La precipitación va en el izquierdo como línea: son magnitudes
+    distintas y compartir eje las haría incomparables.
+
+    Devuelve cuántas figuras se escribieron.
+    """
+    serie = rutas.directorio("procesado_series", base) / \
+        "precipitacion_mensual_complementada.csv"
+    if not serie.is_file():
+        serie = rutas.directorio("procesado_series", base) / \
+            "precipitacion_mensual.csv"
+    if not serie.is_file() or not resultado.clasificacion:
+        return 0
+
+    delimitador = configuracion.obtener("insumos_usuario.delimitador_csv", ";")
+    try:
+        codigos, claves, valores = leer_serie_mensual(serie, delimitador)
+    except (ErrorFormato, ErrorRutas):
+        return 0
+
+    # La anomalía del ONI, indexada por (año, mes) para cruzarla con la serie.
+    anomalias: dict[tuple[int, int], float] = {}
+    for fila in resultado.clasificacion:
+        try:
+            anomalias[(int(fila["anio"]), int(fila["mes"]))] = float(
+                fila["anomalia"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not anomalias:
+        return 0
+
+    carpeta = graficos.directorio_tema(
+        rutas.resolver(configuracion.obtener("graficos.directorio_individuales"),
+                       base),
+        "enso")
+    individual = graficos.estilo_individual(
+        estilo,
+        float(configuracion.obtener("graficos.ancho_individual_cm")) * 1.6,
+        float(configuracion.obtener("graficos.alto_individual_cm")))
+    nombres = estaciones.nombres_de_estacion(
+        rutas.directorio("procesado_estaciones", base)
+        / "inventario_estaciones.csv", delimitador)
+
+    tiempo = [a + (m - 0.5) / 12.0 for a, m in claves]
+    anomalia = [anomalias.get(c) for c in claves]
+    escritas = 0
+
+    for posicion, codigo in enumerate(codigos):
+        lluvia = [fila[posicion] for fila in valores]
+        if not any(v is not None for v in lluvia):
+            continue
+        nombre = nombres.get(str(codigo), "") or str(codigo)
+
+        with graficos.figura(
+            individual,
+            titulo=f"Precipitación mensual y anomalía ONI. Estación {nombre}",
+            etiqueta_x="", etiqueta_y="Precipitación (mm)",
+        ) as (fig, ax):
+            derecho = ax.twinx()
+            # LA ANOMALIA VA DEBAJO. Es el contexto sobre el que se lee la
+            # serie, no el dato de la figura.
+            equis = [t for t, v in zip(tiempo, anomalia) if v is not None]
+            valores_oni = [v for v in anomalia if v is not None]
+            if equis:
+                derecho.fill_between(
+                    equis, 0.0, valores_oni,
+                    where=[v > 0 for v in valores_oni], interpolate=True,
+                    facecolor="#c5e0b4", edgecolor="#7f9f5f", linewidth=0.5,
+                    zorder=1, label="anomalía en fase cálida (El Niño)")
+                derecho.fill_between(
+                    equis, 0.0, valores_oni,
+                    where=[v < 0 for v in valores_oni], interpolate=True,
+                    facecolor="#f8cbad", edgecolor="#c08552", linewidth=0.5,
+                    zorder=1, label="anomalía en fase fría (La Niña)")
+                derecho.axhline(0.0, color="#404040", linewidth=0.8, zorder=2)
+            derecho.set_ylabel("Anomalía ONI (°C)",
+                               fontsize=individual.tamano_fuente)
+            derecho.tick_params(labelsize=individual.tamano_fuente - 1)
+
+            # La serie encima, y con hueco donde falta el dato: unir a través de
+            # un vacío dibujaría una recta que la estación nunca midió.
+            ax.plot(tiempo, [v if v is not None else float("nan")
+                             for v in lluvia],
+                    color="#31538f", linewidth=0.9, zorder=3,
+                    label="precipitación mensual")
+            ax.set_ylim(bottom=0)
+            ax.set_zorder(derecho.get_zorder() + 1)
+            ax.patch.set_visible(False)
+
+            manejadores, etiquetas = ax.get_legend_handles_labels()
+            otros, sus_etiquetas = derecho.get_legend_handles_labels()
+            ax.legend(otros + manejadores, sus_etiquetas + etiquetas,
+                      loc="upper center", bbox_to_anchor=(0.5, -0.10), ncol=3,
+                      frameon=False, fontsize=individual.tamano_fuente - 1)
+            fig.tight_layout()
+            graficos.guardar(fig, carpeta / estaciones.sin_tildes(nombre),
+                             individual)
+            escritas += 1
+
+    if escritas and logger is not None:
+        logger.info("%d figura(s) de serie contra anomalía ONI", escritas)
+    return escritas
+
+
 def _figuras(configuracion, base, resultado, logger) -> None:
     """Emite las figuras del módulo."""
     try:
@@ -675,6 +789,9 @@ def _figuras(configuracion, base, resultado, logger) -> None:
             for ruta in graficos.guardar(fig, directorio / "M05b_contraste",
                                          estilo):
                 resultado.productos.append(rutas.relativa(ruta, base))
+
+    _figuras_enso_por_estacion(graficos, configuracion, base, resultado,
+                               estilo, logger)
 
     logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
 

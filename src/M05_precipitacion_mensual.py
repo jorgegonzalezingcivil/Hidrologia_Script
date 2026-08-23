@@ -85,7 +85,7 @@ if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
 import estadistica as est  # noqa: E402
-from comun import esquema, registro, rutas, shapefile  # noqa: E402
+from comun import esquema, estaciones, registro, rutas, shapefile  # noqa: E402
 from comun.config import Config, cargar  # noqa: E402
 from comun.errores import (  # noqa: E402
     ErrorConfiguracion,
@@ -2024,51 +2024,15 @@ def _figura_estaciones(graficos, estilo, directorio, resultado, base,
             resultado.productos.append(rutas.relativa(ruta, base))
 
 def _nombres_de_estacion(base) -> dict[str, str]:
-    """
-    Nombre legible de cada estación, leído del inventario del M03.
-
-    El inventario publica el nombre con el código repetido entre corchetes
-    ('LA BOLSA [21206690]'), que sirve en una tabla y sobra en el título de una
-    figura y en un nombre de archivo. Se recorta.
-    """
-    ruta = (rutas.directorio("procesado_estaciones", base)
-            / "inventario_estaciones.csv")
-    if not ruta.is_file():
-        return {}
-    try:
-        with ruta.open(encoding="utf-8-sig", newline="") as archivo:
-            filas = list(csv.DictReader(archivo, delimiter=";"))
-    except OSError:
-        return {}
-    nombres: dict[str, str] = {}
-    for fila in filas:
-        codigo = ""
-        nombre = ""
-        for clave, valor in fila.items():
-            etiqueta = (clave or "").strip().lower()
-            if "código" in etiqueta or "codigo" in etiqueta:
-                codigo = str(valor or "").strip()
-            elif "nombre" in etiqueta:
-                nombre = str(valor or "").strip()
-        if codigo:
-            nombres[codigo] = re.sub(r"\s*\[[^\]]*\]\s*$", "", nombre).strip()
-    return nombres
+    """Nombre legible de cada estación, del inventario que deja el M03."""
+    return estaciones.nombres_de_estacion(
+        rutas.directorio("procesado_estaciones", base)
+        / "inventario_estaciones.csv")
 
 
 def _sin_tildes(texto: str) -> str:
-    """
-    Texto reducido a ASCII, apto para un nombre de archivo.
-
-    LOS NOMBRES DE ARCHIVO NO LLEVAN TILDES NI ESPACIOS. El informe los
-    referencia desde una plantilla de Word y los anexos viajan entre máquinas:
-    una eñe o un acento se codifican distinto según el sistema, y el vínculo se
-    rompe sin avisar. El nombre legible de la estación se conserva íntegro en el
-    título de la figura, que es donde el lector lo necesita.
-    """
-    plano = unicodedata.normalize("NFKD", texto)
-    plano = "".join(c for c in plano if not unicodedata.combining(c))
-    plano = re.sub(r"[^A-Za-z0-9]+", "_", plano).strip("_")
-    return plano.lower() or "estacion"
+    """Texto apto para un nombre de archivo. Vive en comun/estaciones."""
+    return estaciones.sin_tildes(texto) or "estacion"
 
 
 def _totales_anuales(claves, columna, minimo_meses: int = 12):

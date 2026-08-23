@@ -1168,7 +1168,152 @@ def parametros_por_subcuenca(ruta: Path) -> list[dict[str, Any]]:
             "relieve_m": _numero(fila, CAMPO_RELIEVE),
             "origen_trayectoria": "hec_hms",
         })
+        # LA CARACTERIZACION VA POR SUBCUENCA. Compacidad, forma, longitud axial
+        # y ancho medio se calculaban solo para la cuenca entera, y son los
+        # parametros que el informe presenta unidad por unidad.
+        subcuencas[-1].update(parametros_de_forma_de(
+            area_km2, perimetro_m / 1000.0,
+            _longitud_axial_de(anillos) / 1000.0))
     return subcuencas
+
+
+def _longitud_axial_de(anillos) -> float:
+    """
+    Mayor distancia entre dos vértices del polígono, en metros.
+
+    Se pasa primero por la envolvente convexa: la distancia máxima entre dos
+    puntos de un conjunto se alcanza siempre entre dos vértices de su
+    envolvente, y eso baja el coste de cuadrático sobre miles de vértices a
+    cuadrático sobre unas decenas.
+    """
+    puntos = [p for anillo in anillos for p in anillo]
+    if len(puntos) < 2:
+        return 0.0
+    casco = shapefile._envolvente_convexa(puntos) or puntos
+    mayor = 0.0
+    for indice, uno in enumerate(casco):
+        for otro in casco[indice + 1:]:
+            distancia = math.hypot(otro[0] - uno[0], otro[1] - uno[1])
+            if distancia > mayor:
+                mayor = distancia
+    return mayor
+
+
+def parametros_de_forma_de(area_km2: float, perimetro_km: float,
+                           axial_km: float) -> dict[str, Any]:
+    """
+    Compacidad, forma y ancho medio de una unidad, con las mismas fórmulas que
+    la cuenca.
+
+    SE CALCULAN IGUAL EN LOS DOS NIVELES a propósito. Un coeficiente de
+    Gravelius de la cuenca obtenido de una manera y el de sus subcuencas de
+    otra no serían comparables, y el informe los presenta en la misma tabla.
+    """
+    forma: dict[str, Any] = {
+        "longitud_axial_km": round(axial_km, 4) if axial_km else None,
+        "ancho_medio_km": None,
+        "coef_forma": None,
+        "coef_compacidad": None,
+    }
+    if axial_km and axial_km > 0:
+        forma["ancho_medio_km"] = round(area_km2 / axial_km, 4)
+        # Coeficiente de forma de Horton: área sobre el cuadrado de la longitud.
+        forma["coef_forma"] = round(area_km2 / (axial_km ** 2), 4)
+    if area_km2 > 0 and perimetro_km:
+        # Gravelius: 0,2821 es 1/(2*sqrt(pi)) con las unidades en km y km2.
+        forma["coef_compacidad"] = round(
+            0.2821 * perimetro_km / math.sqrt(area_km2), 4)
+    return forma
+
+
+def _punto_medio(linea, largo: float) -> tuple[float, float]:
+    """Punto que deja la mitad de la longitud a cada lado de la polilinea."""
+    objetivo = largo / 2.0
+    recorrido = 0.0
+    for uno, otro in zip(linea, linea[1:]):
+        tramo = math.hypot(otro[0] - uno[0], otro[1] - uno[1])
+        if recorrido + tramo >= objetivo and tramo > 0:
+            fraccion = (objetivo - recorrido) / tramo
+            return (uno[0] + fraccion * (otro[0] - uno[0]),
+                    uno[1] + fraccion * (otro[1] - uno[1]))
+        recorrido += tramo
+    return linea[-1]
+
+
+def drenaje_por_subcuenca(ruta_red: Path, entidades,
+                          nombres: Sequence[str]) -> dict[str, dict[str, Any]]:
+    """
+    Densidad de drenaje, frecuencia de corrientes y orden de cada subcuenca.
+
+    EL REPARTO ES POR SEGMENTO, no por tramo entero. Un tramo de la red es una
+    corriente con nombre, y mide kilómetros: asignarlo completo a la subcuenca
+    que contiene su punto medio le atribuye longitud que discurre por las
+    vecinas. Medido sobre este estudio, ese reparto daba densidades de hasta
+    83 km/km2, que no existe en ningún terreno, y dejaba 42 de las 125
+    subcuencas sin drenaje porque la red solo tiene 230 corrientes dentro de la
+    cuenca y no alcanza a una por unidad.
+
+    Repartiendo segmento a segmento, la unidad de asignación pasa de kilómetros
+    a la veintena de metros que separa dos vértices, y el error queda por debajo
+    de la resolución del modelo de elevación del que sale la propia red.
+
+    UNA CORRIENTE SE CUENTA UNA SOLA VEZ, en la subcuenca donde discurre la
+    mayor parte de su longitud. Contarla en cada subcuenca que atraviesa
+    inflaría la frecuencia de corrientes en las cuencas de aguas abajo, que son
+    justo las que cruzan los cauces largos.
+
+    Devuelve un diccionario por nombre de subcuenca. Las que no reciben ningún
+    segmento quedan fuera: densidad cero y densidad desconocida no son lo mismo.
+    """
+    ruta_red = Path(ruta_red)
+    if not ruta_red.is_file():
+        return {}
+    try:
+        tramos = shapefile.leer_geometrias(ruta_red)
+        info = shapefile.leer_shapefile(ruta_red)
+        campo_orden = next((c for c in ("orden", "ORDEN", "strahler")
+                            if info.tiene_campo(c)), "")
+        registros = (shapefile.leer_registros(ruta_red, [campo_orden])
+                     if campo_orden else [{} for _ in tramos])
+    except (ErrorFormato, ErrorRutas):
+        return {}
+
+    # Envolvente de cada subcuenca, para descartar sin evaluar el polígono.
+    cajas = [geometria.envolvente([anillos]) for anillos in entidades]
+
+    acumulado: dict[int, dict[str, Any]] = {}
+    for tramo, registro in zip(tramos, registros):
+        try:
+            orden = int(float(registro.get(campo_orden) or 0))
+        except (TypeError, ValueError):
+            orden = 0
+        por_unidad: dict[int, float] = {}
+        for parte in tramo:
+            for uno, otro in zip(parte, parte[1:]):
+                largo = math.hypot(otro[0] - uno[0], otro[1] - uno[1])
+                if largo <= 0:
+                    continue
+                medio = ((uno[0] + otro[0]) / 2.0, (uno[1] + otro[1]) / 2.0)
+                for indice, (anillos, caja) in enumerate(zip(entidades, cajas)):
+                    if not (caja[0] <= medio[0] <= caja[2]
+                            and caja[1] <= medio[1] <= caja[3]):
+                        continue
+                    if not geometria.punto_en_poligono(medio[0], medio[1],
+                                                       anillos):
+                        continue
+                    por_unidad[indice] = por_unidad.get(indice, 0.0) + largo
+                    break
+        if not por_unidad:
+            continue
+        principal = max(por_unidad, key=por_unidad.get)
+        for indice, largo in por_unidad.items():
+            destino = acumulado.setdefault(
+                indice, {"longitud_m": 0.0, "corrientes": 0, "orden": 0})
+            destino["longitud_m"] += largo
+            destino["orden"] = max(destino["orden"], orden)
+            if indice == principal:
+                destino["corrientes"] += 1
+    return {nombres[i]: v for i, v in acumulado.items() if i < len(nombres)}
 
 
 def relieve_por_subcuenca(ruta_dem: Path, entidades) -> list[dict[str, Any]]:
@@ -1911,6 +2056,40 @@ def _resolver_subcuencas(configuracion, base, ruta_cuenca, ruta_dem, matriz,
         if cotas["cota_media"] is not None and cotas["cota_min"] is not None:
             subcuenca["cota_media_sobre_salida_m"] = round(
                 cotas["cota_media"] - cotas["cota_min"], 2)
+
+    # DENSIDAD DE DRENAJE Y ORDEN, TAMBIEN POR SUBCUENCA. Estaban solo para la
+    # cuenca entera, y son los que dicen si una unidad evacua rapido o encharca.
+    entidades_sub = shapefile.leer_geometrias(ruta_cuenca)
+    red_por_unidad = drenaje_por_subcuenca(
+        rutas.directorio("sig_vector", base) / "red_topologica.shp",
+        entidades_sub, [s["subcuenca"] for s in subcuencas])
+    for subcuenca in subcuencas:
+        datos_red = red_por_unidad.get(subcuenca["subcuenca"])
+        if not datos_red or not subcuenca.get("area_km2"):
+            continue
+        largo_km = datos_red["longitud_m"] / 1000.0
+        subcuenca.update({
+            "long_cauces_km": round(largo_km, 4),
+            "densidad_drenaje_km_km2": round(largo_km / subcuenca["area_km2"], 4),
+            "corrientes": datos_red["corrientes"],
+            "frecuencia_corrientes_km2": round(
+                datos_red["corrientes"] / subcuenca["area_km2"], 3),
+            "orden_corrientes": datos_red["orden"] or None,
+        })
+
+    con_red = [s for s in subcuencas if s.get("densidad_drenaje_km_km2")]
+    if subcuencas and len(con_red) < len(subcuencas):
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "morfometria.drenaje_por_subcuenca",
+            f"{len(con_red)} de {len(subcuencas)} subcuenca(s) reciben algun "
+            "segmento de la red. Las demas quedan SIN densidad, que no es lo "
+            "mismo que densidad cero: la red del estudio tiene pocas corrientes "
+            "frente al numero de subcuencas, y una unidad pequena puede no "
+            "contener ninguna. La densidad por subcuenca se reparte segmento a "
+            "segmento y no por corriente entera; con el reparto por corriente "
+            "salian densidades de hasta 83 km/km2, que no existen en ningun "
+            "terreno.",
+        ))
 
     _resolver_cn_por_subcuenca(configuracion, base, ruta_cuenca, subcuencas,
                                resultado, logger)
