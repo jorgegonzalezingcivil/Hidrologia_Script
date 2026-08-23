@@ -853,7 +853,16 @@ idf:
   # Region de la regionalizacion de Vargas y Diaz-Granados. Gobierna los cuatro
   # coeficientes de la curva, de modo que declararla mal desplaza toda la
   # intensidad de diseno sin que nada mas lo senale.
-  region: "andina"               # andina | caribe | pacifica | orinoquia | amazonia
+  region: "andina"
+
+  # DONDE SE ANCLA LA CURVA. La IDF es una curva de PUNTO: tanto Vargas y
+  # Diaz-Granados como Silva estan formuladas para un sitio, y el paso de lluvia
+  # puntual a lluvia sobre el area lo hace el factor de reduccion por area que
+  # el M12b aplica despues. Anclarla en la media de las estaciones describe la
+  # zona, no el sitio, y ademas reduce dos veces por el mismo motivo.
+  #   punto             lee los campos de Pmax24h del M08 en el punto de descarga
+  #   media_estaciones  promedia los cuantiles de todas las estaciones
+  anclaje: "punto"               # andina | caribe | pacifica | orinoquia | amazonia
   metodologias: [invias, silva]
   # CUAL DE LAS DOS ALIMENTA LA HIPOTESIS h2_idf. Vacio o null = se calculan las
   # dos por separado y NINGUNA se adopta, de modo que la columna h2_idf_mm queda

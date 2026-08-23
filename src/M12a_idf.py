@@ -86,6 +86,7 @@ MINUTOS_EN_24H = 1440.0
 @dataclass
 class ResultadoM12a:
     region: str = ""
+    anclaje: dict = field(default_factory=dict)
     curvas: list[dict[str, Any]] = field(default_factory=list)
     verificacion: list[dict[str, Any]] = field(default_factory=list)
     desagregacion: list[dict[str, Any]] = field(default_factory=list)
@@ -554,13 +555,151 @@ def factor_de_cambio_climatico(
     }
 
 
+def cuantiles_en_el_punto(
+    directorio_raster: Path, x: float, y: float, crs_punto: str,
+    crs_raster: str,
+) -> dict[float, float]:
+    """
+    Pmáx24h por periodo de retorno EN EL PUNTO, leída de los campos del M08.
+
+    LA IDF ES UNA CURVA DE PUNTO. Tanto la regionalización de Vargas y
+    Díaz-Granados como la de Silva estan formuladas para un sitio, y el paso de
+    lluvia puntual a lluvia sobre el área es justo lo que hace el factor de
+    reducción por área que el M12b aplica después. Anclar la curva en un
+    promedio espacial y aplicarle luego ese factor reduce dos veces por el mismo
+    motivo.
+
+    Se lee del campo interpolado y no de la estación más próxima: el campo ya
+    reúne todas las estaciones y da el valor del sitio, mientras que la más
+    próxima trasladaría al punto la particularidad de una sola serie.
+
+    Devuelve un diccionario vacío si no hay campos que leer, y quien llama
+    decide si cae a la media de estaciones.
+    """
+    import struct
+
+    from pyproj import Transformer
+
+    directorio_raster = Path(directorio_raster)
+    if not directorio_raster.is_dir():
+        return {}
+
+    conversor = Transformer.from_crs(crs_punto, crs_raster, always_xy=True)
+    px, py = conversor.transform(x, y)
+
+    cuantiles: dict[float, float] = {}
+    for ruta in sorted(directorio_raster.glob("pmax_T*.tif")):
+        etiqueta = ruta.stem[len("pmax_T"):].replace("_", ".")
+        try:
+            periodo = float(etiqueta)
+        except ValueError:
+            continue
+        try:
+            info = raster.leer_info(ruta)
+        except (ErrorFormato, ErrorRutas):
+            continue
+        formato = {"<f4": "f", "<f8": "d"}.get(info.descriptor)
+        if formato is None or not info.contiene(px, py, px, py):
+            continue
+        fila, columna = info.fila_de(py), info.columna_de(px)
+        if not (0 <= fila < info.alto and 0 <= columna < info.ancho):
+            continue
+        try:
+            with raster.LectorRaster(ruta) as lector:
+                valor = float(struct.unpack_from(
+                    "<" + formato, lector.fila(fila),
+                    columna * info.bytes_por_muestra)[0])
+        except (ErrorFormato, ErrorRutas, IndexError, struct.error):
+            continue
+        if info.nodato is not None and valor == float(info.nodato):
+            continue
+        if math.isfinite(valor) and valor > 0:
+            cuantiles[periodo] = valor
+    return dict(sorted(cuantiles.items()))
+
+
+def _anclar_cuantiles(configuracion, base, medias, resultado, logger):
+    """
+    Elige el anclaje de la curva y devuelve (cuantiles, detalle del anclaje).
+
+    LA IDF ES UNA CURVA DE PUNTO y el sitio de proyecto es el punto que interesa.
+    Anclarla en la media de las estaciones describe la zona, no el sitio, y
+    ademas choca con el factor de reduccion por area que el M12b aplica despues:
+    ese factor existe para pasar de lluvia puntual a lluvia sobre el area, de
+    modo que partir de un promedio espacial reduce dos veces por el mismo
+    motivo.
+
+    Si el criterio declarado es el punto y los campos del M08 no estan, se cae a
+    la media y se advierte: es preferible una curva declarada como regional a
+    ninguna curva.
+    """
+    criterio = str(configuracion.obtener("idf.anclaje", "punto")).strip().lower()
+    detalle = {"criterio": criterio, "aplicado": "media_estaciones",
+               "estaciones": len(medias)}
+    if criterio != "punto":
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "idf.anclaje_regional",
+            "la curva se ancla en la MEDIA de las estaciones y no en el sitio "
+            "de proyecto, por declaracion de idf.anclaje. Describe la zona y no "
+            "el punto, y el factor de reduccion por area que el M12b aplica "
+            "despues supone una curva puntual: partir de un promedio espacial "
+            "reduce dos veces.",
+        ))
+        return medias, detalle
+
+    en_punto = cuantiles_en_el_punto(
+        rutas.directorio("sig_raster", base) / "isoyetas",
+        float(configuracion.obtener("punto_descarga.x")),
+        float(configuracion.obtener("punto_descarga.y")),
+        str(configuracion.obtener("punto_descarga.crs")),
+        str(configuracion.obtener("crs.calculo")))
+
+    if not en_punto:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "idf.anclaje_sin_campos",
+            "se pidio anclar la IDF en el sitio de proyecto y no hay campos de "
+            "Pmax24h que muestrear: ejecutar el M08 antes que este modulo. La "
+            "curva se ancla en la media de las estaciones y queda declarada "
+            "como regional.",
+        ))
+        return medias, detalle
+
+    comunes = sorted(set(medias) & set(en_punto))
+    if comunes:
+        diferencias = [(p, medias[p], en_punto[p]) for p in comunes]
+        peor = max(diferencias,
+                   key=lambda d: abs(d[2] - d[1]) / d[1] if d[1] else 0.0)
+        detalle["diferencia_maxima_pct"] = round(
+            100.0 * (peor[2] - peor[1]) / peor[1], 1) if peor[1] else None
+        detalle["periodo_de_la_diferencia"] = peor[0]
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "idf.anclaje_en_el_punto",
+            f"la curva se ancla en el SITIO DE PROYECTO, leyendo los campos de "
+            f"Pmax24h del M08 en el punto de descarga: {len(en_punto)} periodo(s). "
+            f"Frente a la media de las {len(medias)} estaciones, la mayor "
+            f"diferencia es de {detalle['diferencia_maxima_pct']:+.1f} % en "
+            f"T = {peor[0]:g} anios ({peor[1]:.1f} contra {peor[2]:.1f} mm). "
+            "La media describe la zona; el punto es lo que la IDF pide y lo que "
+            "hace consistente el factor de reduccion por area que se aplica "
+            "despues.",
+        ))
+
+    detalle["aplicado"] = "punto_de_descarga"
+    detalle["periodos"] = len(en_punto)
+    logger.info("IDF anclada en el punto de descarga: %d periodo(s)",
+                len(en_punto))
+    return en_punto, detalle
+
+
 def leer_cuantiles(ruta: Path, delimitador: str) -> dict[float, float]:
     """
     Pmáx24h por periodo de retorno, de la tabla que dejó el M07.
 
-    Se toma la media de las estaciones para cada periodo: la IDF regional
-    describe una zona, no un punto, y anclarla a una sola estación trasladaría
-    a toda la cuenca la particularidad de esa estación.
+    Se promedia sobre las estaciones. ES EL RESPALDO, no el anclaje primario:
+    la IDF es una curva de punto y lo que corresponde es el valor en el sitio de
+    proyecto, que 'cuantiles_en_el_punto' lee de los campos del M08. Esta media
+    se usa cuando esos campos no existen todavia, y entonces la curva queda
+    declarada como regional.
 
     Excepciones
     -----------
@@ -640,6 +779,8 @@ def ejecutar(
         cuantiles = leer_cuantiles(
             rutas.directorio("procesado_frecuencia", base) / "cuantiles.csv",
             delimitador)
+        cuantiles, resultado.anclaje = _anclar_cuantiles(
+            configuracion, base, cuantiles, resultado, logger)
         coeficientes = leer_coeficientes(
             rutas.resolver(configuracion.obtener("idf.coeficientes_invias"),
                            base), delimitador)
@@ -710,8 +851,11 @@ def _resolver_curvas(configuracion, base, resultado, cuantiles, duraciones,
                                "b_min": b_silva, "n": n_silva,
                                "criterio": "declarado en la configuracion",
                                "fuente": fuente_1h}
-        # La media de la serie ancla la curva regional a esta cuenca. Se toma
-        # el cuantil de 2,33 anios, que es la media de una Gumbel.
+        # EL ANCLA DE LA CURVA, ya resuelto en _anclar_cuantiles: el valor del
+        # sitio de proyecto si hay campos que muestrear, o la media de las
+        # estaciones si no. Se toma el cuantil de 2,33 anios, que es la media de
+        # una Gumbel y es la M que la formulacion de Vargas y Diaz-Granados
+        # pide.
         media = cuantiles.get(2.33) or statistics.fmean(cuantiles.values())
 
         for periodo, pmax in cuantiles.items():
@@ -730,8 +874,9 @@ def _resolver_curvas(configuracion, base, resultado, cuantiles, duraciones,
                         100.0 * (uno - otro) / otro, 1)
                 resultado.curvas.append(fila)
 
-        logger.info("%d punto(s) de curva | region %s | media de anclaje "
-                    "%.1f mm", len(resultado.curvas), resultado.region, media)
+        logger.info("%d punto(s) de curva | region %s | anclaje %s, M = "
+                    "%.1f mm", len(resultado.curvas), resultado.region,
+                    resultado.anclaje.get("aplicado", "?"), media)
 
         if "silva" in metodologias and declarado is not None and not fuente_1h:
             resultado.hallazgos.append(Hallazgo(
@@ -1789,6 +1934,7 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
     reporte = {
         "modulo": MODULO,
         "region": resultado.region,
+        "anclaje": resultado.anclaje,
         "curvas": resultado.curvas,
         "verificacion": resultado.verificacion,
         "desagregacion": resultado.desagregacion,
