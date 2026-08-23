@@ -31,6 +31,8 @@ __all__ = [
     "punto_en_poligono",
     "punto_en_alguno",
     "envolvente",
+    "segmentos_de_frontera",
+    "cadenas_de_frontera",
     "perimetro_exterior",
     "centroide",
     "columnas_de_fila",
@@ -296,34 +298,19 @@ class IndiceEtiquetado:
         return None
 
 
-def perimetro_exterior(
+def segmentos_de_frontera(
     poligonos: Sequence[Poligono], tolerancia_m: float = 0.01,
-) -> dict[str, Any]:
+) -> list[tuple[tuple[float, float], tuple[float, float]]]:
     """
-    Perímetro del contorno de un mosaico de polígonos contiguos.
+    Aristas que pertenecen a una sola pieza del mosaico.
 
-    Sumar el perímetro de cada pieza NO da el perímetro del conjunto: cada linde
-    interior se cuenta dos veces. Sobre las 125 subcuencas de este estudio la
-    suma da 1.002,6 km y el contorno real 145,3 km, siete veces menos. El
-    coeficiente de compacidad de Gravelius, que divide el perímetro por la raíz
-    del área, pasaba de 19,06 a 2,74: de un valor imposible en una cuenca real a
-    uno que dice lo que se espera que diga.
-
-    El método es de conteo, no de geometría: en un mosaico sin huecos ni solapes
-    cada linde interior aparece exactamente DOS veces, una por cada pieza que lo
-    comparte, y cada tramo del contorno una sola. Se suman los que aparecen una
-    vez. Exige que las piezas compartan vértices, que es el caso cuando salen de
-    una misma delimitación sobre una malla.
-
-    Se devuelve también el recuento, porque es el que dice si el resultado vale.
-    Un mosaico con aristas que aparecen tres veces o más no es una cobertura
-    limpia, y ahí el conteo deja de significar lo que se supone: quien llame debe
-    mirar 'cobertura_limpia' antes de usar el perímetro.
+    En una cobertura sin huecos ni solapes cada linde interior aparece dos
+    veces, una por cada pieza que lo comparte, y cada tramo del contorno una
+    sola. Se devuelven las que aparecen una vez, con sus coordenadas.
     """
     escala = 1.0 / tolerancia_m if tolerancia_m > 0 else 1.0
-    cuenta: dict[tuple[tuple[int, int], tuple[int, int]], int] = {}
-    largo: dict[tuple[tuple[int, int], tuple[int, int]], float] = {}
-
+    cuenta: dict = {}
+    coordenadas: dict = {}
     for poligono in poligonos:
         for anillo in poligono:
             for uno, otro in zip(anillo, anillo[1:]):
@@ -334,20 +321,144 @@ def perimetro_exterior(
                 clave = ((izquierda, derecha) if izquierda < derecha
                          else (derecha, izquierda))
                 cuenta[clave] = cuenta.get(clave, 0) + 1
-                if clave not in largo:
-                    largo[clave] = math.hypot(otro[0] - uno[0],
-                                              otro[1] - uno[1])
+                coordenadas.setdefault(clave, (uno, otro))
+    return [coordenadas[clave] for clave, veces in cuenta.items()
+            if veces == 1]
 
-    frontera = [clave for clave, veces in cuenta.items() if veces == 1]
+
+def cadenas_de_frontera(
+    segmentos: Sequence[tuple[tuple[float, float], tuple[float, float]]],
+    tolerancia_m: float = 0.01,
+) -> list[Anillo]:
+    """
+    Encadena aristas sueltas en recorridos, de mayor a menor longitud.
+
+    Se recorre por ARISTAS y no por nodos: en los nodos donde concurren tres,
+    marcar el nodo como visto cortaria las dos cadenas restantes.
+    """
+    escala = 1.0 / tolerancia_m if tolerancia_m > 0 else 1.0
+
+    def clave(punto):
+        return (round(punto[0] * escala), round(punto[1] * escala))
+
+    adyacencia: dict = {}
+    for indice, (uno, otro) in enumerate(segmentos):
+        adyacencia.setdefault(clave(uno), []).append((indice, otro))
+        adyacencia.setdefault(clave(otro), []).append((indice, uno))
+
+    usadas: set[int] = set()
+    cadenas: list[Anillo] = []
+    for indice, (uno, _otro) in enumerate(segmentos):
+        if indice in usadas:
+            continue
+        cadena = [uno]
+        nodo = clave(uno)
+        while True:
+            siguiente = next((t for t in adyacencia.get(nodo, [])
+                              if t[0] not in usadas), None)
+            if siguiente is None:
+                break
+            usadas.add(siguiente[0])
+            cadena.append(siguiente[1])
+            nodo = clave(siguiente[1])
+        if len(cadena) > 2:
+            cadenas.append(cadena)
+
+    cadenas.sort(key=_longitud_de_cadena, reverse=True)
+    return cadenas
+
+
+def _longitud_de_cadena(cadena: Anillo) -> float:
+    """Longitud recorrida por una polilínea."""
+    return sum(math.hypot(b[0] - a[0], b[1] - a[1])
+               for a, b in zip(cadena, cadena[1:]))
+
+
+def _area_con_signo(cadena: Anillo) -> float:
+    """Área con signo del recorrido, cerrándolo si hace falta."""
+    puntos = list(cadena)
+    if puntos[0] != puntos[-1]:
+        puntos.append(puntos[0])
+    total = 0.0
+    for uno, otro in zip(puntos, puntos[1:]):
+        total += uno[0] * otro[1] - otro[0] * uno[1]
+    return total / 2.0
+
+
+def perimetro_exterior(
+    poligonos: Sequence[Poligono], tolerancia_m: float = 0.01,
+) -> dict[str, Any]:
+    """
+    Perímetro del contorno de un mosaico de polígonos contiguos.
+
+    Sumar el perímetro de cada pieza NO da el perímetro del conjunto: cada linde
+    interior se cuenta dos veces. Sobre las 125 subcuencas de este estudio la
+    suma da 1.002,6 km y el contorno real 119,5 km.
+
+    El método es de conteo, no de geometría: en un mosaico sin huecos ni solapes
+    cada linde interior aparece exactamente DOS veces y cada tramo del contorno
+    una sola.
+
+    CONTAR LAS ARISTAS NO BASTA. Dos piezas vecinas pueden describir el MISMO
+    linde con distinto número de vértices: una lo da como un segmento y la otra
+    lo parte con un vértice colineal. Entonces las tres mitades aparecen una vez
+    cada una y el conteo las toma por contorno. Medido sobre este estudio, ese
+    solo defecto añadía 25,77 km a un perímetro de 119,52 km, y con él subía el
+    coeficiente de compacidad de 2,27 a 2,76 sin que nada lo señalara.
+
+    Por eso las aristas se ENCADENAN y se descarta lo que no encierra
+    superficie: un recorrido que va y vuelve sobre sí mismo tiene área nula y no
+    es un contorno. Se conservan todas las cadenas que sí encierran área, porque
+    un estudio con dos piezas separadas tiene dos contornos legítimos.
+
+    Se devuelve el recuento, porque es el que dice si el resultado vale. Un
+    mosaico con aristas que aparecen tres veces o más no es una cobertura
+    limpia, y ahí el conteo deja de significar lo que se supone: quien llame
+    debe mirar 'cobertura_limpia' antes de usar el perímetro.
+    """
+    escala = 1.0 / tolerancia_m if tolerancia_m > 0 else 1.0
+    cuenta: dict = {}
+    for poligono in poligonos:
+        for anillo in poligono:
+            for uno, otro in zip(anillo, anillo[1:]):
+                izquierda = (round(uno[0] * escala), round(uno[1] * escala))
+                derecha = (round(otro[0] * escala), round(otro[1] * escala))
+                if izquierda == derecha:
+                    continue
+                clave = ((izquierda, derecha) if izquierda < derecha
+                         else (derecha, izquierda))
+                cuenta[clave] = cuenta.get(clave, 0) + 1
+
+    frontera = sum(1 for veces in cuenta.values() if veces == 1)
     compartidas = sum(1 for veces in cuenta.values() if veces == 2)
     repetidas = sum(1 for veces in cuenta.values() if veces > 2)
 
+    cadenas = cadenas_de_frontera(
+        segmentos_de_frontera(poligonos, tolerancia_m), tolerancia_m)
+
+    perimetro = 0.0
+    descartada = 0.0
+    contornos = 0
+    for cadena in cadenas:
+        largo = _longitud_de_cadena(cadena)
+        # UNA CADENA QUE NO ENCIERRA SUPERFICIE NO ES UN CONTORNO. El umbral es
+        # la superficie de una banda del ancho de la tolerancia a lo largo del
+        # recorrido: nada más delgado que eso puede ser un polígono real.
+        if abs(_area_con_signo(cadena)) <= max(tolerancia_m, 1e-9) * largo:
+            descartada += largo
+            continue
+        perimetro += largo
+        contornos += 1
+
     return {
-        "perimetro_m": sum(largo[clave] for clave in frontera),
-        "aristas_frontera": len(frontera),
+        "perimetro_m": perimetro,
+        "aristas_frontera": frontera,
         "aristas_compartidas": compartidas,
         "aristas_repetidas": repetidas,
-        "cobertura_limpia": repetidas == 0 and len(frontera) > 0,
+        "contornos": contornos,
+        "cadenas_degeneradas": len(cadenas) - contornos,
+        "longitud_degenerada_m": descartada,
+        "cobertura_limpia": repetidas == 0 and frontera > 0 and contornos > 0,
     }
 
 

@@ -163,6 +163,10 @@ def parametros_geometricos(ruta: Path) -> dict[str, float]:
         "aristas_frontera": contorno["aristas_frontera"],
         "aristas_compartidas": contorno["aristas_compartidas"],
         "aristas_repetidas": contorno["aristas_repetidas"],
+        "contornos": contorno["contornos"],
+        "cadenas_degeneradas": contorno["cadenas_degeneradas"],
+        "longitud_degenerada_km": round(
+            contorno["longitud_degenerada_m"] / 1000.0, 3),
         "longitud_axial_km": round(axial_km, 3),
         "ancho_medio_km": round(area_km2 / axial_km, 3) if axial_km else None,
         # Coeficiente de forma de Horton: área sobre el cuadrado de la longitud.
@@ -2504,7 +2508,28 @@ def ejecutar(
                 "coeficiente de compacidad sale inflado en la misma proporcion: "
                 "no usarlo hasta corregir la topologia de las subcuencas.",
             ))
-        elif parametros["coef_compacidad"] > 1.5:
+        elif parametros["cadenas_degeneradas"]:
+            # NO ES UN DETALLE DE DIBUJO: entra directo al Gravelius.
+            bruto = (parametros["perimetro_km"]
+                     + parametros["longitud_degenerada_km"])
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "morfometria.contorno_depurado",
+                f"del contorno se descartaron {parametros['longitud_degenerada_km']:.2f} "
+                f"km en {parametros['cadenas_degeneradas']} recorrido(s) que no "
+                "encierran superficie. Salen de que dos subcuencas vecinas "
+                "describen el mismo linde con distinto numero de vertices: una "
+                "lo da como un segmento y la otra lo parte con un vertice "
+                "colineal, de modo que las tres mitades se cuentan como "
+                f"frontera. Sin depurar, el perimetro seria {bruto:.2f} km en "
+                f"lugar de {parametros['perimetro_km']:.2f} y el coeficiente de "
+                f"compacidad "
+                f"{0.2821 * bruto / math.sqrt(parametros['area_km2']):.2f} en "
+                f"lugar de {parametros['coef_compacidad']:.2f}. La "
+                "comprobacion de que el depurado es correcto es que el contorno "
+                "encierra exactamente la suma de las areas de las piezas.",
+            ))
+
+        if parametros["coef_compacidad"] > 1.5:
             resultado.hallazgos.append(Hallazgo(
                 INFORMATIVO, "morfometria.forma",
                 f"coeficiente de compacidad {parametros['coef_compacidad']:.2f}, "

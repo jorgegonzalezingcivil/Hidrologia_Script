@@ -616,7 +616,7 @@ class PruebaPerimetroExterior(unittest.TestCase):
     Sumar el perímetro de cada subcuenca cuenta dos veces cada linde interior.
 
     Medido sobre las 125 subcuencas de este estudio: 1.002,6 km sumando frente a
-    145,3 km de contorno, y un Gravelius de 19,06 donde correspondía 2,74.
+    119,5 km de contorno, y un Gravelius de 19,06 donde correspondía 2,27.
     Diecinueve es imposible en una cuenca real, y nada en el cálculo lo señalaba.
     """
 
@@ -640,6 +640,81 @@ class PruebaPerimetroExterior(unittest.TestCase):
         resultado = geometria.perimetro_exterior(pieza * 3)
         self.assertGreater(resultado["aristas_repetidas"], 0)
         self.assertFalse(resultado["cobertura_limpia"])
+
+    def test_un_vertice_colineal_de_mas_no_infla_el_perimetro(self) -> None:
+        """
+        El mismo linde interior descrito con distinto número de vértices.
+
+        ES EL DEFECTO QUE INFLABA EL PERIMETRO DE ESTE ESTUDIO EN 25,77 km. La
+        celda central parte su lado izquierdo con un vértice colineal y su
+        vecina lo conserva entero. Las tres mitades aparecen una sola vez cada
+        una y el conteo las toma por contorno, cuando son un linde interior
+        descrito de dos maneras.
+
+        El linde tiene que ser INTERIOR para que el defecto aparezca: sus dos
+        extremos son nodos donde el resto de aristas ya está compartido, de modo
+        que el recorrido queda aislado del contorno y se puede distinguir por su
+        área nula.
+        """
+        piezas = list(_cuadricula(3, 3))
+        lado = 1_000.0
+        x, y = lado, lado
+        piezas[3 * 1 + 1] = [[(x, y), (x, y + lado / 2), (x, y + lado),
+                              (x + lado, y + lado), (x + lado, y), (x, y)]]
+        resultado = geometria.perimetro_exterior(piezas)
+        # El contorno de la cuadrícula son 12 km. Sin depurar saldrían 14, por
+        # el linde de 1 km recorrido de ida y vuelta.
+        self.assertAlmostEqual(resultado["perimetro_m"], 12_000.0, places=3)
+        self.assertEqual(resultado["contornos"], 1)
+        self.assertEqual(resultado["cadenas_degeneradas"], 1)
+        self.assertAlmostEqual(resultado["longitud_degenerada_m"], 2_000.0,
+                               places=3)
+
+    def test_un_linde_partido_que_toca_el_contorno_no_se_distingue(self) -> None:
+        """
+        LIMITE CONOCIDO DEL METODO, declarado para que nadie lo descubra tarde.
+
+        Si el linde descrito de dos maneras toca el contorno exterior, su
+        recorrido de ida y vuelta se enlaza con el contorno en los nodos
+        compartidos y forma una sola cadena que sí encierra área. El área deja
+        de distinguirlos y el perímetro sale inflado en la longitud del linde.
+
+        No ocurre en el estudio, donde los 193 casos son lindes interiores, pero
+        ocurriría en una cuenca de dos piezas partidas por un linde que llega al
+        borde. La señal de que pasa es que el contorno encierra menos superficie
+        que la suma de las piezas.
+        """
+        izquierda = [[(0.0, 0.0), (0.0, 100.0), (100.0, 100.0),
+                      (100.0, 0.0), (0.0, 0.0)]]
+        derecha = [[(100.0, 0.0), (100.0, 50.0), (100.0, 100.0),
+                    (200.0, 100.0), (200.0, 0.0), (100.0, 0.0)]]
+        resultado = geometria.perimetro_exterior([izquierda, derecha])
+        self.assertAlmostEqual(resultado["perimetro_m"], 800.0, places=3)
+        self.assertEqual(resultado["cadenas_degeneradas"], 0)
+        # El contorno real son 600 m: queda documentado que aquí sobra el linde.
+        self.assertGreater(resultado["perimetro_m"], 600.0)
+
+    def test_un_hueco_real_si_cuenta_como_contorno(self) -> None:
+        # Un recorrido que encierra superficie es geometría, no un artefacto:
+        # ocho celdas alrededor de una vacía dan el contorno de fuera mas el
+        # del hueco.
+        piezas = list(_cuadricula(3, 3))
+        del piezas[4]
+        resultado = geometria.perimetro_exterior(piezas)
+        self.assertAlmostEqual(resultado["perimetro_m"], 12_000.0 + 4_000.0,
+                               places=3)
+        self.assertEqual(resultado["contornos"], 2)
+        self.assertEqual(resultado["cadenas_degeneradas"], 0)
+
+    def test_el_contorno_encierra_lo_mismo_que_suman_las_piezas(self) -> None:
+        # ES LA COMPROBACION DE QUE EL DEPURADO NO SE COMIO GEOMETRIA REAL: si
+        # el contorno encerrara menos, habria descartado un tramo verdadero.
+        cadenas = geometria.cadenas_de_frontera(
+            geometria.segmentos_de_frontera(_cuadricula(3, 3)))
+        self.assertEqual(len(cadenas), 1)
+        anillo = cadenas[0]
+        area = abs(geometria._area_con_signo(anillo))
+        self.assertAlmostEqual(area, 9 * 1_000.0 * 1_000.0, places=3)
 
     def test_las_piezas_separadas_suman_sus_contornos(self) -> None:
         lejos = [[[(0.0, 0.0), (0.0, 100.0), (100.0, 100.0), (100.0, 0.0),

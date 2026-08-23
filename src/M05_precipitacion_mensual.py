@@ -1796,6 +1796,8 @@ def _figuras(configuracion, base, resultado, series, orden, claves, datos,
                        configuracion, ubicaciones or {})
     _figuras_crudas_por_estacion(graficos, estilo, configuracion, base,
                                  resultado, orden, claves, datos, logger)
+    _figuras_de_anomalos_por_estacion(graficos, estilo, configuracion, base,
+                                      resultado, orden, claves, datos, logger)
     _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
                           orden, claves, datos, completada, logger)
     logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
@@ -2226,6 +2228,111 @@ def _figuras_crudas_por_estacion(graficos, estilo, configuracion, base,
 
     if escritas and logger is not None:
         logger.info("%d figura(s) de serie cruda por estación", escritas)
+    return escritas
+
+
+def _figuras_de_anomalos_por_estacion(graficos, estilo, configuracion, base,
+                                      resultado, orden, claves, datos,
+                                      logger) -> int:
+    """
+    Una figura de anómalos por estación: caja por mes y los valores marcados.
+
+    HACE VISIBLE LA CORRECCION DE FONDO sobre la rutina heredada. El anómalo se
+    busca DENTRO DE CADA MES CALENDARIO, no contra la serie entera: en un
+    régimen bimodal un solo rango para los doce meses marcaría toda la temporada
+    húmeda. Con doce cajas se ve de inmediato que el límite de abril no es el de
+    enero, y que un valor alto de abril puede ser normal para abril.
+
+    Y SE VEN LOS PUNTOS, no solo el conteo. Un valor marcado que cae justo por
+    encima del bigote es cola natural de la distribución; uno que cae al triple
+    del máximo del mes es un error de registro. El número de anómalos no
+    distingue los dos casos y el consultor tiene que decidir sobre cada uno.
+
+    Devuelve cuántas figuras se escribieron.
+    """
+    import numpy as np
+
+    if not resultado.anomalos:
+        return 0
+
+    carpeta = graficos.directorio_tema(
+        rutas.resolver(configuracion.obtener("graficos.directorio_individuales"),
+                       base),
+        "anomalos")
+    individual = graficos.estilo_individual(
+        estilo,
+        float(configuracion.obtener("graficos.ancho_individual_cm")),
+        float(configuracion.obtener("graficos.alto_individual_cm")))
+    nombres = _nombres_de_estacion(base)
+
+    meses = ("ENE", "FEB", "MAR", "ABR", "MAY", "JUN",
+             "JUL", "AGO", "SEP", "OCT", "NOV", "DIC")
+    por_estacion: dict[str, list[dict]] = {}
+    for marca in resultado.anomalos:
+        por_estacion.setdefault(str(marca["codigo"]), []).append(marca)
+
+    escritas = 0
+    for posicion, codigo in enumerate(orden):
+        marcados = por_estacion.get(str(codigo))
+        if not marcados:
+            continue
+        columna = datos[:, posicion]
+
+        grupos: dict[str, list[float]] = {}
+        for indice, (_anio, mes) in enumerate(claves):
+            valor = columna[indice]
+            if valor is None or not np.isfinite(valor):
+                continue
+            grupos.setdefault(meses[int(mes) - 1], []).append(float(valor))
+        grupos = {m: grupos[m] for m in meses if grupos.get(m)}
+        if not grupos:
+            continue
+
+        senalados: dict[str, list[float]] = {}
+        limites: dict[str, tuple[float, float]] = {}
+        for marca in marcados:
+            etiqueta = meses[int(marca["mes"]) - 1]
+            senalados.setdefault(etiqueta, []).append(float(marca["valor"]))
+            limites[etiqueta] = (float(marca["limite_inf"]),
+                                 float(marca["limite_sup"]))
+
+        nombre = nombres.get(str(codigo), "") or str(codigo)
+        metodo = str(marcados[0].get("metodo", "")).strip()
+        with graficos.figura(
+            individual,
+            titulo=f"Datos anómalos por mes. Estación {nombre}",
+            etiqueta_x="", etiqueta_y="Precipitación mensual (mm)",
+        ) as (fig, ax):
+            graficos.cajas_por_grupo(ax, grupos, individual, senalados)
+            # EL LIMITE SE DIBUJA SOBRE SU PROPIO MES. Una linea horizontal
+            # unica sugeriria un umbral comun para los doce, que es justo lo
+            # que este analisis no hace.
+            primera = True
+            for indice, etiqueta in enumerate(grupos, start=1):
+                if etiqueta not in limites:
+                    continue
+                _inferior, superior = limites[etiqueta]
+                ax.plot([indice - 0.36, indice + 0.36], [superior, superior],
+                        color="#c00000", linewidth=1.1, linestyle="--",
+                        zorder=6,
+                        label="límite superior del mes" if primera else None)
+                primera = False
+            ax.set_ylim(bottom=0)
+            manejadores, etiquetas = ax.get_legend_handles_labels()
+            if manejadores:
+                ax.legend(manejadores, etiquetas, loc="upper center",
+                          bbox_to_anchor=(0.5, -0.12), frameon=False,
+                          fontsize=individual.tamano_fuente - 1)
+            fig.text(0.5, 0.005,
+                     f"{len(marcados)} valor(es) marcado(s) por «{metodo}». "
+                     "Se marcan, no se eliminan.",
+                     ha="center", fontsize=individual.tamano_fuente - 2,
+                     color="#555555")
+            graficos.guardar(fig, carpeta / _sin_tildes(nombre), individual)
+            escritas += 1
+
+    if escritas and logger is not None:
+        logger.info("%d figura(s) de anómalos por estación", escritas)
     return escritas
 
 
