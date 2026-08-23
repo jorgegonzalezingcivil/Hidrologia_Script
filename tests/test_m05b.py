@@ -45,6 +45,67 @@ def _texto(filas: list[tuple[str, int, float]]) -> str:
     return "\n".join(lineas) + "\n"
 
 
+class PruebaConvencionDeFase(unittest.TestCase):
+    """
+    El nombre y el color de cada fase se declaran UNA vez, en comun/oni.py.
+
+    El informe pone juntas las figuras del M05b y las del M06, y basta con que
+    una use rojo para el Niño y otra verde para que el lector deje de fiarse de
+    las dos. Estas pruebas no comprueban gusto: comprueban que la convención
+    existe, que cubre las cuatro fases y que ningún par comparte color, que es
+    lo que la haría inservible.
+    """
+
+    def test_las_cuatro_fases_tienen_nombre_y_color(self) -> None:
+        fases = (oni.FASE_NINO, oni.FASE_NINA, oni.FASE_NEUTRAL,
+                 oni.FASE_COMPUESTA)
+        for fase in fases:
+            self.assertIn(fase, oni.NOMBRE_DE_FASE)
+            self.assertIn(fase, oni.COLOR_DE_FASE)
+            self.assertIn(fase, oni.RELLENO_DE_FASE)
+
+    def test_ninguna_fase_comparte_color_con_otra(self) -> None:
+        # Dos fases del mismo color hacen ilegible cualquier figura que las
+        # ponga juntas, que son casi todas las del capitulo.
+        self.assertEqual(len(set(oni.COLOR_DE_FASE.values())),
+                         len(oni.COLOR_DE_FASE))
+        self.assertEqual(len(set(oni.RELLENO_DE_FASE.values())),
+                         len(oni.RELLENO_DE_FASE))
+
+    def test_los_colores_son_hexadecimales(self) -> None:
+        for tabla in (oni.COLOR_DE_FASE, oni.RELLENO_DE_FASE):
+            for fase, color in tabla.items():
+                self.assertRegex(color, r"^#[0-9a-fA-F]{6}$", fase)
+
+    def test_el_calido_es_rojo_y_el_frio_azul(self) -> None:
+        """
+        La convención del NOAA y del IDEAM, que es contra quien se contrasta.
+
+        Se comprueba por el canal dominante y no por el valor exacto, para que
+        ajustar el tono no rompa la prueba pero invertir la convención sí.
+        """
+        def canales(color: str) -> tuple[int, int, int]:
+            return (int(color[1:3], 16), int(color[3:5], 16),
+                    int(color[5:7], 16))
+
+        for tabla in (oni.COLOR_DE_FASE, oni.RELLENO_DE_FASE):
+            rojo, _verde, azul = canales(tabla[oni.FASE_NINO])
+            self.assertGreater(rojo, azul, "El Niño debe tirar a rojo")
+            rojo, _verde, azul = canales(tabla[oni.FASE_NINA])
+            self.assertGreater(azul, rojo, "La Niña debe tirar a azul")
+
+    def test_ningun_modulo_declara_su_propia_tabla(self) -> None:
+        # La regresión que se quiere evitar: una figura que vuelve a inventar
+        # los colores en su propio archivo.
+        raiz = Path(__file__).resolve().parents[1] / "src"
+        culpables = []
+        for archivo in raiz.glob("M*.py"):
+            texto = archivo.read_text(encoding="utf-8", errors="replace")
+            if "FASE_NINO:" in texto and "COLOR_DE_FASE" not in texto:
+                culpables.append(archivo.name)
+        self.assertEqual(culpables, [])
+
+
 class PruebaMesCentral(unittest.TestCase):
     """
     Cada temporada de tres meses se sitúa en su mes central.

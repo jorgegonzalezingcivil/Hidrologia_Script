@@ -45,6 +45,10 @@ __all__ = [
     "FASE_NINO",
     "FASE_NINA",
     "FASE_NEUTRAL",
+    "FASE_COMPUESTA",
+    "NOMBRE_DE_FASE",
+    "COLOR_DE_FASE",
+    "RELLENO_DE_FASE",
     "descargar",
     "leer",
     "interpretar",
@@ -68,6 +72,39 @@ FASE_NEUTRAL = "neutral"
 # análisis por fase. Se nombra aquí junto a las tres para que ningún módulo la
 # escriba con otra etiqueta.
 FASE_COMPUESTA = "compuesto"
+
+# CÓMO SE NOMBRA Y SE PINTA CADA FASE, EN UN SOLO SITIO. El informe pone juntas
+# las figuras del M05b y las del M06, y basta con que una use rojo para el Niño y
+# otra verde para que el lector deje de fiarse de las dos. Se declara aquí, al
+# lado de las propias fases, para que ningún módulo invente la suya.
+#
+# ROJO PARA EL NIÑO Y AZUL PARA LA NIÑA no es una elección estética: es la
+# convención del NOAA y del IDEAM, que es contra quien se contrasta este
+# análisis. El cálido va en rojo y el frío en azul; invertirlo obliga a leer la
+# leyenda en cada figura para saber qué se está mirando.
+NOMBRE_DE_FASE: dict[str, str] = {
+    FASE_NINO: "El Niño",
+    FASE_NINA: "La Niña",
+    FASE_NEUTRAL: "Neutral",
+    FASE_COMPUESTA: "Año compuesto",
+}
+
+COLOR_DE_FASE: dict[str, str] = {
+    FASE_NINO: "#c00000",
+    FASE_NINA: "#1f4e79",
+    FASE_NEUTRAL: "#9a9a9a",
+    FASE_COMPUESTA: "#404040",
+}
+
+# Version clara para rellenos de area, donde el color pleno tapa lo que hay
+# debajo. Mantiene el tono para que se reconozca la fase sin leer la leyenda.
+RELLENO_DE_FASE: dict[str, str] = {
+    FASE_NINO: "#f2b8b5",
+    FASE_NINA: "#b8cce4",
+    FASE_NEUTRAL: "#d9d9d9",
+    FASE_COMPUESTA: "#cccccc",
+}
+
 
 CABECERA_ESPERADA = ("SEAS", "YR", "TOTAL", "ANOM")
 

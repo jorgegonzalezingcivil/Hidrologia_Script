@@ -66,7 +66,7 @@ if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
 from comun import campos as mod_campos  # noqa: E402
-from comun import entorno, esquema, registro, rutas, shapefile  # noqa: E402
+from comun import entorno, esquema, oni, registro, rutas, shapefile  # noqa: E402
 from comun.campos import CampoSalida  # noqa: E402
 from comun.config import Config, cargar  # noqa: E402
 from comun.errores import (  # noqa: E402
@@ -785,7 +785,7 @@ def _figuras(configuracion, base, resultado, rasters, puntos_xy, ruta_area,
 
     anillos = _contorno_area(ruta_area, crs_figuras)
     orden = [f for f in ("nino", "neutral", "nina") if f in campos]
-    titulo_de = {"nino": "El Niño", "nina": "La Niña", "neutral": "Neutral"}
+    titulo_de = oni.NOMBRE_DE_FASE
 
     # Escala comun a las tres fases: sin ella, tres mapas del mismo estudio
     # tendrian leyendas distintas y el contraste entre fases no se veria.
@@ -941,7 +941,7 @@ def _figuras_individuales(graficos, estilo, configuracion, base, resultado,
         estilo,
         float(configuracion.obtener("graficos.ancho_individual_cm")),
         float(configuracion.obtener("graficos.alto_individual_cm")))
-    titulo_de = {"nino": "El Niño", "nina": "La Niña", "neutral": "Neutral"}
+    titulo_de = oni.NOMBRE_DE_FASE
     niveles = np.arange(minimo, maximo + intervalo, intervalo)
 
     def _fondo(ax):

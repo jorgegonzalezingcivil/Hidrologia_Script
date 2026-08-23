@@ -660,13 +660,17 @@ def _figuras_enso_por_estacion(graficos, configuracion, base, resultado,
                 derecho.fill_between(
                     equis, 0.0, valores_oni,
                     where=[v > 0 for v in valores_oni], interpolate=True,
-                    facecolor="#c5e0b4", edgecolor="#7f9f5f", linewidth=0.5,
-                    zorder=1, label="anomalía en fase cálida (El Niño)")
+                    facecolor=oni.RELLENO_DE_FASE[oni.FASE_NINO],
+                    edgecolor=oni.COLOR_DE_FASE[oni.FASE_NINO], linewidth=0.5,
+                    zorder=1,
+                    label=f"anomalía cálida ({oni.NOMBRE_DE_FASE[oni.FASE_NINO]})")
                 derecho.fill_between(
                     equis, 0.0, valores_oni,
                     where=[v < 0 for v in valores_oni], interpolate=True,
-                    facecolor="#f8cbad", edgecolor="#c08552", linewidth=0.5,
-                    zorder=1, label="anomalía en fase fría (La Niña)")
+                    facecolor=oni.RELLENO_DE_FASE[oni.FASE_NINA],
+                    edgecolor=oni.COLOR_DE_FASE[oni.FASE_NINA], linewidth=0.5,
+                    zorder=1,
+                    label=f"anomalía fría ({oni.NOMBRE_DE_FASE[oni.FASE_NINA]})")
                 derecho.axhline(0.0, color="#404040", linewidth=0.8, zorder=2)
             derecho.set_ylabel("Anomalía ONI (°C)",
                                fontsize=individual.tamano_fuente)
@@ -676,7 +680,10 @@ def _figuras_enso_por_estacion(graficos, configuracion, base, resultado,
             # un vacío dibujaría una recta que la estación nunca midió.
             ax.plot(tiempo, [v if v is not None else float("nan")
                              for v in lluvia],
-                    color="#31538f", linewidth=0.9, zorder=3,
+                    # NEGRO, NO AZUL. Desde que el azul significa La Nina, una
+                    # serie azul compite con el relleno de fase y el lector deja
+                    # de saber si el color dice dato o dice episodio.
+                    color="#1a1a1a", linewidth=0.8, zorder=3,
                     label="precipitación mensual")
             ax.set_ylim(bottom=0)
             ax.set_zorder(derecho.get_zorder() + 1)
@@ -710,8 +717,9 @@ def _figuras(configuracion, base, resultado, logger) -> None:
 
     estilo = graficos.Estilo.desde_config(configuracion)
     directorio = rutas.resolver(configuracion.obtener("graficos.directorio"), base)
-    color_de = {oni.FASE_NINO: "#c00000", oni.FASE_NINA: "#1f4e79",
-                oni.FASE_NEUTRAL: "#9a9a9a"}
+    # El color y el nombre de cada fase viven en comun/oni.py: una figura que
+    # invente los suyos rompe la lectura del capitulo entero.
+    color_de = oni.COLOR_DE_FASE
 
     # --- Serie del índice con las fases sombreadas ---------------------------
     orden = sorted(resultado.clasificacion, key=lambda f: (f["anio"], f["mes"]))
@@ -733,8 +741,8 @@ def _figuras(configuracion, base, resultado, logger) -> None:
                             color=color_de[fase], alpha=0.55, zorder=2,
                             interpolate=False)
         graficos.leyenda_manual(ax, [
-            ("Niño", color_de[oni.FASE_NINO]),
-            ("Niña", color_de[oni.FASE_NINA]),
+            (oni.NOMBRE_DE_FASE[oni.FASE_NINO], color_de[oni.FASE_NINO]),
+            (oni.NOMBRE_DE_FASE[oni.FASE_NINA], color_de[oni.FASE_NINA]),
         ], estilo)
         fig.tight_layout()
         for ruta in graficos.guardar(fig, directorio / "M05b_indice_oni",
