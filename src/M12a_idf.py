@@ -670,6 +670,7 @@ def ejecutar(
                                logger)
     _escribir_figura(configuracion, base, resultado, logger)
     _figura_cambio_climatico(configuracion, base, resultado, logger)
+    _figura_cambio_departamental(configuracion, base, resultado, logger)
     _escribir_productos(base, resultado, delimitador, logger)
     return _cerrar(logger, resultado, base, ruta_json, inicio, SALIDA_CORRECTA)
 
@@ -1238,6 +1239,235 @@ def _adoptar_escenario(configuracion, resultado, logger) -> None:
         "cuatro: un caudal con factor de cambio climatico y sin escenario "
         "declarado no es comparable con ningun otro estudio.",
     ))
+
+
+def _malla_departamental(ruta_raster: Path):
+    """
+    Ráster departamental completo como matriz, con su extensión geográfica.
+
+    Devuelve (matriz, extensión) o (None, None). Se lee entero a propósito: son
+    19 por 22 celdas de una décima de grado, unas cuatrocientas en total, y
+    remuestrear un campo tan grueso solo añadiría interpolación donde el dato no
+    la tiene.
+    """
+    import struct
+
+    import numpy as np
+
+    ruta_raster = Path(ruta_raster)
+    if not ruta_raster.is_file():
+        return None, None
+    try:
+        info = raster.leer_info(ruta_raster)
+    except (ErrorFormato, ErrorRutas):
+        return None, None
+    formato = {"<f4": "f", "<f8": "d", "<i2": "h", "<u2": "H"}.get(
+        info.descriptor)
+    if formato is None:
+        return None, None
+
+    matriz = np.full((info.alto, info.ancho), np.nan)
+    with raster.LectorRaster(ruta_raster) as lector:
+        for fila in range(info.alto):
+            try:
+                contenido = lector.fila(fila)
+            except (ErrorFormato, ErrorRutas, IndexError):
+                continue
+            for columna in range(info.ancho):
+                desplazamiento = columna * info.bytes_por_muestra
+                if desplazamiento + info.bytes_por_muestra > len(contenido):
+                    continue
+                valor = float(struct.unpack_from("<" + formato, contenido,
+                                                 desplazamiento)[0])
+                if info.nodato is not None and valor == float(info.nodato):
+                    continue
+                # El IDEAM rellena el fondo con un valor centinela muy negativo
+                # fuera del límite departamental; sin descartarlo, la escala de
+                # color se estira hasta él y el campo real sale plano.
+                if valor < -1e30:
+                    continue
+                matriz[fila, columna] = valor
+
+    # LA EXTENSION LA DA EL ADAPTADOR. Recalcularla aqui obliga a acertar el
+    # signo de tamano_y, y en este raster es una magnitud POSITIVA con origen_y
+    # en el borde norte: sumarla situaba el departamento dos grados al norte,
+    # sobre Santander, con la cuenca fuera del campo.
+    xmin, ymin, xmax, ymax = info.extension
+    return matriz, (xmin, xmax, ymin, ymax)
+
+
+def _contorno_en_geograficas(base: Path, crs_calculo: str):
+    """Contorno de la cuenca en grados, para situarla sobre el campo del IDEAM."""
+    from pyproj import Transformer
+
+    ruta = rutas.directorio("sig_vector", base) / "subcuencas.shp"
+    if not ruta.is_file():
+        ruta = rutas.directorio("sig_vector", base) / "area_influencia.shp"
+    if not ruta.is_file():
+        return []
+    try:
+        poligonos = shapefile.leer_geometrias(ruta)
+    except (ErrorFormato, ErrorRutas):
+        return []
+    conversor = Transformer.from_crs(crs_calculo, "EPSG:4326", always_xy=True)
+    salida = []
+    for anillos in poligonos:
+        for anillo in anillos:
+            equis, griegas = conversor.transform([p[0] for p in anillo],
+                                                 [p[1] for p in anillo])
+            salida.append(list(zip(equis, griegas)))
+    return salida
+
+
+def _celdas_tocadas(campos, contorno) -> int:
+    """
+    Cuántas celdas del campo departamental cubre la cuenca.
+
+    Es la cifra que sostiene el rango: si cayera en una sola, el cambio seria un
+    valor unico y el rango dentro de la cuenca no existiria. Se cuenta sobre la
+    envolvente del contorno, que es una cota superior barata y suficiente para
+    una nota al pie.
+    """
+    if not campos or not contorno:
+        return 0
+    _proyeccion, matriz, extension = campos[0]
+    xmin, xmax, ymin, ymax = extension
+    alto, ancho = matriz.shape
+    paso_x = (xmax - xmin) / ancho if ancho else 0.0
+    paso_y = (ymax - ymin) / alto if alto else 0.0
+    if not paso_x or not paso_y:
+        return 0
+    # SE CUENTAN LAS CELDAS QUE EL CONTORNO PISA, no el producto del rango de
+    # filas por el de columnas: ese producto es una cota superior y cuenta
+    # celdas de la esquina del rectangulo que la cuenca no toca. Sobre este
+    # estudio daba seis donde el muestreo encuentra cinco.
+    celdas = {(int((ymax - p[1]) // paso_y), int((p[0] - xmin) // paso_x))
+              for anillo in contorno for p in anillo}
+    return len(celdas)
+
+
+def _figura_cambio_departamental(configuracion, base, resultado,
+                                 logger) -> None:
+    """
+    El campo departamental del IDEAM, con la cuenca situada dentro.
+
+    LA FUENTE ES DEPARTAMENTAL Y EL ESTUDIO TOMA DE ELLA UN VALOR. El capítulo
+    tiene que mostrar de dónde sale ese número: sin el campo completo, un factor
+    de 1,104 parece una propiedad de la cuenca cuando es una muestra de una
+    superficie que abarca todo el departamento en celdas de una décima de grado,
+    unos once kilómetros. Con el campo delante se ve por qué el rango dentro de
+    la cuenca va de 1,7 a 13,1 por ciento: la cuenca cruza varias celdas.
+
+    LA ESCALA DE COLOR ES COMUN A LOS CUATRO PANELES. Con escala propia, un
+    escenario de cambio pequeño saldría tan intenso como uno grande, que es
+    justo la comparación que la figura debe permitir.
+    """
+    if not resultado.cambio_climatico:
+        return
+    try:
+        import graficos
+        import numpy as np
+    except ImportError as error:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "graficos.ausente",
+            f"no se pudo dibujar el campo departamental: {error}"))
+        return
+
+    raiz = configuracion.obtener("referencia_nacional.directorio", "")
+    if not raiz:
+        return
+    directorio_cc = (Path(raiz)
+                     / str(configuracion.obtener("cambio_climatico.directorio")))
+    patron = str(configuracion.obtener("cambio_climatico.patron"))
+    departamento = str(configuracion.obtener("cambio_climatico.departamento"))
+    variable = str(configuracion.obtener("cambio_climatico.variable"))
+    magnitud = str(configuracion.obtener("cambio_climatico.magnitud"))
+
+    datos = sorted(resultado.cambio_climatico,
+                   key=lambda c: (c["escenario"], c["horizonte"]))
+    campos = []
+    for proyeccion in datos:
+        ruta = directorio_cc / patron.format(
+            departamento=departamento, variable=variable, magnitud=magnitud,
+            escenario=str(proyeccion["escenario"]).upper(),
+            horizonte=proyeccion["horizonte"])
+        matriz, extension = _malla_departamental(ruta)
+        if matriz is not None and np.isfinite(matriz).any():
+            campos.append((proyeccion, matriz, extension))
+    if not campos:
+        logger.info("no se encontraron los rasteres departamentales: se omite "
+                    "la figura de contexto")
+        return
+
+    todos = np.concatenate([m[np.isfinite(m)].ravel() for _, m, _ in campos])
+    minimo = float(np.floor(todos.min()))
+    maximo = float(np.ceil(todos.max()))
+    # DIVERGENTE Y CENTRADA EN CERO, pero sin simetrizar los extremos. El signo
+    # del cambio es la primera lectura de la figura y una rampa secuencial lo
+    # esconde; simetrizarla, en cambio, desperdiciaria media barra cuando casi
+    # todo el campo es positivo, como aqui.
+    from matplotlib.colors import TwoSlopeNorm
+    norma = TwoSlopeNorm(vmin=min(minimo, -0.5), vcenter=0.0,
+                         vmax=max(maximo, 0.5))
+
+    contorno = _contorno_en_geograficas(base, configuracion.obtener("crs.calculo"))
+    adoptado = next((c for c in datos if c.get("adoptado")), None)
+
+    estilo = graficos.Estilo.desde_config(configuracion)
+    directorio = rutas.resolver(
+        configuracion.obtener("graficos.directorio"), base)
+    columnas = 2
+    filas = (len(campos) + columnas - 1) // columnas
+
+    with graficos.figura(
+            estilo, filas=filas, columnas=columnas,
+            alto_cm=max(estilo.alto_cm, 7.5 * filas)) as (fig, ejes):
+        imagen = None
+        for indice, (proyeccion, matriz, extension) in enumerate(campos):
+            ax = ejes[indice // columnas][indice % columnas]
+            imagen = ax.imshow(matriz, extent=extension, origin="upper",
+                               cmap="BrBG", norm=norma,
+                               interpolation="nearest", zorder=1)
+            for anillo in contorno:
+                ax.plot([p[0] for p in anillo], [p[1] for p in anillo],
+                        color="#111111", linewidth=0.5, zorder=3)
+            es_adoptado = (adoptado is not None
+                           and proyeccion["escenario"] == adoptado["escenario"]
+                           and proyeccion["horizonte"] == adoptado["horizonte"])
+            titulo = (f"{str(proyeccion['escenario']).upper()}  "
+                      f"{proyeccion['horizonte']}   "
+                      f"{proyeccion['cambio_pct']:.1f} %")
+            ax.set_title(titulo + ("   [adoptado]" if es_adoptado else ""),
+                         fontsize=estilo.tamano_fuente,
+                         color="#b03a2e" if es_adoptado else "#333333",
+                         loc="left")
+            ax.set_aspect("equal", adjustable="box")
+            ax.tick_params(labelsize=estilo.tamano_fuente - 3)
+            if indice % columnas:
+                ax.set_yticklabels([])
+            if indice // columnas < filas - 1:
+                ax.set_xticklabels([])
+        for sobrante in range(len(campos), filas * columnas):
+            ejes[sobrante // columnas][sobrante % columnas].axis("off")
+        if imagen is not None:
+            barra = fig.colorbar(imagen, ax=ejes.ravel().tolist(),
+                                 fraction=0.035, pad=0.02)
+            barra.set_label("Cambio en la precipitación media anual (%)",
+                            fontsize=estilo.tamano_fuente - 1)
+        celdas = _celdas_tocadas(campos, contorno)
+        detalle_celdas = (f"cae sobre {celdas} celdas" if celdas > 1
+                          else "cae dentro de una sola celda")
+        fig.text(0.01, 0.005,
+                 "Cuarta Comunicación Nacional, IDEAM. Campo del departamento "
+                 f"de {departamento.title()} en celdas de 0,1 grados, unos "
+                 f"11 km de lado. El trazo negro es la cuenca de estudio: "
+                 f"{detalle_celdas}, y de ahí que el cambio no sea un valor "
+                 "único sino un rango.",
+                 fontsize=estilo.tamano_fuente - 2, color="#555555")
+        for ruta in graficos.guardar(
+                fig, directorio / "M12a_cambio_departamental", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+    logger.info("figura del campo departamental escrita")
 
 
 def _figura_cambio_climatico(configuracion, base, resultado, logger) -> None:
