@@ -70,6 +70,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
+import unicodedata
 import sys
 import time
 from dataclasses import dataclass, field
@@ -1792,6 +1794,8 @@ def _figuras(configuracion, base, resultado, series, orden, claves, datos,
                      resultado, base)
     _figura_estaciones(graficos, estilo, directorio, resultado, base,
                        configuracion, ubicaciones or {})
+    _figuras_crudas_por_estacion(graficos, estilo, configuracion, base,
+                                 resultado, orden, claves, datos, logger)
     _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
                           orden, claves, datos, completada, logger)
     logger.info("Figuras escritas en %s", rutas.relativa(directorio, base))
@@ -2016,6 +2020,214 @@ def _figura_estaciones(graficos, estilo, directorio, resultado, base,
         fig.tight_layout()
         for ruta in graficos.guardar(fig, directorio / "M05_estaciones", estilo):
             resultado.productos.append(rutas.relativa(ruta, base))
+
+def _nombres_de_estacion(base) -> dict[str, str]:
+    """
+    Nombre legible de cada estación, leído del inventario del M03.
+
+    El inventario publica el nombre con el código repetido entre corchetes
+    ('LA BOLSA [21206690]'), que sirve en una tabla y sobra en el título de una
+    figura y en un nombre de archivo. Se recorta.
+    """
+    ruta = (rutas.directorio("procesado_estaciones", base)
+            / "inventario_estaciones.csv")
+    if not ruta.is_file():
+        return {}
+    try:
+        with ruta.open(encoding="utf-8-sig", newline="") as archivo:
+            filas = list(csv.DictReader(archivo, delimiter=";"))
+    except OSError:
+        return {}
+    nombres: dict[str, str] = {}
+    for fila in filas:
+        codigo = ""
+        nombre = ""
+        for clave, valor in fila.items():
+            etiqueta = (clave or "").strip().lower()
+            if "código" in etiqueta or "codigo" in etiqueta:
+                codigo = str(valor or "").strip()
+            elif "nombre" in etiqueta:
+                nombre = str(valor or "").strip()
+        if codigo:
+            nombres[codigo] = re.sub(r"\s*\[[^\]]*\]\s*$", "", nombre).strip()
+    return nombres
+
+
+def _sin_tildes(texto: str) -> str:
+    """
+    Texto reducido a ASCII, apto para un nombre de archivo.
+
+    LOS NOMBRES DE ARCHIVO NO LLEVAN TILDES NI ESPACIOS. El informe los
+    referencia desde una plantilla de Word y los anexos viajan entre máquinas:
+    una eñe o un acento se codifican distinto según el sistema, y el vínculo se
+    rompe sin avisar. El nombre legible de la estación se conserva íntegro en el
+    título de la figura, que es donde el lector lo necesita.
+    """
+    plano = unicodedata.normalize("NFKD", texto)
+    plano = "".join(c for c in plano if not unicodedata.combining(c))
+    plano = re.sub(r"[^A-Za-z0-9]+", "_", plano).strip("_")
+    return plano.lower() or "estacion"
+
+
+def _totales_anuales(claves, columna, minimo_meses: int = 12):
+    """
+    Total de cada año, y los años que se descartan por incompletos.
+
+    UN AÑO AL QUE LE FALTAN MESES NO ES COMPARABLE con otro completo. Sumar los
+    meses presentes produce un total menor que no es sequía sino falta de dato,
+    y en una figura de barras esa diferencia se lee como un año seco. Se exige
+    el mes completo y se declara cuántos años quedaron fuera.
+    """
+    import numpy as np
+
+    por_anio: dict[int, list[float]] = {}
+    for indice, (anio, _mes) in enumerate(claves):
+        valor = columna[indice]
+        if valor is None or not np.isfinite(valor):
+            continue
+        por_anio.setdefault(int(anio), []).append(float(valor))
+
+    completos = {a: sum(v) for a, v in por_anio.items()
+                 if len(v) >= minimo_meses}
+    incompletos = sorted(a for a, v in por_anio.items()
+                         if len(v) < minimo_meses)
+    return dict(sorted(completos.items())), incompletos
+
+
+def _medias_mensuales(claves, columna):
+    """Media multianual de cada mes, con el número de años que la sustenta."""
+    import numpy as np
+
+    acumulado: dict[int, list[float]] = {}
+    for indice, (_anio, mes) in enumerate(claves):
+        valor = columna[indice]
+        if valor is None or not np.isfinite(valor):
+            continue
+        acumulado.setdefault(int(mes), []).append(float(valor))
+    return {mes: (sum(v) / len(v), len(v))
+            for mes, v in sorted(acumulado.items())}
+
+
+def _figuras_crudas_por_estacion(graficos, estilo, configuracion, base,
+                                 resultado, orden, claves, datos, logger) -> int:
+    """
+    Las dos figuras de serie cruda que el capítulo de precipitación abre.
+
+    SON DE DATO OBSERVADO, no complementado. El capítulo presenta primero lo que
+    la estación midió y solo después lo que el análisis hizo con ello: mezclar
+    el relleno en esta figura ocultaría la razón por la que hubo que rellenar.
+
+    Devuelve cuántas figuras se escribieron.
+    """
+    import numpy as np
+
+    # VAN CON LAS DEMAS FIGURAS POR ESTACION, agrupadas por tema. En el
+    # directorio general se mezclarian con las agregadas del estudio, y son
+    # veinticuatro archivos que crecen con el numero de estaciones.
+    directorio = graficos.directorio_tema(
+        rutas.resolver(configuracion.obtener("graficos.directorio_individuales"),
+                       base),
+        "precipitacion_cruda")
+    individual = graficos.estilo_individual(
+        estilo,
+        float(configuracion.obtener("graficos.ancho_individual_cm")),
+        float(configuracion.obtener("graficos.alto_individual_cm")))
+    nombres = _nombres_de_estacion(base)
+
+    meses = ("ENE", "FEB", "MAR", "ABR", "MAY", "JUN",
+             "JUL", "AGO", "SEP", "OCT", "NOV", "DIC")
+    usados: set[str] = set()
+    escritas = 0
+
+    for posicion, codigo in enumerate(orden):
+        columna = datos[:, posicion]
+        nombre = nombres.get(str(codigo), "") or str(codigo)
+        etiqueta = _sin_tildes(nombre)
+        # Dos estaciones con el mismo nombre se distinguen por su código, que es
+        # lo único que el IDEAM garantiza único.
+        if etiqueta in usados:
+            etiqueta = f"{etiqueta}_{codigo}"
+        usados.add(etiqueta)
+
+        anuales, incompletos = _totales_anuales(claves, columna)
+        if anuales:
+            valores = list(anuales.values())
+            media = sum(valores) / len(valores)
+            with graficos.figura(
+                individual,
+                titulo=f"Precipitación total histórica. Estación {nombre}",
+                etiqueta_x="", etiqueta_y="Precipitación (mm)",
+            ) as (fig, ax):
+                ax.bar(list(anuales), valores, color=individual.color(0),
+                       edgecolor="#1f3864", linewidth=0.4, width=0.75,
+                       label="total anual")
+                ax.axhline(media, color="#c00000", linestyle="--",
+                           linewidth=1.6,
+                           label=f"promedio: {media:,.0f} mm".replace(",", "."))
+                ax.set_ylim(bottom=0)
+                ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.18),
+                          ncol=2, frameon=False,
+                          fontsize=individual.tamano_fuente - 1)
+                # UNA MARCA CADA DOS AÑOS. El automatico las pone por
+                # decadas y el informe de referencia rotula bienalmente, que es
+                # lo que permite localizar un ano concreto sin contar barras.
+                anios = sorted(anuales)
+                ax.set_xticks([a for a in anios if a % 2 == 0])
+                for texto in ax.get_xticklabels():
+                    texto.set_rotation(90)
+                if incompletos:
+                    # Al pie y no sobre el titulo, que es donde lo pisaba.
+                    fig.text(0.5, 0.005,
+                             f"{len(incompletos)} año(s) sin los doce meses no "
+                             "se representan",
+                             ha="center",
+                             fontsize=individual.tamano_fuente - 2,
+                             color="#8a6d3b")
+                fig.tight_layout()
+                graficos.guardar(
+                    fig,
+                    directorio / f"precipitacion_total_historica_{etiqueta}",
+                    individual)
+                escritas += 1
+
+        mensuales = _medias_mensuales(claves, columna)
+        if mensuales:
+            with graficos.figura(
+                individual,
+                titulo=("Promedio mensual de precipitación total. "
+                        f"Estación {nombre}"),
+                etiqueta_x="", etiqueta_y="Precipitación (mm)",
+            ) as (fig, ax):
+                presentes = sorted(mensuales)
+                ax.bar([meses[m - 1] for m in presentes],
+                       [mensuales[m][0] for m in presentes],
+                       color=individual.color(0), edgecolor="#1f3864",
+                       linewidth=0.4, width=0.7, label="promedio mensual")
+                ax.set_ylim(bottom=0)
+                ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.14),
+                          frameon=False,
+                          fontsize=individual.tamano_fuente - 1)
+                # CUANTOS AÑOS SUSTENTAN CADA MES. Un ciclo anual dibujado con
+                # cuarenta años en enero y seis en mayo no dice lo mismo en los
+                # dos meses, y la figura sola no lo delata.
+                cuantos = [mensuales[m][1] for m in presentes]
+                fig.text(0.5, 0.005,
+                         f"cada mes promedia entre {min(cuantos)} y "
+                         f"{max(cuantos)} años",
+                         ha="center", fontsize=individual.tamano_fuente - 2,
+                         color="#555555")
+                fig.tight_layout()
+                graficos.guardar(
+                    fig,
+                    directorio
+                    / f"promedio_mensual_precipitacion_total_{etiqueta}",
+                    individual)
+                escritas += 1
+
+    if escritas and logger is not None:
+        logger.info("%d figura(s) de serie cruda por estación", escritas)
+    return escritas
+
 
 def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
                           orden, claves, datos, completada, logger) -> None:

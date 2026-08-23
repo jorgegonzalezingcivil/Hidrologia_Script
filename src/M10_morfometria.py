@@ -60,6 +60,7 @@ import argparse
 import csv
 import json
 import math
+import struct
 import sys
 import time
 from dataclasses import dataclass, field
@@ -75,7 +76,7 @@ import tiempo_concentracion  # noqa: E402
 from comun import (  # noqa: E402
     esquema, geometria, raster, registro, rutas, shapefile,
 )
-from comun.config import Config, cargar  # noqa: E402
+from comun.config import Config, cargar, leer_yaml  # noqa: E402
 from comun.errores import (  # noqa: E402
     ErrorConfiguracion,
     ErrorFormato,
@@ -2909,9 +2910,761 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
     if resultado.subcuencas:
         _figuras_de_subcuenca(graficos, configuracion, base, resultado, estilo,
                               directorio, logger)
+    _figuras_de_delimitacion(graficos, configuracion, base, resultado, estilo,
+                             directorio, logger)
 
     logger.info("Figuras de relieve escritas en %s",
                 rutas.relativa(directorio, base))
+
+
+# =============================================================================
+# Figuras de delimitación y de insumos temáticos
+# -----------------------------------------------------------------------------
+# SON FIGURAS DE INFORME, NO PLANCHAS DE ANEXO. El M16 produce la cartografía
+# formal, con rótulo, grilla y escala normalizada; esto son las ilustraciones
+# que van embebidas en el capítulo, con el tamaño y la tipografía del documento.
+# Las dos cosas coexisten a propósito: una plancha A3 reducida a media página no
+# se lee, y una figura de informe ampliada a A3 no tiene la información que una
+# plancha debe llevar.
+# =============================================================================
+def _ventana_de(poligonos, margen: float = 0.06):
+    """Encuadre de un conjunto de polígonos, con holgura relativa."""
+    if not poligonos:
+        return None
+    x_min, y_min, x_max, y_max = geometria.envolvente(poligonos)
+    ancho, alto = x_max - x_min, y_max - y_min
+    if ancho <= 0 or alto <= 0:
+        return None
+    holgura = margen * max(ancho, alto)
+    return (x_min - holgura, y_min - holgura, x_max + holgura, y_max + holgura)
+
+
+def _dentro_de(ventana, x_min, y_min, x_max, y_max) -> bool:
+    """Cierto si dos envolventes se tocan. Evita dibujar lo que no se ve."""
+    return not (x_max < ventana[0] or x_min > ventana[2]
+                or y_max < ventana[1] or y_min > ventana[3])
+
+
+def _lineas_en(ruta: Path, ventana):
+    """
+    Polilíneas de un shapefile que caen dentro de la ventana.
+
+    SE FILTRA ANTES DE DIBUJAR. La red de drenaje del IGAC recortada al área
+    trae 8.330 tramos que abarcan 213 por 143 km, mucho más que la cuenca:
+    dibujarlos todos cuesta tiempo y no aporta un solo trazo visible.
+    """
+    if not Path(ruta).is_file():
+        return []
+    try:
+        geometrias = shapefile.leer_geometrias(ruta)
+    except (ErrorFormato, ErrorRutas):
+        return []
+    salida = []
+    for entidad in geometrias:
+        for parte in entidad:
+            if len(parte) < 2:
+                continue
+            equis = [p[0] for p in parte]
+            griegas = [p[1] for p in parte]
+            if _dentro_de(ventana, min(equis), min(griegas), max(equis),
+                          max(griegas)):
+                salida.append(parte)
+    return salida
+
+
+def _poligonos_en(ruta: Path, ventana, campo: str = ""):
+    """
+    Polígonos de un shapefile dentro de la ventana, con el valor de un campo.
+
+    Devuelve pares (polígono, valor). El valor es None cuando no se pide campo.
+    """
+    ruta = Path(ruta)
+    if not ruta.is_file():
+        return []
+    try:
+        geometrias = shapefile.leer_geometrias(ruta)
+        registros = (shapefile.leer_registros(ruta, [campo]) if campo
+                     else [None] * len(geometrias))
+    except (ErrorFormato, ErrorRutas, KeyError):
+        return []
+
+    salida = []
+    for entidad, registro in zip(geometrias, registros):
+        anillos = [a for a in entidad if len(a) >= 3]
+        if not anillos:
+            continue
+        equis = [p[0] for a in anillos for p in a]
+        griegas = [p[1] for a in anillos for p in a]
+        if not _dentro_de(ventana, min(equis), min(griegas), max(equis),
+                          max(griegas)):
+            continue
+        valor = (str(registro.get(campo, "")).strip()
+                 if isinstance(registro, dict) else None)
+        salida.append((anillos, valor or None))
+    return salida
+
+
+def segmentos_de_frontera(poligonos, tolerancia_m: float = 0.01):
+    """
+    Aristas que pertenecen a un solo polígono: el contorno del mosaico.
+
+    ES EL MISMO CONTEO QUE USA EL PERIMETRO EXTERIOR. En un mosaico sin huecos
+    ni solapes cada linde interior aparece dos veces, una por cada pieza que lo
+    comparte, y cada tramo del contorno una sola. Dibujar las 125 subcuencas con
+    su borde da una maraña de lindes internos; dibujar solo estas aristas da la
+    cuenca.
+
+    Se devuelven segmentos sueltos y no un anillo encadenado: para una figura
+    basta, y encadenarlos exigiría resolver los nodos de tres aristas que
+    aparecen donde la delimitación toca una esquina de celda.
+    """
+    escala = 1.0 / tolerancia_m if tolerancia_m > 0 else 1.0
+    cuenta: dict = {}
+    coordenadas: dict = {}
+    for anillos in poligonos:
+        for anillo in anillos:
+            for uno, otro in zip(anillo, anillo[1:]):
+                izquierda = (round(uno[0] * escala), round(uno[1] * escala))
+                derecha = (round(otro[0] * escala), round(otro[1] * escala))
+                if izquierda == derecha:
+                    continue
+                clave = ((izquierda, derecha) if izquierda < derecha
+                         else (derecha, izquierda))
+                cuenta[clave] = cuenta.get(clave, 0) + 1
+                coordenadas.setdefault(clave, (uno, otro))
+    return [coordenadas[clave] for clave, veces in cuenta.items()
+            if veces == 1]
+
+
+def cadenas_de_frontera(segmentos, tolerancia_m: float = 0.01):
+    """
+    Encadena las aristas de frontera en anillos cerrados, de mayor a menor.
+
+    POR QUE HACE FALTA ENCADENAR. El conteo de aristas devuelve la frontera del
+    mosaico entera, y esa frontera no es solo el contorno de la cuenca: incluye
+    el borde de cada hueco que las piezas dejen entre si. Medido sobre las 125
+    subcuencas de este estudio, de los 145,3 km que el conteo da como frontera,
+    100,8 km son el contorno exterior y los otros 44,5 km bordean huecos
+    interiores. Dibujarlos todos llena la cuenca de trazos sueltos que parecen
+    ruido y no lo son.
+
+    Se recorre por ARISTAS y no por nodos: en los pocos nodos donde concurren
+    tres aristas, marcar el nodo como visto cortaria las dos cadenas restantes.
+
+    Devuelve una lista de listas de vertices, ordenada por longitud decreciente.
+    """
+    escala = 1.0 / tolerancia_m if tolerancia_m > 0 else 1.0
+
+    def clave(punto):
+        return (round(punto[0] * escala), round(punto[1] * escala))
+
+    adyacencia: dict = {}
+    for indice, (uno, otro) in enumerate(segmentos):
+        adyacencia.setdefault(clave(uno), []).append((indice, uno, otro))
+        adyacencia.setdefault(clave(otro), []).append((indice, otro, uno))
+
+    usadas = set()
+    cadenas = []
+    for indice, (uno, _otro) in enumerate(segmentos):
+        if indice in usadas:
+            continue
+        cadena = [uno]
+        nodo = clave(uno)
+        while True:
+            siguiente = next((t for t in adyacencia.get(nodo, [])
+                              if t[0] not in usadas), None)
+            if siguiente is None:
+                break
+            usadas.add(siguiente[0])
+            cadena.append(siguiente[2])
+            nodo = clave(siguiente[2])
+        if len(cadena) > 2:
+            cadenas.append(cadena)
+
+    def longitud(cadena):
+        return sum(math.hypot(b[0] - a[0], b[1] - a[1])
+                   for a, b in zip(cadena, cadena[1:]))
+
+    cadenas.sort(key=longitud, reverse=True)
+    return cadenas
+
+
+def contorno_exterior(poligonos, tolerancia_m: float = 0.01):
+    """
+    El contorno exterior de un mosaico de polígonos, como lista de vértices.
+
+    Es la cadena de frontera más larga. Un hueco interior nunca puede ser más
+    largo que el contorno que lo encierra, de modo que la más larga es la de
+    fuera sin necesidad de calcular áreas ni de resolver qué contiene a qué.
+    """
+    cadenas = cadenas_de_frontera(
+        segmentos_de_frontera(poligonos, tolerancia_m), tolerancia_m)
+    return cadenas[0] if cadenas else []
+
+
+def _malla_de_raster(ruta: Path, ventana, crs_calculo: str,
+                     celdas_objetivo: int = 400):
+    """
+    Ráster remuestreado a una malla ligera sobre la ventana, para dibujarlo.
+
+    Devuelve (matriz, extensión) o (None, None). La matriz lleva NaN donde no
+    hay dato.
+
+    SE REMUESTREA Y NO SE LEE ENTERO. El modelo de elevación de este estudio son
+    2.170 por 2.925 celdas; una figura de doce centímetros no distingue más de
+    unos cientos, de modo que leer las seis millones sobraría por dos órdenes de
+    magnitud. Se toma una de cada k filas y columnas.
+
+    El muestreo es por VECINO MAS PROXIMO, no promediado, porque la misma
+    función sirve al grupo hidrológico de suelo, que es una clase: promediar un
+    A con un C daría un B que no existe en el terreno.
+    """
+    import numpy as np
+    from pyproj import Transformer
+
+    ruta = Path(ruta)
+    if not ruta.is_file():
+        return None, None
+    try:
+        info = raster.leer_info(ruta)
+    except (ErrorFormato, ErrorRutas):
+        return None, None
+
+    formato = {"<u1": "B", "<i1": "b", "<u2": "H", "<i2": "h", "<u4": "I",
+               "<i4": "i", "<f4": "f", "<f8": "d"}.get(info.descriptor)
+    if formato is None:
+        return None, None
+
+    lado = max(ventana[2] - ventana[0], ventana[3] - ventana[1])
+    paso = max(lado / float(celdas_objetivo), abs(info.tamano_x) or 1.0)
+    columnas = max(2, int((ventana[2] - ventana[0]) / paso))
+    filas = max(2, int((ventana[3] - ventana[1]) / paso))
+
+    equis = ventana[0] + paso * (np.arange(columnas) + 0.5)
+    griegas = ventana[3] - paso * (np.arange(filas) + 0.5)
+    malla_x, malla_y = np.meshgrid(equis, griegas)
+
+    destino = info.crs_epsg or crs_calculo
+    if destino != crs_calculo:
+        conversor = Transformer.from_crs(crs_calculo, destino, always_xy=True)
+        muestreo_x, muestreo_y = conversor.transform(malla_x.ravel(),
+                                                     malla_y.ravel())
+        muestreo_x = np.asarray(muestreo_x).reshape(malla_x.shape)
+        muestreo_y = np.asarray(muestreo_y).reshape(malla_y.shape)
+    else:
+        muestreo_x, muestreo_y = malla_x, malla_y
+
+    salida = np.full((filas, columnas), np.nan, dtype=float)
+    pedidos: dict[int, list[tuple[int, int, int]]] = {}
+    for j in range(filas):
+        for i in range(columnas):
+            gx, gy = float(muestreo_x[j, i]), float(muestreo_y[j, i])
+            if not info.contiene(gx, gy, gx, gy):
+                continue
+            pedidos.setdefault(info.fila_de(gy), []).append(
+                (info.columna_de(gx), j, i))
+
+    if not pedidos:
+        return None, None
+
+    with raster.LectorRaster(ruta) as lector:
+        for fila in sorted(pedidos):
+            try:
+                contenido = lector.fila(fila)
+            except (ErrorFormato, ErrorRutas, IndexError):
+                continue
+            for columna, j, i in pedidos[fila]:
+                desplazamiento = columna * info.bytes_por_muestra
+                if desplazamiento + info.bytes_por_muestra > len(contenido):
+                    continue
+                valor = struct.unpack_from("<" + formato, contenido,
+                                           desplazamiento)[0]
+                if info.nodato is not None and float(valor) == float(info.nodato):
+                    continue
+                salida[j, i] = float(valor)
+
+    if not np.isfinite(salida).any():
+        return None, None
+    extension = (ventana[0], ventana[0] + paso * columnas,
+                 ventana[3] - paso * filas, ventana[3])
+    return salida, extension
+
+
+def _fondo_geografico(ax, graficos, estilo, ventana) -> None:
+    """Aspecto común a las cinco figuras: encuadre, proporción y rótulos."""
+    ax.set_xlim(ventana[0], ventana[2])
+    ax.set_ylim(ventana[1], ventana[3])
+    ax.set_aspect("equal", adjustable="box")
+    graficos.rotular_en_miles(ax, maximo_marcas=4)
+    for etiqueta in ax.get_xticklabels():
+        etiqueta.set_rotation(30)
+        etiqueta.set_horizontalalignment("right")
+    ax.tick_params(labelsize=estilo.tamano_fuente - 2)
+
+
+def _dibujar_red(ax, sencillos, dobles, cuerpos) -> None:
+    """La red hídrica en sus tres representaciones, con una entrada por tipo."""
+    primera = True
+    for linea in sencillos:
+        ax.plot([p[0] for p in linea], [p[1] for p in linea],
+                color="#5b8db8", linewidth=0.45, zorder=3,
+                label="drenaje sencillo" if primera else None)
+        primera = False
+    primera = True
+    for anillos, _ in dobles:
+        for anillo in anillos:
+            ax.fill([p[0] for p in anillo], [p[1] for p in anillo],
+                    facecolor="#aed6f1", edgecolor="#2874a6", linewidth=0.3,
+                    zorder=4, label="cauce doble" if primera else None)
+            primera = False
+    primera = True
+    for anillos, _ in cuerpos:
+        for anillo in anillos:
+            ax.fill([p[0] for p in anillo], [p[1] for p in anillo],
+                    facecolor="#85c1e9", edgecolor="#1b4f72", linewidth=0.4,
+                    zorder=5, label="cuerpo de agua" if primera else None)
+            primera = False
+
+
+def _prefijo_comun(textos) -> str:
+    """
+    Prefijo alfabético que comparten todos los identificadores, si lo hay.
+
+    Las subcuencas del geoprocesamiento asistido salen como 'SB1', 'SB2'... y
+    ese 'SB' repetido 125 veces sobre el mapa ocupa espacio sin distinguir nada.
+    Se detecta en lugar de fijarlo: otro proyecto puede nombrarlas de otro modo,
+    y quitar dos letras a ciegas mutilaría el identificador.
+    """
+    if not textos:
+        return ""
+    letras = ""
+    for caracter in textos[0]:
+        if not caracter.isalpha():
+            break
+        letras += caracter
+    while letras and not all(t.startswith(letras) for t in textos):
+        letras = letras[:-1]
+    # Si al quitarlo quedara algo vacío o repetido, no compensa.
+    restos = {t[len(letras):] for t in textos}
+    return letras if len(restos) == len(set(textos)) else ""
+
+
+def _identificadores_de_subcuencas(base):
+    """
+    Polígonos de las subcuencas con su identificador, para rotular el mapa.
+
+    El campo es el que el proyecto de HEC-HMS usa como nombre de elemento, que
+    es el mismo con el que el M14 reporta los caudales.
+    """
+    ruta = rutas.directorio("sig_vector", base) / "subcuencas.shp"
+    if not ruta.is_file():
+        return []
+    try:
+        info = shapefile.leer_shapefile(ruta)
+    except (ErrorFormato, ErrorRutas):
+        return []
+    campo = next((c for c in ("name", "Name", "NAME", "subcuenca")
+                  if info.tiene_campo(c)), "")
+    if not campo:
+        return []
+    return _poligonos_en(ruta, (-1e12, -1e12, 1e12, 1e12), campo=campo)
+
+
+def _figuras_de_delimitacion(graficos, configuracion, base, resultado, estilo,
+                             directorio, logger) -> None:
+    """
+    Las cinco figuras que el capítulo de caracterización necesita.
+
+    Cada una se omite sin ruido si le falta su insumo: son ilustraciones de
+    informe, y la ausencia de una no invalida la caracterización. Lo que sí se
+    reporta es cuáles se omitieron, para que el M15 no declare una figura que no
+    existe.
+    """
+    import numpy as np
+
+    vector = rutas.directorio("sig_vector", base)
+    crs_calculo = configuracion.obtener("crs.calculo")
+    ruta_dem = rutas.resolver(
+        configuracion.obtener("dem.delimitacion.salida_dem"), base)
+
+    subcuencas = _geometrias_de_subcuencas(base)
+    if not subcuencas:
+        logger.info("sin subcuencas: se omiten las figuras de delimitación")
+        return
+
+    ventana = _ventana_de(subcuencas)
+    if ventana is None:
+        return
+
+    sencillos = _lineas_en(vector / "drenaje_sencillo_area.shp", ventana)
+    dobles = _poligonos_en(vector / "drenaje_doble_area.shp", ventana)
+    cuerpos = _poligonos_en(vector / "embalses_area.shp", ventana)
+    frontera = contorno_exterior(subcuencas)
+    logger.info("red en la ventana: %d tramo(s), %d cauce(s) doble(s), "
+                "%d cuerpo(s) de agua", len(sencillos), len(dobles),
+                len(cuerpos))
+
+    def registrar(escritas):
+        for ruta in escritas or ():
+            resultado.productos.append(rutas.relativa(ruta, base))
+
+    def relieve_de_fondo(ax, ventana_local):
+        """El modelo de elevación bajo el tema. Devuelve el mapeador o None."""
+        malla, extension = _malla_de_raster(ruta_dem, ventana_local,
+                                            crs_calculo)
+        if malla is None:
+            return None
+        return ax.imshow(malla, extent=extension, origin="upper",
+                         cmap="terrain", zorder=0, interpolation="nearest")
+
+    # --- 1. Delimitación de la cuenca ---------------------------------------
+    with graficos.figura(
+            estilo, titulo="Delimitación de la cuenca",
+            etiqueta_x="Este (m)", etiqueta_y="Norte (m)") as (fig, ax):
+        imagen = relieve_de_fondo(ax, ventana)
+        _dibujar_red(ax, sencillos, dobles, cuerpos)
+        ax.plot([p[0] for p in frontera], [p[1] for p in frontera],
+                color="#c0392b", linewidth=1.8, zorder=6,
+                label="cuenca de estudio")
+        if imagen is not None:
+            graficos.barra_de_color(fig, ax, imagen, estilo,
+                                    "Elevación (m s. n. m.)")
+        _fondo_geografico(ax, graficos, estilo, ventana)
+        # LA LEYENDA VA FUERA DEL MAPA. Dentro tapaba la cabecera de la cuenca,
+        # que es la parte con mas contenido de la figura.
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.22), ncol=2,
+                  frameon=False, fontsize=estilo.tamano_fuente - 2)
+        registrar(graficos.guardar(
+            fig, directorio / "M10_delimitacion_cuenca", estilo))
+
+    # --- 2. Delimitación de las subcuencas ----------------------------------
+    # ESTA FIGURA PIDE MAS PAPEL QUE LAS DEMAS: lleva un rotulo por cada una
+    # de las 125 subcuencas, y con el tamano de las otras los numeros se pisan
+    # entre si hasta no poder leerse ninguno.
+    amplio = graficos.estilo_individual(
+        estilo, ancho_cm=estilo.ancho_cm * 1.25,
+        alto_cm=estilo.alto_cm * 1.25)
+    with graficos.figura(
+            amplio, titulo="Delimitación de las subcuencas del modelo",
+            etiqueta_x="Este (m)", etiqueta_y="Norte (m)") as (fig, ax):
+        imagen = relieve_de_fondo(ax, ventana)
+        primera = True
+        for anillos in subcuencas:
+            for anillo in anillos:
+                ax.plot([p[0] for p in anillo], [p[1] for p in anillo],
+                        color="#2c3e50", linewidth=0.45, zorder=6,
+                        label="subcuenca" if primera else None)
+                primera = False
+        _dibujar_red(ax, sencillos, dobles, cuerpos)
+        ax.plot([p[0] for p in frontera], [p[1] for p in frontera],
+                color="#c0392b", linewidth=1.6, zorder=7)
+        # EL IDENTIFICADOR SOBRE CADA SUBCUENCA. El modelo reporta caudales por
+        # nombre de elemento y las tablas del informe se ordenan por el mismo
+        # nombre: sin el rotulo, localizar SB73 en el mapa exige contar.
+        from matplotlib import patheffects
+
+        # SE QUITA EL PREFIJO COMUN Y SE PONE HALO. 'SB' delante de los 125
+        # identificadores ocupa el doble de ancho sin distinguir nada, y sobre
+        # el relieve un texto sin contorno se pierde justo donde el terreno es
+        # mas oscuro.
+        etiquetas = _identificadores_de_subcuencas(base)
+        prefijo = _prefijo_comun([i for _, i in etiquetas if i])
+        for anillos, identificador in etiquetas:
+            if not identificador:
+                continue
+            centro_x, centro_y = geometria.centroide(anillos)
+            ax.annotate(
+                identificador[len(prefijo):] or identificador,
+                xy=(centro_x, centro_y), ha="center", va="center",
+                fontsize=max(3.4, amplio.tamano_fuente - 4),
+                color="#17202a", zorder=8,
+                path_effects=[patheffects.withStroke(linewidth=1.4,
+                                                     foreground="white")])
+        if prefijo:
+            # Bajo la leyenda, no sobre el titulo: ahi lo pisaba.
+            fig.text(0.5, 0.005,
+                     f"los identificadores se rotulan sin el prefijo «{prefijo}»",
+                     ha="center", fontsize=amplio.tamano_fuente - 2,
+                     color="#555555")
+        if imagen is not None:
+            graficos.barra_de_color(fig, ax, imagen, amplio,
+                                    "Elevación (m s. n. m.)")
+        _fondo_geografico(ax, graficos, amplio, ventana)
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.18), ncol=4,
+                  frameon=False, fontsize=amplio.tamano_fuente - 2)
+        registrar(graficos.guardar(
+            fig, directorio / "M10_delimitacion_subcuencas", amplio))
+
+    # --- 3. Localización en la subzona hidrográfica -------------------------
+    ruta_subzona = vector / "subzona_intersectada.shp"
+    subzonas = _poligonos_en(ruta_subzona, (-1e12, -1e12, 1e12, 1e12),
+                             campo="cod_szh")
+    if subzonas:
+        ventana_regional = _ventana_de([a for a, _ in subzonas], margen=0.03)
+        # Cada nivel se lee por su par de campos. La capa del IDEAM trae los
+        # tres en el mismo registro.
+        areas = _poligonos_en(ruta_subzona, (-1e12, -1e12, 1e12, 1e12),
+                              campo="cod_ah")
+        zonas = _poligonos_en(ruta_subzona, (-1e12, -1e12, 1e12, 1e12),
+                              campo="cod_zh")
+        nombres_por_nivel = {
+            "AH": _poligonos_en(ruta_subzona, (-1e12, -1e12, 1e12, 1e12),
+                                campo="nom_ah"),
+            "ZH": _poligonos_en(ruta_subzona, (-1e12, -1e12, 1e12, 1e12),
+                                campo="nom_zh"),
+            "SZH": _poligonos_en(ruta_subzona, (-1e12, -1e12, 1e12, 1e12),
+                                 campo="nom_szh"),
+        }
+        red_regional = _lineas_en(vector / "drenaje_sencillo_area.shp",
+                                  ventana_regional)
+        dobles_regional = _poligonos_en(vector / "drenaje_doble_area.shp",
+                                        ventana_regional)
+        cuerpos_regional = _poligonos_en(vector / "embalses_area.shp",
+                                         ventana_regional)
+        with graficos.figura(
+                estilo, titulo="Localización en la subzona hidrográfica",
+                etiqueta_x="Este (m)", etiqueta_y="Norte (m)") as (fig, ax):
+            # EL LIMITE DE LA SUBZONA TIENE QUE LEERSE. En gris claro y a
+            # un milimetro se perdia contra el fondo, y es la unidad que da
+            # sentido a la figura: es el marco con el que el Estudio Nacional
+            # del Agua compara el rendimiento del estudio.
+            primera = True
+            for anillos, _ in subzonas:
+                for anillo in anillos:
+                    ax.fill([p[0] for p in anillo], [p[1] for p in anillo],
+                            facecolor="#eef3f7", edgecolor="#2c3e50",
+                            linewidth=1.8, zorder=1,
+                            label="subzona hidrográfica" if primera else None)
+                    primera = False
+            _dibujar_red(ax, red_regional, dobles_regional, cuerpos_regional)
+            ax.plot([p[0] for p in frontera], [p[1] for p in frontera],
+                    color="#c0392b", linewidth=1.8, zorder=6,
+                    label="cuenca de estudio")
+            # EL CODIGO Y EL NOMBRE JUNTOS. El codigo es lo que se cita en el
+            # informe y en el Estudio Nacional del Agua; el nombre es lo que
+            # permite reconocerla sin consultar la tabla.
+            # LOS TRES NIVELES DE LA ZONIFICACION, no solo la subzona. El
+            # IDEAM clasifica en area, zona y subzona hidrografica, y el codigo
+            # de la subzona no dice a que zona ni a que area pertenece: el
+            # informe cita los tres y la figura debe sustentarlos.
+            # EL CUADRO VA EN UNA ESQUINA, no sobre el centroide: ahi
+            # tapaba la cuenca de estudio, que es lo que la figura debe situar.
+            for indice, (anillos, codigo) in enumerate(subzonas):
+                lineas = []
+                for etiqueta, valores in (("AH", areas), ("ZH", zonas),
+                                          ("SZH", subzonas)):
+                    if indice >= len(valores):
+                        continue
+                    identificador = valores[indice][1] or ""
+                    titulo_nivel = (nombres_por_nivel[etiqueta][indice][1]
+                                    if indice < len(nombres_por_nivel[etiqueta])
+                                    else "")
+                    if identificador or titulo_nivel:
+                        lineas.append(
+                            f"{etiqueta} {identificador} {titulo_nivel}".strip())
+                if not lineas:
+                    continue
+                ax.annotate("\n".join(lineas), xy=(0.02, 0.98),
+                            xycoords="axes fraction", ha="left", va="top",
+                            fontsize=estilo.tamano_fuente - 1,
+                            color="#2c3e50", zorder=8, linespacing=1.35,
+                            bbox={"boxstyle": "round,pad=0.35",
+                                  "facecolor": "white", "alpha": 0.9,
+                                  "edgecolor": "#b9c8d6"})
+                break
+            _fondo_geografico(ax, graficos, estilo, ventana_regional)
+            ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.22), ncol=2,
+                      frameon=False, fontsize=estilo.tamano_fuente - 2)
+            registrar(graficos.guardar(
+                fig, directorio / "M10_zonificacionhidrografica", estilo))
+    else:
+        logger.info("sin subzona intersectada: se omite la figura de "
+                    "zonificación")
+
+    # --- 4. Grupo hidrológico de suelo --------------------------------------
+    ruta_suelos = _ruta_de_suelos(configuracion, base)
+    malla, extension = ((None, None) if ruta_suelos is None
+                        else _malla_de_raster(ruta_suelos, ventana,
+                                              crs_calculo))
+    if malla is not None:
+        # Los códigos duales (11 a 14) se llevan a su grupo según el criterio
+        # declarado, el mismo que aplicó el número de curva.
+        duales = str(configuracion.obtener(
+            "numero_curva.grupos_duales", "no_drenado"))
+        equivalencia = {1: 0, 2: 1, 3: 2, 4: 3}
+        equivalencia.update({11: 0, 12: 1, 13: 2, 14: 3} if duales == "drenado"
+                            else {11: 3, 12: 3, 13: 3, 14: 3})
+        clases = np.full(malla.shape, np.nan)
+        for codigo, posicion in equivalencia.items():
+            clases[malla == codigo] = posicion
+
+        if np.isfinite(clases).any():
+            from matplotlib.colors import BoundaryNorm, ListedColormap
+            from matplotlib.patches import Patch
+
+            colores = ["#f6d55c", "#c9d98a", "#7fb069", "#3d6b4a"]
+            mapa = ListedColormap(colores)
+            # SIN BARRA DE COLOR, EL LIENZO SOBRA POR LA DERECHA. El ancho
+            # del estilo esta pensado para las figuras que la llevan; aqui la
+            # leyenda va dentro del mapa y el resto queda en blanco.
+            estrecho = graficos.estilo_individual(
+                estilo, ancho_cm=estilo.ancho_cm * 0.62,
+                alto_cm=estilo.alto_cm)
+            with graficos.figura(
+                    estrecho, titulo="Grupo hidrológico de suelo",
+                    etiqueta_x="Este (m)",
+                    etiqueta_y="Norte (m)") as (fig, ax):
+                ax.imshow(clases, extent=extension, origin="upper", cmap=mapa,
+                          norm=BoundaryNorm([-0.5, 0.5, 1.5, 2.5, 3.5], 4),
+                          zorder=1, interpolation="nearest")
+                for anillos in subcuencas:
+                    for anillo in anillos:
+                        ax.plot([p[0] for p in anillo],
+                                [p[1] for p in anillo], color="#2c3e50",
+                                linewidth=0.4, zorder=5)
+                ax.plot([p[0] for p in frontera], [p[1] for p in frontera],
+                        color="#c0392b", linewidth=1.6, zorder=6)
+                presentes = sorted({int(v) for v in
+                                    clases[np.isfinite(clases)].ravel()})
+                ax.legend(handles=[Patch(facecolor=colores[p],
+                                         edgecolor="#7f8c8d",
+                                         label=f"grupo {'ABCD'[p]}")
+                                   for p in presentes],
+                          loc="upper center", bbox_to_anchor=(0.5, -0.22),
+                          ncol=3, frameon=False,
+                          fontsize=estrecho.tamano_fuente - 2)
+                _fondo_geografico(ax, graficos, estilo, ventana)
+                fig.text(0.0, -0.13,
+                         "Capa global de 250 m (Ross et al., 2018), no un "
+                         "levantamiento de suelos del proyecto. Los grupos "
+                         f"duales se asignaron con el criterio «{duales}».",
+                         fontsize=estilo.tamano_fuente - 2, color="#555555")
+                registrar(graficos.guardar(
+                    fig, directorio / "M10_tiposuelohidrologico", estrecho))
+    else:
+        logger.info("sin capa de suelos legible: se omite la figura de grupo "
+                    "hidrológico")
+
+    # --- 5. Cobertura de la tierra ------------------------------------------
+    ruta_cobertura = vector / "cobertura_clc_area.shp"
+    campo_cobertura = _campo_de_cobertura(ruta_cobertura)
+    coberturas = (_poligonos_en(ruta_cobertura, ventana, campo=campo_cobertura)
+                  if campo_cobertura else [])
+    if coberturas:
+        from matplotlib import colormaps
+        from matplotlib.patches import Patch
+
+        # LAS CLASES DE COBERTURA SON CATEGORIAS, no una magnitud. Con una rampa
+        # secuencial, bosque y tejido urbano salen en dos tonos del mismo azul y
+        # el mapa deja de distinguirlos. Se usa una paleta cualitativa.
+        #
+        # Y SOLO LAS QUE CABEN EN LA LEYENDA llevan color propio: con treinta
+        # entradas la leyenda tapa el mapa, y treinta colores arbitrarios no se
+        # distinguen entre si. El resto va en gris, declarado como «otras».
+        extension_por_clase: dict[str, float] = {}
+        for anillos, valor in coberturas:
+            if not valor:
+                continue
+            extension_por_clase[valor] = (
+                extension_por_clase.get(valor, 0.0)
+                + sum(abs(_area_de_anillo(a)) for a in anillos))
+        principales = sorted(extension_por_clase,
+                             key=lambda c: -extension_por_clase[c])[:8]
+        cualitativa = colormaps["tab10"]
+        color_de = {clase: cualitativa(i % 10)
+                    for i, clase in enumerate(principales)}
+        gris = "#c8ccd0"
+
+        estrecho = graficos.estilo_individual(
+            estilo, ancho_cm=estilo.ancho_cm * 0.62, alto_cm=estilo.alto_cm)
+        with graficos.figura(
+                estrecho, titulo="Cobertura de la tierra",
+                etiqueta_x="Este (m)", etiqueta_y="Norte (m)") as (fig, ax):
+            for anillos, valor in coberturas:
+                for anillo in anillos:
+                    ax.fill([p[0] for p in anillo], [p[1] for p in anillo],
+                            facecolor=color_de.get(valor, gris),
+                            edgecolor="none", zorder=1)
+            for anillos in subcuencas:
+                for anillo in anillos:
+                    ax.plot([p[0] for p in anillo], [p[1] for p in anillo],
+                            color="#4d5656", linewidth=0.35, zorder=5)
+            ax.plot([p[0] for p in frontera], [p[1] for p in frontera],
+                    color="#c0392b", linewidth=1.6, zorder=6)
+            _fondo_geografico(ax, graficos, estrecho, ventana)
+
+            entradas = [Patch(facecolor=color_de[c], edgecolor="#7f8c8d",
+                              linewidth=0.3, label=c[:38])
+                        for c in principales]
+            if len(extension_por_clase) > len(principales):
+                sobrantes = len(extension_por_clase) - len(principales)
+                entradas.append(Patch(
+                    facecolor=gris, edgecolor="#7f8c8d", linewidth=0.3,
+                    label=f"otras {sobrantes} clases"))
+            # LA LEYENDA VA FUERA DEL MAPA. Dentro tapaba la cabecera de la
+            # cuenca, que es justo donde mas cambia la cobertura.
+            ax.legend(handles=entradas, loc="upper center",
+                      bbox_to_anchor=(0.5, -0.30), ncol=2, frameon=False,
+                      fontsize=estrecho.tamano_fuente - 2)
+            registrar(graficos.guardar(
+                fig, directorio / "M10_mapa_cobertura", estrecho))
+    else:
+        logger.info("sin capa de cobertura legible: se omite su figura")
+
+
+def _area_de_anillo(anillo) -> float:
+    """Área con signo de un anillo, por la fórmula del cordón de zapato."""
+    total = 0.0
+    for uno, otro in zip(anillo, anillo[1:]):
+        total += uno[0] * otro[1] - otro[0] * uno[1]
+    return total / 2.0
+
+
+def _ruta_de_suelos(configuracion, base) -> Path | None:
+    """
+    Dónde está la capa de grupo hidrológico, sea del estudio o la nacional.
+
+    El manifiesto declara si el consultor aportó su propio estudio de suelos o
+    si se usa la capa base compartida, que vive fuera del árbol del estudio en
+    una sola copia por máquina.
+    """
+    try:
+        manifiesto = leer_yaml(rutas.ruta_manifiesto(base)) or {}
+    except (ErrorRutas, ErrorFormato):
+        return None
+    suelos = manifiesto.get("suelos") or {}
+    archivo = str(suelos.get("base_archivo") or suelos.get("archivo") or "")
+    if not archivo:
+        return None
+    propia = rutas.directorio("insumos", base) / archivo
+    if propia.is_file():
+        return propia
+    raiz_nacional = configuracion.obtener("referencia_nacional.directorio", "")
+    if raiz_nacional:
+        candidata = Path(raiz_nacional) / archivo
+        if candidata.is_file():
+            return candidata
+    return None
+
+
+def _campo_de_cobertura(ruta: Path) -> str:
+    """
+    Campo con el que se clasifica la cobertura, entre los que la capa traiga.
+
+    Se prefiere el nivel 2 de Corine: el nivel 1 agrupa demasiado para
+    distinguir bosque de pastizal, y del 3 en adelante la leyenda deja de caber
+    en una figura de informe.
+    """
+    if not Path(ruta).is_file():
+        return ""
+    try:
+        info = shapefile.leer_shapefile(ruta)
+    except (ErrorFormato, ErrorRutas):
+        return ""
+    for candidato in ("nivel_2", "nivel_3", "leyenda", "nivel_1"):
+        if info.tiene_campo(candidato):
+            return candidato
+    return ""
 
 
 def _geometrias_de_subcuencas(base):
