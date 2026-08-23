@@ -1228,6 +1228,8 @@ def _adoptar_escenario(configuracion, resultado, logger) -> None:
     otras = "; ".join(
         f"{c['escenario']} {c['horizonte']} {c['factor_aplicado']:.3f}"
         for c in resultado.cambio_climatico if not c["adoptado"])
+    resultado.hallazgos.extend(_avisar_inversion_de_escenarios(
+        resultado.cambio_climatico, elegida))
     resultado.hallazgos.append(Hallazgo(
         INFORMATIVO, "cambio_climatico.adoptado",
         f"se adopta {elegida['escenario'].upper()} en {elegida['horizonte']}, "
@@ -1468,6 +1470,79 @@ def _figura_cambio_departamental(configuracion, base, resultado,
                 fig, directorio / "M12a_cambio_departamental", estilo):
             resultado.productos.append(rutas.relativa(ruta, base))
     logger.info("figura del campo departamental escrita")
+
+
+# Orden de forzamiento radiativo de las trayectorias del IPCC, de menor a
+# mayor. SSP126 es mitigacion fuerte y SSP585 el de emisiones altas.
+_FORZAMIENTO = {"ssp119": 1, "ssp126": 2, "ssp245": 3, "ssp370": 4,
+                "ssp434": 5, "ssp460": 6, "ssp585": 7}
+
+
+def _avisar_inversion_de_escenarios(proyecciones, elegida) -> list[Hallazgo]:
+    """
+    Avisa si el aumento proyectado NO crece con el forzamiento del escenario.
+
+    NO ES UN ERROR NI UNA RAREZA DEL DATO. La precipitacion regional no responde
+    de forma monotona al forzamiento: mas calentamiento desplaza la circulacion
+    y puede reducir la lluvia en una zona mientras la aumenta en otra. Pero es
+    lo primero que una interventoria va a preguntar cuando vea que el factor de
+    diseno sale del escenario de MITIGACION, y el informe tiene que llegar con
+    la respuesta escrita en lugar de improvisarla.
+
+    Se comprueba dentro de cada horizonte por separado: comparar el SSP126 de
+    2041-2060 con el SSP585 de 2021-2040 mezclaria el efecto del escenario con
+    el del tiempo transcurrido.
+    """
+    if not proyecciones:
+        return []
+
+    por_horizonte: dict[str, list] = {}
+    for proyeccion in proyecciones:
+        por_horizonte.setdefault(str(proyeccion["horizonte"]), []).append(
+            proyeccion)
+
+    invertidos = []
+    for horizonte, grupo in sorted(por_horizonte.items()):
+        ordenado = sorted(
+            (p for p in grupo
+             if str(p["escenario"]).lower() in _FORZAMIENTO),
+            key=lambda p: _FORZAMIENTO[str(p["escenario"]).lower()])
+        if len(ordenado) < 2:
+            continue
+        cambios = [float(p["cambio_pct"]) for p in ordenado]
+        if cambios[0] > cambios[-1]:
+            invertidos.append(
+                f"{horizonte}: "
+                + " > ".join(f"{str(p['escenario']).upper()} "
+                             f"{float(p['cambio_pct']):+.1f} %"
+                             for p in ordenado))
+
+    if not invertidos:
+        return []
+
+    escenario_elegido = str(elegida["escenario"]).lower()
+    mayor_forzamiento = max(
+        (str(p["escenario"]).lower() for p in proyecciones
+         if str(p["escenario"]).lower() in _FORZAMIENTO),
+        key=lambda e: _FORZAMIENTO[e], default="")
+    aviso = ""
+    if (escenario_elegido in _FORZAMIENTO and mayor_forzamiento
+            and _FORZAMIENTO[escenario_elegido]
+            < _FORZAMIENTO[mayor_forzamiento]):
+        aviso = (f" El factor adoptado sale de {escenario_elegido.upper()}, que "
+                 f"NO es el de mayor forzamiento ({mayor_forzamiento.upper()}): "
+                 "conviene decirlo en el informe antes de que lo pregunten.")
+
+    return [Hallazgo(
+        ADVERTENCIA, "cambio_climatico.inversion_de_escenarios",
+        "el aumento proyectado DISMINUYE al crecer el forzamiento del "
+        "escenario, en " + ("todos los horizontes" if len(invertidos) > 1
+                            else "un horizonte") + ": "
+        + "; ".join(invertidos)
+        + ". No es un error del dato: la precipitacion regional no responde de "
+          "forma monotona al forzamiento, porque mas calentamiento desplaza la "
+          "circulacion y puede reducir la lluvia en una zona mientras la "
+          "aumenta en otra." + aviso)]
 
 
 def _figura_cambio_climatico(configuracion, base, resultado, logger) -> None:

@@ -895,7 +895,12 @@ cambio_climatico:
   variable: "PRECIPITACIÓN"
   magnitud: "Precipitacion"
   # La Cuarta Comunicacion usa trayectorias SSP, no los RCP de la Tercera.
-  escenarios: [ssp245, ssp585]
+  # LOS CUATRO QUE PUBLICA LA CUARTA COMUNICACION. Declarar solo dos obliga a
+  # sostener en el informe por que se descartaron los otros; con los cuatro, el
+  # criterio de adopcion elige entre todo lo disponible y el descarte queda
+  # documentado por el propio modulo. SSP126 es el de mitigacion fuerte y SSP370
+  # el intermedio-alto: entre los cuatro cubren el abanico del IPCC.
+  escenarios: [ssp126, ssp245, ssp370, ssp585]
   horizontes: ["2021-2040", "2041-2060"]
   # El raster trae el cambio YA EN PORCENTAJE respecto al periodo de
   # referencia. Verificado sobre Cundinamarca: valores entre -0,3 y 17,3.
