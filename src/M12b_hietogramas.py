@@ -860,7 +860,20 @@ def _dispersion_dentro_de_zona(subcuencas, columnas) -> float:
 
 
 def _escribir_figuras(configuracion, base, resultado, logger) -> None:
-    """Un hietograma por periodo de retorno, sobre la subcuenca de mayor área."""
+    """
+    Un hietograma por periodo de retorno, con las zonas de precipitación juntas.
+
+    LA MEDIA DE LAS ZONAS OCULTA LO QUE EL MODELO USA. El M13 alimenta cada
+    subcuenca con el hietograma de SU zona, no con el promedio: una figura que
+    solo muestra la media no permite comprobar qué lluvia entró al modelo ni
+    cuánto separa a una zona de otra.
+
+    LAS ZONAS COMPARTEN LA FORMA DE HUFF y difieren solo en la lámina, de modo
+    que las barras se superponen en lugar de agruparse. Agrupadas, treinta y
+    seis intervalos por cinco zonas dan barras de menos de un milímetro de ancho
+    y no se lee ninguna; superpuestas y dibujadas de mayor a menor, cada zona se
+    ve como una banda y la separación entre ellas es la primera lectura.
+    """
     if not resultado.hietogramas:
         return
     try:
@@ -877,57 +890,86 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
     individuales = graficos.directorio_tema(directorio / "individuales",
                                             "hietogramas")
 
-    # Se dibuja la MEDIA de todas las subcuencas por periodo. Un hietograma por
-    # subcuenca serian mil figuras, y todas tienen la misma forma: lo que
-    # cambia entre ellas es la escala, no el reparto.
     periodos = sorted({h["periodo_retorno"] for h in resultado.hietogramas},
                       key=float)
+    intervalo_min = resultado.factores["intervalo_min"]
+    ancho = intervalo_min * 0.92
+
     for periodo in periodos:
         de_ese = [h for h in resultado.hietogramas
                   if h["periodo_retorno"] == periodo]
-        por_intervalo: dict[int, list[float]] = {}
+        por_zona: dict[str, dict[int, float]] = {}
         for paso in de_ese:
-            por_intervalo.setdefault(paso["intervalo"], []).append(
-                paso["lamina_mm"])
-        intervalos = sorted(por_intervalo)
-        medias = [sum(por_intervalo[i]) / len(por_intervalo[i])
-                  for i in intervalos]
-        minutos = [resultado.factores["intervalo_min"] * i for i in intervalos]
-        ancho = resultado.factores["intervalo_min"] * 0.9
+            clave = str(paso.get("zona", "") or paso.get("pluviometro", ""))
+            por_zona.setdefault(clave, {})[paso["intervalo"]] = paso["lamina_mm"]
+        if not por_zona:
+            continue
+
+        # De mayor a menor lámina: la zona más lluviosa va al fondo y las demás
+        # quedan delante, de modo que ninguna tapa a otra por completo.
+        totales = {z: sum(v.values()) for z, v in por_zona.items()}
+        orden = sorted(por_zona, key=lambda z: -totales[z])
+        paleta = graficos.rampa(len(orden), estilo)
 
         with graficos.figura(
                 estilo,
                 titulo=f"Hietograma de diseno, T = {periodo} anos",
                 etiqueta_x="Tiempo (min)",
                 etiqueta_y="Precipitacion por intervalo (mm)") as (fig, ax):
-            ax.bar(minutos, medias, width=ancho, color=estilo.color(0),
-                   align="edge", linewidth=0)
-            acumulado, suma = [], 0.0
-            for valor in medias:
-                suma += valor
-                acumulado.append(suma)
-            otro = ax.twinx()
-            otro.plot([m + ancho for m in minutos], acumulado, color="#b03a2e",
-                      linewidth=1.4, label="acumulado")
-            otro.set_ylabel("Acumulado (mm)", fontsize=estilo.tamano_fuente)
-            otro.set_ylim(bottom=0)
-            otro.grid(False)
+            # LAS BARRAS SE ESTRECHAN de la zona mas lluviosa a la menos. Con
+            # todas del mismo ancho el dibujo se lee como un grafico APILADO y
+            # un lector concluiria que la lamina total es la suma de las cinco,
+            # cuando cada zona es una alternativa a las otras. Anidadas, la
+            # superposicion es evidente.
+            for posicion, zona in enumerate(orden):
+                intervalos = sorted(por_zona[zona])
+                laminas = [por_zona[zona][i] for i in intervalos]
+                estrechamiento = 1.0 - 0.5 * posicion / max(1, len(orden) - 1)
+                propio = ancho * estrechamiento
+                minutos = [intervalo_min * i + (ancho - propio) / 2.0
+                           for i in intervalos]
+                ax.bar(minutos, laminas, width=propio,
+                       color=paleta[posicion % len(paleta)], align="edge",
+                       linewidth=0.0, zorder=2 + posicion,
+                       label=f"zona {zona}: {totales[zona]:.1f} mm")
             ax.set_xlim(0, resultado.factores["duracion_h"] * 60.0)
-            fig.text(0.01, -0.04,
-                     f"Media de los {resultado.factores['pluviometros']} "
-                     f"pluviometro(s). Huff cuartil "
-                     f"{resultado.factores['cuartil']}, "
-                     f"{resultado.factores['probabilidad_excedencia']:.0f} % de "
-                     f"excedencia. Incluye ARF {resultado.factores['arf']:.3f} "
-                     f"y cambio climatico "
-                     f"{resultado.factores['cambio_climatico']:.3f}.",
+            ax.legend(loc="upper right", frameon=True, framealpha=0.9,
+                      fontsize=estilo.tamano_fuente - 2,
+                      title="lámina total de la tormenta",
+                      title_fontsize=estilo.tamano_fuente - 2)
+
+            mayor, menor = totales[orden[0]], totales[orden[-1]]
+            separacion = (f"La zona más lluviosa recibe un "
+                          f"{100.0 * (mayor / menor - 1.0):.1f} % más que la "
+                          "menos lluviosa." if menor > 0 else "")
+            # LA NOTA VA EN LINEAS CORTAS. En una sola, matplotlib ensancha el
+            # lienzo hasta que quepa: la figura pasaba de 2.067 a 3.193 píxeles
+            # de ancho por un renglón de más.
+            pie = "\n".join((
+                f"{len(orden)} zona(s) de precipitacion. Huff cuartil "
+                f"{resultado.factores['cuartil']}, "
+                f"{resultado.factores['probabilidad_excedencia']:.0f} % de "
+                f"excedencia. Incluye ARF {resultado.factores['arf']:.3f} y "
+                f"cambio climatico "
+                f"{resultado.factores['cambio_climatico']:.3f}.",
+                "Las barras estan SUPERPUESTAS, no apiladas: cada zona es una "
+                "alternativa a las otras, no un sumando.",
+                "Todas comparten la forma de Huff y difieren solo en la "
+                f"lamina. {separacion}",
+            ))
+            fig.text(0.01, -0.10, pie,
                      fontsize=estilo.tamano_fuente - 2, color="#555555")
-            destino = (directorio / f"M12b_hietograma_T{periodo.replace('.', '_')}"
-                       if periodo == periodos[-1]
-                       else individuales / f"M12b_hietograma_T{periodo.replace('.', '_')}")
+            # TODOS LOS PERIODOS VAN JUNTOS, incluido el mayor. Sacar uno al
+            # directorio general lo separaba de sus hermanos y obligaba a
+            # buscarlo en otro sitio: son ocho figuras de la misma familia y el
+            # informe las cita como serie.
+            destino = (individuales
+                       / f"M12b_hietograma_T{periodo.replace('.', '_')}")
             for ruta in graficos.guardar(fig, destino, estilo):
                 resultado.productos.append(rutas.relativa(ruta, base))
-    logger.info("%d hietograma(s) dibujado(s)", len(periodos))
+    logger.info("%d hietograma(s) dibujado(s), con %d zona(s) cada uno",
+                len(periodos),
+                len({str(h.get("zona", "")) for h in resultado.hietogramas}))
 
 
 def _escribir_csv(destino: Path, filas, delimitador: str) -> None:
