@@ -3,28 +3,36 @@
 # -----------------------------------------------------------------------------
 # Que CSV alimenta cada tabla que la plantilla marca con "Completar la Tabla".
 #
-# ES UNA DECLARACION Y NO UNA REGLA. Adivinar la fuente por el texto de la
-# leyenda funcionaria hasta el primer informe que llame a las cosas de otro
-# modo. El numero es el que la propia instruccion de la plantilla usa.
+# SE EMPAREJA POR LA LEYENDA Y NO POR EL NUMERO. El numero no identifica nada:
+# la plantilla compone sus leyendas con campos SEQ sin resultado en cache, de
+# modo que todas dicen literalmente "Tabla -." hasta que Word actualice los
+# campos, y el numero que la instruccion escribe es el del informe del que se
+# copio el apartado. En esta plantilla hay dos instrucciones que dicen 5-1
+# delante de tablas distintas, dos que dicen 5-6, ninguna que diga 5-12, y la
+# que dice 5-10 va delante de la tabla de transito de crecientes y no de la de
+# rezago. 'numero' se conserva como referencia para el consultor y NO se usa.
 #
-# El separador del numero da igual: '2-1', '2‑1' y '21' se leen como el mismo,
-# porque Word compone la leyenda con campos y al extraer su texto el guion se
-# pierde.
+# La leyenda se compara sin su prefijo, sin tildes y sin distinguir mayusculas.
 #
-# 'encabezados' son las filas de titulo que NO se tocan. La Tabla 2-1 lleva dos
-# porque su cabecera esta partida en dos niveles para las coordenadas.
+# 'encabezados' son las filas de titulo que NO se tocan. La tabla de estaciones
+# lleva dos porque su cabecera esta partida en dos niveles para las coordenadas.
 #
-# 'columnas' es el orden en que las columnas del CSV van a las de la tabla. Una
-# columna declarada que el CSV no tenga deja la celda VACIA y se reporta: un
-# dato del estudio anterior en una tabla de este es peor que un hueco.
+# 'columnas' es el orden en que las columnas del CSV van a las de la tabla, y
+# DEBE haber tantas como columnas tenga la tabla. Si no coinciden el modulo no
+# la llena y lo reporta: llenar solo una parte deja el resto con lo que la
+# plantilla traia, y una tabla que mezcla dos estudios no se ve al revisar.
+# Una columna declarada que el CSV no tenga deja la celda vacia y se reporta.
+#
+# LO QUE FALTA ESTA ANOTADO ABAJO, no omitido en silencio.
 # =============================================================================
 
 version: 1
 
 tablas:
 
+  # ---------------------------------------------------------------- capitulo 2
   - numero: "2-1"
-    leyenda: "Identificacion Estaciones IDEAM"
+    leyenda: "Identificación Estaciones IDEAM"
     fuente: "data/02_procesado/estaciones/inventario_estaciones.csv"
     encabezados: 2
     columnas:
@@ -37,18 +45,24 @@ tablas:
       - "Este"
       - "Norte"
 
-  - numero: "3-1"
-    leyenda: "Area de drenaje microcuencas"
+  # ---------------------------------------------------------------- capitulo 3
+  - numero: "3-2"
+    leyenda: "Perímetro microcuencas"
     fuente: "data/02_procesado/morfometria/subcuencas.csv"
     encabezados: 1
-    columnas: [subcuenca, area_km2]
+    columnas: [subcuenca, perimetro_km]
 
-  - numero: "3-10"
-    leyenda: "Indice de Sinuosidad microcuencas"
+  - numero: "3-3"
+    leyenda: "Longitud cauce principal microcuencas"
     fuente: "data/02_procesado/morfometria/subcuencas.csv"
     encabezados: 1
-    columnas: [subcuenca, long_cauce_principal_km, distancia_recta_cauce_km,
-               indice_sinuosidad]
+    columnas: [subcuenca, long_cauce_principal_km]
+
+  - numero: "3-4"
+    leyenda: "Longitud axial microcuencas"
+    fuente: "data/02_procesado/morfometria/subcuencas.csv"
+    encabezados: 1
+    columnas: [subcuenca, longitud_axial_km]
 
   - numero: "3-11"
     leyenda: "Desnivel altitudinal microcuencas"
@@ -56,38 +70,50 @@ tablas:
     encabezados: 1
     columnas: [subcuenca, cota_max, cota_min, relieve_m]
 
-  - numero: "3-13"
-    leyenda: "Pendiente media cauce principal microcuencas"
-    fuente: "data/02_procesado/morfometria/subcuencas.csv"
-    encabezados: 1
-    columnas: [subcuenca, long_flujo_km, desnivel_flujo_m, pendiente_flujo]
-
-  - numero: "3-15"
-    leyenda: "Pendiente media microcuencas"
-    fuente: "data/02_procesado/morfometria/subcuencas.csv"
-    encabezados: 1
-    columnas: [subcuenca, area_km2, pendiente_cuenca]
-
-  - numero: "3-17"
-    leyenda: "Numero de Curva microcuencas"
-    fuente: "data/02_procesado/morfometria/subcuencas.csv"
-    encabezados: 1
-    columnas: [subcuenca, area_km2, cobertura_dominante, cn]
-
-  - numero: "3-18"
-    leyenda: "Calculo Tiempo de Concentracion"
-    fuente: "data/02_procesado/morfometria/tiempo_concentracion.csv"
-    encabezados: 1
-    columnas: [nombre, aplicable, tc_horas, tc_minutos, motivo]
-
-  - numero: "5-10"
-    leyenda: "Tiempo de Rezago modelo SCS"
-    fuente: "data/02_procesado/morfometria/subcuencas.csv"
-    encabezados: 1
-    columnas: [subcuenca, tc_minutos, tlag_minutos]
-
-  - numero: "5-12"
-    leyenda: "Qmax Vs. Periodo de Retorno"
-    fuente: "data/02_procesado/hidrologia/qmax_por_periodo.csv"
-    encabezados: 1
-    columnas: [periodo_retorno, caudal_m3s]
+# =============================================================================
+# LO QUE AUN NO SE PUEDE DECLARAR, Y POR QUE
+# -----------------------------------------------------------------------------
+# No es que se hayan olvidado: la cadena todavia no produce la columna que la
+# plantilla pide, o la tabla no tiene la forma que este modulo sabe llenar.
+#
+# FALTA UN DATO EN LA CADENA
+#
+#   Identificación Estaciones IDEAM ....... el M03 no escribe Este ni Norte.
+#                                           Quedan en blanco hasta que los
+#                                           escriba.
+#   Área microcuencas ..................... pide area_ha y el M10 solo escribe
+#                                           area_km2.
+#   Coeficiente de forma microcuencas ..... piden una columna 'Clasificación'
+#   Coeficiente de compacidad microcuencas  que el M10 no calcula. Clasificar
+#   Índice de Sinuosidad microcuencas ..... exige la tabla de rangos, que es
+#   Pendiente media cauce principal ....... doctrina y va en data/referencia/,
+#   Pendiente media microcuencas .......... no en el codigo.
+#   Número de Curva microcuencas .......... pide el grupo hidrologico de suelo
+#                                           por subcuenca; el M10 escribe la
+#                                           cobertura dominante, que es otra
+#                                           cosa.
+#
+# LA TABLA ES UNA MATRIZ Y ESTE MODULO LLENA LISTAS
+#
+#   Cálculo Tiempo de Concentración ....... Autor x subcuenca      (11x5)
+#   Tiempo de Rezago modelo SCS ........... Autor x subcuenca      (13x5)
+#   Precipitación Máxima Periodos Retorno . estacion x Tr          (10x8)
+#   Precipitaciones Máximas Sitio Proyecto  cuenca x Tr             (6x8)
+#   Curva IDF Método INVIAS ............... duracion x Tr          (21x7)
+#   Cálculo IDF Metodología Silva ......... anio x calculo         (28x9)
+#   Series de Precipitación Mensual ....... anio x mes            (28x13)
+#   Serie de Temperatura Media ............ anio x mes            (28x13)
+#   Series EVTR Calculadas ................ anio x mes            (28x13)
+#   Serie de caudales medios .............. anio x mes            (29x13)
+#   Qmax Vs. Periodo de Retorno ........... fila unica x Tr        (3x7)
+#   Datos tránsito crecientes microcuencas  tramo x parametro      (3x9)
+#
+# Son doce de veintisiete, casi la mitad. Llenarlas pide un segundo modo de
+# declaracion (fila, columna, valor) y no una entrada mas en esta lista.
+#
+# DEFECTOS DE LA PLANTILLA, para corregir en el documento y no aqui
+#
+#   'Índice de Sinuosidad microcuencas' y 'Coeficiente de compacidad
+#   microcuencas' tienen ambas por encabezado 'Coeficiente de forma'.
+#   Hay dos ilustraciones distintas con la misma leyenda 'Áreas microcuencas'.
+# =============================================================================

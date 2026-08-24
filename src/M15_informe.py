@@ -49,6 +49,7 @@ import json
 import re
 import sys
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
@@ -157,12 +158,26 @@ def leer_tabla_csv(ruta: Path, delimitador: str) -> list[dict[str, str]]:
 
 def leer_declaracion_tablas(ruta: Path) -> dict[str, dict[str, Any]]:
     """
-    Qué fuente alimenta cada tabla del informe, indexada por su número.
+    Qué fuente alimenta cada tabla del informe, indexada por su LEYENDA.
 
     ES UNA DECLARACIÓN Y NO UNA REGLA. Adivinar la fuente por el texto de la
     leyenda funcionaría hasta el primer informe que llame a las cosas de otro
-    modo. El número de tabla es el que la propia plantilla usa en su
-    instrucción.
+    modo.
+
+    NO SE INDEXA POR EL NUMERO, y la razón es que el número no identifica nada.
+    La plantilla compone sus leyendas con campos SEQ que no tienen resultado en
+    caché, de modo que todas dicen literalmente 'Tabla -.' hasta que Word
+    actualice los campos. El número que el consultor escribió en la instrucción
+    es el del informe del que copió el apartado, no el de esta plantilla: en la
+    plantilla de este estudio hay dos instrucciones que dicen 5-1 delante de
+    tablas distintas, dos que dicen 5-6, ninguna que diga 5-12, y la que dice
+    5-10 va delante de la tabla de tránsito de crecientes y no de la de rezago.
+    Indexar por número llenaba una tabla con los datos de otra sin emitir
+    ninguna señal.
+
+    La leyenda, en cambio, dice qué es la tabla y sobrevive a que Word renumere.
+    Se conserva 'numero' en la declaración como referencia para el consultor,
+    pero no se usa para emparejar.
     """
     ruta = Path(ruta)
     if not ruta.is_file():
@@ -170,10 +185,25 @@ def leer_declaracion_tablas(ruta: Path) -> dict[str, dict[str, Any]]:
     declaracion = leer_yaml(ruta) or {}
     salida: dict[str, dict[str, Any]] = {}
     for entrada in declaracion.get("tablas") or []:
-        numero = str(entrada.get("numero", "")).strip()
-        if numero:
-            salida[_normalizar_numero(numero)] = entrada
+        clave = _normalizar_leyenda(str(entrada.get("leyenda", "")))
+        if clave:
+            salida[clave] = entrada
     return salida
+
+
+def _normalizar_leyenda(texto: str) -> str:
+    """
+    Deja la leyenda en lo que identifica a la tabla y nada más.
+
+    Se quita el prefijo numerado, que es justamente lo que no se puede
+    comparar ('Tabla 2-1.', 'Tabla -.', 'Tabla 5-10.'), y se igualan tildes,
+    mayúsculas y espacios: la declaración la escribe el consultor a mano y no
+    tiene por qué reproducir la acentuación de la plantilla.
+    """
+    limpio = re.sub(r"^\s*tabla\s*[0-9\-‐-―.\s]*", "", texto.strip(), flags=re.I)
+    limpio = unicodedata.normalize("NFKD", limpio)
+    limpio = "".join(c for c in limpio if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", limpio).strip().lower()
 
 
 def _normalizar_numero(texto: str) -> str:
@@ -356,8 +386,9 @@ def ejecutar(
                 _resolver_figura(parrafo, argumento, [graficos, individuales],
                                  ancho, resultado, base)
             elif tipo == "tabla":
-                _resolver_tabla(cuerpo, posicion, tablas, argumento,
-                                declaracion, delimitador, base, resultado)
+                _resolver_tabla(cuerpo, posicion, tablas, parrafos,
+                                argumento, declaracion, delimitador, base,
+                                resultado)
 
         # LAS INSTRUCCIONES TAMBIEN VIVEN DENTRO DE LAS TABLAS. La plantilla
         # compone algunas figuras en celdas, para ponerlas de a dos, y esos
@@ -420,40 +451,55 @@ def _resolver_figura(parrafo, nombre, raices, ancho, resultado, base) -> None:
     resultado.figuras_puestas.append(rutas.relativa(ruta, base))
 
 
-def _resolver_tabla(cuerpo, posicion, tablas, numero, declaracion,
+def _resolver_tabla(cuerpo, posicion, tablas, parrafos, numero, declaracion,
                     delimitador, base, resultado) -> None:
     """
-    Llena la primera tabla que sigue a la instrucción.
+    Llena la primera tabla que sigue a la instrucción, buscada por su leyenda.
 
     ENTRE LA INSTRUCCION Y LA TABLA VA LA LEYENDA, de modo que no basta con
-    mirar el elemento siguiente. Se avanza hasta encontrar la tabla, y si antes
-    aparece otra instrucción se abandona: significa que esta no tenía tabla.
+    mirar el elemento siguiente. Se avanza hasta encontrar la tabla, y de paso
+    se recoge esa leyenda, que es la clave con la que se busca la fuente: el
+    número de la instrucción no identifica a la tabla (ver
+    'leer_declaracion_tablas').
     """
-    clave = _normalizar_numero(numero)
-    entrada = declaracion.get(clave)
-    if entrada is None:
-        resultado.tablas_sin_fuente.append(numero)
-        return
-
-    tabla = None
+    tabla, leyenda = None, ""
     for elemento in cuerpo[posicion + 1:posicion + 8]:
         if elemento in tablas:
             tabla = tablas[elemento]
             break
+        parrafo = parrafos.get(elemento)
+        if parrafo is not None and not leyenda and parrafo.text.strip():
+            leyenda = parrafo.text.strip()
     if tabla is None:
-        resultado.tablas_sin_fuente.append(numero)
+        resultado.tablas_sin_fuente.append(f"{numero} (sin tabla detras)")
+        return
+
+    entrada = declaracion.get(_normalizar_leyenda(leyenda))
+    if entrada is None:
+        resultado.tablas_sin_fuente.append(leyenda or numero)
+        return
+
+    # EL ANCHO DECLARADO TIENE QUE SER EL DE LA TABLA. Si se declaran menos
+    # columnas de las que la tabla tiene, las sobrantes se quedan con los
+    # numeros del estudio del que se copio la plantilla, y la tabla sale
+    # mezclando dos estudios sin que nada lo advierta.
+    columnas = [str(c) for c in entrada.get("columnas") or []]
+    if len(columnas) != len(tabla.columns):
+        resultado.tablas_sin_fuente.append(
+            f"{leyenda or numero}: se declararon {len(columnas)} columna(s) y "
+            f"la tabla tiene {len(tabla.columns)}")
         return
 
     try:
         filas = leer_tabla_csv(rutas.resolver(str(entrada["fuente"]), base),
                                delimitador)
-        detalle = llenar_tabla(tabla, filas,
-                               [str(c) for c in entrada.get("columnas") or []],
+        detalle = llenar_tabla(tabla, filas, columnas,
                                int(entrada.get("encabezados", 1)))
     except (ErrorRutas, ErrorFormato, KeyError, ValueError) as error:
-        resultado.tablas_sin_fuente.append(f"{numero} ({error})")
+        resultado.tablas_sin_fuente.append(f"{leyenda or numero} ({error})")
         return
     detalle["numero"] = numero
+    detalle["leyenda"] = leyenda
     detalle["fuente"] = str(entrada["fuente"])
     resultado.tablas_llenadas.append(detalle)
 

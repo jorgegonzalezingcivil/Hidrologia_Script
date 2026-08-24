@@ -124,23 +124,68 @@ class PruebaDeclaracionDeTablas(unittest.TestCase):
             self.assertTrue(entrada.get("fuente"), numero)
             self.assertTrue(entrada.get("columnas"), numero)
 
-    def test_los_numeros_no_colisionan(self) -> None:
-        # Dos tablas con el mismo numero normalizado harian que una se llenara
+    def test_se_indexa_por_leyenda_y_no_por_numero(self) -> None:
+        # El numero de la instruccion es el del informe del que se copio el
+        # apartado: en esta plantilla hay dos que dicen 5-1 delante de tablas
+        # distintas. La clave tiene que ser la leyenda.
+        for clave, entrada in self.declaracion.items():
+            self.assertEqual(clave,
+                             m15._normalizar_leyenda(str(entrada["leyenda"])))
+
+    def test_las_leyendas_no_colisionan(self) -> None:
+        # Dos tablas con la misma leyenda normalizada harian que una se llenara
         # con los datos de la otra sin ninguna senal.
-        crudos = [str(e.get("numero")) for e in self.declaracion.values()]
-        self.assertEqual(len(crudos), len(set(crudos)))
+        leyendas = [str(e.get("leyenda")) for e in self.declaracion.values()]
+        self.assertEqual(len(leyendas),
+                         len({m15._normalizar_leyenda(l) for l in leyendas}))
+
+    def test_toda_leyenda_declarada_existe_en_la_plantilla(self) -> None:
+        # Una leyenda mal escrita no emparejaria con nada y la tabla quedaria
+        # sin llenar, que es justo lo que no se nota al revisar el informe.
+        plantilla = _RAIZ_REPO / "templates" / "informe_base.docx"
+        if not plantilla.is_file():
+            self.skipTest("la plantilla saneada no esta en el repositorio")
+        import docx_plantilla as dp
+        documento = dp.abrir(plantilla)
+        presentes = {m15._normalizar_leyenda(p.text)
+                     for p in documento.paragraphs if p.text.strip()}
+        for clave in self.declaracion:
+            self.assertIn(clave, presentes)
 
     def test_los_encabezados_son_al_menos_uno(self) -> None:
         # Con cero, la primera fila de titulos se sobreescribiria con datos.
-        for numero, entrada in self.declaracion.items():
+        for clave, entrada in self.declaracion.items():
             self.assertGreaterEqual(int(entrada.get("encabezados", 1)), 1,
-                                    numero)
+                                    clave)
 
     def test_una_declaracion_ausente_no_es_error(self) -> None:
         # Significa que aun no se declaro ninguna tabla, no que falte algo.
         self.assertEqual(
             m15.leer_declaracion_tablas(Path("no_existe.yaml")), {})
 
+
+class PruebaNormalizacionDeLeyenda(unittest.TestCase):
+    """
+    Las leyendas de la plantilla dicen 'Tabla -.' porque sus campos SEQ no
+    tienen resultado en cache. El prefijo es justamente lo que no se compara.
+    """
+
+    def test_el_prefijo_numerado_no_cuenta(self) -> None:
+        esperado = m15._normalizar_leyenda("Perímetro microcuencas")
+        for texto in ("Tabla -. Perímetro microcuencas",
+                      "Tabla 3-2. Perímetro microcuencas",
+                      "Tabla 5-10. Perímetro microcuencas"):
+            self.assertEqual(m15._normalizar_leyenda(texto), esperado)
+
+    def test_las_tildes_y_las_mayusculas_no_cuentan(self) -> None:
+        # La declaracion la escribe el consultor a mano.
+        self.assertEqual(m15._normalizar_leyenda("Área  microcuencas"),
+                         m15._normalizar_leyenda("area microcuencas"))
+
+    def test_distingue_tablas_distintas(self) -> None:
+        self.assertNotEqual(
+            m15._normalizar_leyenda("Tabla -. Coeficiente de forma microcuencas"),
+            m15._normalizar_leyenda("Tabla -. Coeficiente de compacidad microcuencas"))
 
 class PruebaLecturaDeTabla(unittest.TestCase):
     def setUp(self) -> None:
