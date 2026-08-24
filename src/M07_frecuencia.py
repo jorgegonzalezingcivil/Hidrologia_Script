@@ -133,6 +133,7 @@ class ResultadoM07:
     excluidos_calificador: dict[str, int] = field(default_factory=dict)
     anios_rechazados: int = 0
     series: list[dict[str, Any]] = field(default_factory=list)
+    serie_anual: list[dict[str, Any]] = field(default_factory=list)
     ajustes: list[dict[str, Any]] = field(default_factory=list)
     cuantiles: list[dict[str, Any]] = field(default_factory=list)
     adoptadas: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -408,6 +409,14 @@ def ejecutar(
             if maximos:
                 maximos_por_estacion[codigo] = maximos
         resultado.estaciones = len(maximos_por_estacion)
+        # LA SERIE ANO POR ANO SE GUARDA, no solo su resumen. Es la que el
+        # informe tabula en la hoja de calculo de la IDF por Silva, y es el
+        # dato de partida de todo el analisis de frecuencia: un anexo que
+        # solo trae la media, el minimo y el maximo no permite rehacerlo.
+        resultado.serie_anual = [
+            {"codigo": codigo, "anio": anio, "pmax24_mm": round(valor, 1)}
+            for codigo, anios in sorted(maximos_por_estacion.items())
+            for anio, valor in sorted(anios.items())]
 
         logger.info(
             "%s registro(s) diarios | %d estacion(es) con maximos | "
@@ -552,6 +561,7 @@ def _escribir_productos(configuracion, base, resultado, periodos, delimitador,
 
     for nombre, contenido in (
         ("pmax24h_anual.csv", resultado.series),
+        ("pmax24h_serie.csv", resultado.serie_anual),
         ("ajustes.csv", resultado.ajustes),
         ("cuantiles.csv", resultado.cuantiles),
         ("atipicos_bajos.csv", [

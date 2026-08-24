@@ -385,5 +385,53 @@ class PruebaRazonInternaDeIdf(unittest.TestCase):
         self.assertIsNone(m12a.razon_interna_de_idf(None, 2.9, 180.0))
 
 
+
+class PruebaHojaDeSilva(unittest.TestCase):
+    """
+    La hoja de calculo ano por ano que el informe presenta. ES LA VIA EMPIRICA
+    y no la que la cadena adopta: su Tr sale de la posicion de graficacion, no
+    de la distribucion ajustada.
+    """
+
+    def setUp(self) -> None:
+        self.serie = [(1980, 25.0), (1981, 80.3), (1982, 40.0), (1983, 60.0)]
+        self.hoja = m12a.hoja_de_silva(self.serie, 0.25, 10.0, 0.6)
+
+    def test_el_orden_uno_es_el_mayor(self) -> None:
+        self.assertEqual(self.hoja[0]["anio"], 1981)
+        self.assertEqual(self.hoja[0]["m"], 1)
+        self.assertEqual(self.hoja[-1]["anio"], 1980)
+
+    def test_la_posicion_de_weibull_es_m_sobre_n_mas_uno(self) -> None:
+        self.assertAlmostEqual(self.hoja[0]["weibull"], 1 / 5, places=4)
+        self.assertAlmostEqual(self.hoja[-1]["weibull"], 4 / 5, places=4)
+
+    def test_el_periodo_de_retorno_es_el_inverso_de_la_excedencia(self) -> None:
+        for fila in self.hoja:
+            self.assertAlmostEqual(
+                fila["tr_anios"], 1.0 / fila["weibull"], places=1)
+            self.assertAlmostEqual(
+                fila["prob_excedencia_pct"], 100.0 * fila["weibull"], places=2)
+
+    def test_la_maxima_en_una_hora_es_el_coeficiente_por_la_de_24(self) -> None:
+        self.assertAlmostEqual(self.hoja[0]["pmax_1h_mm"], 0.25 * 80.3, places=2)
+        # La intensidad en una hora es esa lamina dividida por una hora.
+        self.assertEqual(self.hoja[0]["imax_mm_h"], self.hoja[0]["pmax_1h_mm"])
+
+    def test_la_k_es_la_que_ancla_la_curva_de_ese_ano(self) -> None:
+        # Misma K que intensidad_silva usa por dentro: I1h * (60 + b)^n.
+        esperado = 0.25 * 80.3 * (60.0 + 10.0) ** 0.6
+        self.assertAlmostEqual(self.hoja[0]["k"], round(esperado, 2), places=1)
+
+    def test_una_serie_vacia_es_error(self) -> None:
+        # Sin serie no hay hoja: devolver una tabla vacia la haria parecer
+        # calculada.
+        with self.assertRaises(ErrorHidrologia):
+            m12a.hoja_de_silva([], 0.25, 10.0, 0.6)
+
+    def test_un_coeficiente_no_positivo_es_error(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m12a.hoja_de_silva(self.serie, 0.0, 10.0, 0.6)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

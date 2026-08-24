@@ -188,6 +188,18 @@ tablas:
       orden: ["2.33", "5.0", "10.0", "25.0", "50.0", "100.0"]
 
   # ---------------------------------------------------------------- capitulo 5
+  - numero: "4-7"
+    leyenda: "Cálculo IDF Metodología Silva"
+    fuente: "data/02_procesado/tormenta/idf_silva_hoja.csv"
+    encabezados: 1
+    # ES LA VIA EMPIRICA Y NO LA QUE LA CADENA ADOPTA. El Tr de esta tabla sale
+    # de la posicion de graficacion de Weibull, no de la distribucion ajustada:
+    # el estudio ancla la curva en los cuantiles del sitio de proyecto, que es
+    # metodo posterior y mejor. Las dos van en el informe diciendo cual es cual.
+    # De que estacion se arma se declara en idf.silva.estacion_hoja.
+    columnas: [anio, pmax24_mm, m, weibull, prob_excedencia_pct, tr_anios,
+               pmax_1h_mm, imax_mm_h, k]
+
   - numero: "5-1"
     leyenda: "Series de Precipitación Mensual Zona de Proyecto"
     fuente: "data/02_procesado/balance/balance_mensual_serie.csv"

@@ -879,6 +879,11 @@ idf:
   # Metodo de Silva (1998): I = K / (d + b)^n, con d en MINUTOS y K anclada en
   # la intensidad de una hora. No es una ley potencial.
   silva:
+    # De que estacion se arma la hoja de calculo ano por ano que el informe
+    # presenta. Es de UNA serie y el estudio tiene doce; el sitio de proyecto
+    # no tiene serie propia porque su valor sale de los campos interpolados.
+    # Vacio = se toma la mas larga y el modulo DICE cual tomo.
+    estacion_hoja: ""
     b_min: 10.0                  # tiempo caracteristico de la zona, entre 5 y 20 min
     n: 0.6                       # entre 0,5 y 0,6; 0,6 para lluvias mas intensas
     # DECISION CON MARGEN Y ESPECIFICA DEL ESTUDIO. Relacion entre la maxima en

@@ -92,6 +92,7 @@ class ResultadoM12a:
     desagregacion: list[dict[str, Any]] = field(default_factory=list)
     cambio_climatico: list[dict[str, Any]] = field(default_factory=list)
     silva: dict[str, Any] = field(default_factory=dict)
+    hoja_silva: list[dict[str, Any]] = field(default_factory=list)
     adoptado: dict[str, Any] = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
@@ -191,6 +192,135 @@ def intensidad_invias(
     return (coeficientes["a"] * periodo_retorno ** coeficientes["b"]
             * media_pmax24_mm ** coeficientes["d"]
             / duracion ** coeficientes["c"])
+
+
+def hoja_de_silva(
+    serie: Sequence[tuple[int, float]], coeficiente_1h: float,
+    b_min: float, n: float,
+) -> list[dict[str, Any]]:
+    """
+    Hoja de cálculo año por año con que el informe presenta la IDF de Silva.
+
+    Ordena la serie de máximos de mayor a menor, le asigna posición de graficación
+    de Weibull y deriva el periodo de retorno empírico, la máxima en una hora y
+    la constante K de la curva:
+
+        m    orden, 1 el mayor
+        W    m / (n + 1), posición de graficación de Weibull
+        P    probabilidad de excedencia, W en por ciento
+        Tr   1 / W, en años
+        P1h  coeficiente_1h · Pmáx24h
+        Imáx P1h dividido por una hora, que numéricamente es P1h
+        K    Imáx · (60 + b)^n, la constante que ancla la curva de ese año
+
+    ES LA VIA EMPIRICA Y NO LA QUE LA CADENA ADOPTA. El estudio ancla la curva
+    en los cuantiles ajustados en el sitio de proyecto, que es un método
+    posterior y mejor: esta hoja reproduce el cálculo que el informe de
+    referencia presenta, y las dos deben aparecer diciendo cuál es cuál. El Tr
+    de esta tabla es empírico y no sale de la distribución ajustada.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si la serie está vacía o alguna magnitud no es positiva.
+    """
+    if not serie:
+        raise ErrorHidrologia(
+            "la serie de maximos anuales esta vacia: sin ella no hay hoja de "
+            "calculo que presentar.")
+    if coeficiente_1h <= 0 or b_min < 0 or n <= 0:
+        raise ErrorHidrologia(
+            f"coeficiente de paso a 1 h ({coeficiente_1h}), b ({b_min} min) y "
+            f"n ({n}) deben ser positivos.")
+
+    total = len(serie)
+    ordenada = sorted(serie, key=lambda par: (-par[1], par[0]))
+    filas: list[dict[str, Any]] = []
+    for orden, (anio, pmax24) in enumerate(ordenada, start=1):
+        weibull = orden / (total + 1.0)
+        p1h = coeficiente_1h * pmax24
+        filas.append({
+            "anio": anio,
+            "pmax24_mm": round(pmax24, 1),
+            "m": orden,
+            "weibull": round(weibull, 4),
+            "prob_excedencia_pct": round(100.0 * weibull, 2),
+            "tr_anios": round(1.0 / weibull, 2),
+            "pmax_1h_mm": round(p1h, 2),
+            "imax_mm_h": round(p1h, 2),
+            "k": round(p1h * (60.0 + b_min) ** n, 2),
+        })
+    return filas
+
+
+
+def _resolver_hoja_silva(configuracion, base, resultado, coeficiente_1h,
+                         b_min, n, delimitador, logger) -> None:
+    """
+    Arma la hoja de calculo ano por ano que el informe presenta para Silva.
+
+    LA ESTACION ES UNA DECISION CON MARGEN. La hoja es de UNA serie y el
+    estudio tiene doce; el sitio de proyecto no tiene serie propia, porque su
+    valor sale de los campos interpolados. Si el consultor no declara cual,
+    se toma la mas larga y se DICE cual se tomo: elegirla en silencio dejaria
+    una tabla del informe sin poder explicar de donde salio.
+    """
+    ruta = (rutas.directorio("procesado_frecuencia", base)
+            / "pmax24h_serie.csv")
+    if not ruta.is_file():
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "idf.silva_sin_serie",
+            f"no esta {rutas.relativa(ruta, base)}: la hoja de calculo de la "
+            "IDF por Silva queda sin escribir. La produce el M07.",
+        ))
+        return
+
+    series: dict[str, list[tuple[int, float]]] = {}
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        for fila in csv.DictReader(manejador, delimiter=delimitador):
+            try:
+                series.setdefault(str(fila["codigo"]).strip(), []).append(
+                    (int(fila["anio"]), float(fila["pmax24_mm"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+    if not series:
+        return
+
+    pedida = str(configuracion.obtener("idf.silva.estacion_hoja", "") or "").strip()
+    if pedida and pedida in series:
+        codigo, criterio = pedida, "declarada en idf.silva.estacion_hoja"
+    else:
+        codigo = max(series, key=lambda c: (len(series[c]), c))
+        criterio = "la serie mas larga, por no haberse declarado ninguna"
+        if pedida:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "idf.silva_estacion_ausente",
+                f"idf.silva.estacion_hoja pide la estacion {pedida} y no tiene "
+                f"serie de maximos en este estudio. Se uso {codigo}.",
+            ))
+
+    try:
+        resultado.hoja_silva = hoja_de_silva(
+            series[codigo], coeficiente_1h, b_min, n)
+    except ErrorHidrologia as error:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "idf.silva_hoja", str(error)))
+        return
+
+    resultado.silva["estacion_hoja"] = codigo
+    resultado.silva["criterio_estacion"] = criterio
+    logger.info("Hoja de Silva sobre %s: %d anio(s) (%s)", codigo,
+                len(resultado.hoja_silva), criterio)
+    resultado.hallazgos.append(Hallazgo(
+        ADVERTENCIA if not pedida else INFORMATIVO, "idf.silva_estacion",
+        f"la hoja de calculo de la IDF por Silva se armo sobre la estacion "
+        f"{codigo} ({len(resultado.hoja_silva)} anios), {criterio}. LA HOJA ES "
+        f"LA VIA EMPIRICA y su Tr no sale de la distribucion ajustada: el "
+        f"estudio ancla la curva en los cuantiles del sitio de proyecto, que "
+        f"es metodo posterior y mejor. Las dos pueden ir en el informe "
+        f"diciendo cual es cual. Para fijar otra estacion, declarar "
+        f"idf.silva.estacion_hoja.",
+    ))
 
 
 def intensidad_silva(
@@ -877,6 +1007,11 @@ def _resolver_curvas(configuracion, base, resultado, cuantiles, duraciones,
         logger.info("%d punto(s) de curva | region %s | anclaje %s, M = "
                     "%.1f mm", len(resultado.curvas), resultado.region,
                     resultado.anclaje.get("aplicado", "?"), media)
+
+        if "silva" in metodologias:
+            _resolver_hoja_silva(configuracion, base, resultado,
+                                 coeficiente_1h, b_silva, n_silva,
+                                 delimitador, logger)
 
         if "silva" in metodologias and declarado is not None and not fuente_1h:
             resultado.hallazgos.append(Hallazgo(
@@ -1899,6 +2034,7 @@ def _escribir_productos(base, resultado, delimitador, logger) -> None:
     directorio = rutas.directorio("procesado_tormenta", base, crear=True)
     for nombre, contenido in (
         ("idf.csv", resultado.curvas),
+        ("idf_silva_hoja.csv", resultado.hoja_silva),
         ("verificacion_idf_24h.csv", resultado.verificacion),
         ("desagregacion.csv", resultado.desagregacion),
         ("cambio_climatico.csv", resultado.cambio_climatico),
