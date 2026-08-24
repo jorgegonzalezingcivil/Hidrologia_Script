@@ -88,6 +88,18 @@ tablas:
     # decision del consultor sobre su documento.
     columnas: [codigo, "T2.33", T5, T10, T15, T25, T50, T100]
 
+  - numero: "4-4"
+    leyenda: "Precipitaciones Máximas Sitio de Proyecto"
+    fuente: "data/02_procesado/precipitacion/precipitacion_por_subcuenca.csv"
+    encabezados: 2
+    # NO SE FILTRA POR 'origen_precipitacion'. Es una marca de procedencia y no
+    # un escenario: dice si el valor salio de la estadistica zonal del raster
+    # (123 subcuencas) o del centroide, que es a lo que se recurre cuando la
+    # subcuenca es menor que la celda (2). Filtrar dejaria fuera dos subcuencas
+    # reales del estudio.
+    columnas: [subcuenca, "p_T2.33_mm", p_T5_mm, p_T10_mm, p_T15_mm, p_T25_mm,
+               p_T50_mm, p_T100_mm]
+
   - numero: "4-6"
     leyenda: "Curva IDF Método INVIAS"
     fuente: "data/02_procesado/tormenta/idf.csv"
@@ -143,6 +155,20 @@ tablas:
       columna: mes
       valor: caudal_budyko_m3s
       orden: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+  - numero: "5-12"
+    leyenda: "Qmax Vs. Periodo de Retorno"
+    fuente: "data/02_procesado/hidrologia/qmax_por_periodo.csv"
+    # Dos filas de titulo y UNA SOLA de datos: la tabla no tiene columna de
+    # etiqueta, son los siete caudales del punto de entrega.
+    encabezados: 2
+    # El caudal del cierre de la cuenca, no el de cada elemento del modelo. El
+    # Sink es unico en este proyecto; si hubiera mas, la tabla creceria y se
+    # veria.
+    filtro:
+      tipo: "Sink"
+    columnas: [q_T2_33_m3s, q_T5_m3s, q_T10_m3s, q_T15_m3s, q_T25_m3s,
+               q_T50_m3s, q_T100_m3s]
 
 # =============================================================================
 # LO QUE AUN NO SE PUEDE DECLARAR, Y POR QUE
