@@ -5,47 +5,40 @@ M15 - Redacción del informe en Word
 ===================================
 Entorno: venv del proyecto.
 
-REÚNE LO QUE LA CADENA CALCULÓ Y LO ESCRIBE. Los dieciocho módulos anteriores
-dejaron tablas, figuras y reportes JSON con sus hallazgos; este los recoge y
-produce el documento que se entrega.
+RESUELVE LO MECÁNICO Y NO ESCRIBE JUICIO. La plantilla del consultor lleva sus
+instrucciones marcadas en verde, de tres tipos:
 
-TRES COSAS VIVEN FUERA DEL CÓDIGO, y es deliberado:
+    Colocar Figura: <archivo>.png    inserta la figura que produjo la cadena
+    Completar la Tabla N-M           llena la tabla con los datos del estudio
+    Analizar Ilustración N-M         redacción, que este módulo NO toca
 
-    templates/informe.dotx        el formato: estilos, encabezados, página
-    config/informe.yaml           la estructura de capítulos
-    templates/informe/texto.yaml  la redacción, con huecos por rellenar
+Las dos primeras son mecánicas: el archivo existe o no, el dato está o no. La
+tercera exige mirar el resultado y decir qué significa, y eso no se programa. El
+módulo las deja intactas, en verde, para que la pasada de redacción las
+encuentre.
 
-Reordenar el informe, cambiar una frase o ajustar el formato de casa no exige
-tocar Python. La plantilla se deriva del informe de referencia del consultor
-(CLAUDE.md, sección 10), que es su propiedad y define el formato de entrega.
+SE EDITA EL DOCUMENTO, NO SE RECONSTRUYE. Es la diferencia entre conservar las
+92 referencias cruzadas, las 152 leyendas numeradas por campo, los 214
+hipervínculos y los 314 marcadores, o perderlos todos. Verificado: tras editar,
+los recuentos de REF, SEQ, STYLEREF, PAGEREF, TOC, marcadores e hipervínculos
+son idénticos.
 
-LO QUE EL MÓDULO NO INVENTA. Un valor que no pueda resolver NO se escribe como
-un número plausible ni se deja la llave cruda en el texto: se sustituye por una
-marca visible y se reporta como hallazgo. Un informe con un dato inventado es
-peor que uno con un hueco señalado, porque el hueco se ve y el dato no.
-
-LAS MARCAS DE PENDIENTE SON PARTE DEL PRODUCTO. Hay apartados que ninguna cadena
-puede redactar: el alcance del contrato, la descripción del sistema hídrico con
-conocimiento de campo, las conclusiones. El módulo deja en ellos una marca
-visible con lo que falta, en lugar de rellenarlos con texto de relleno.
-
-LA NUMERACIÓN VA CON CAMPOS DE WORD. Las leyendas usan STYLEREF para el capítulo
-y SEQ para el orden dentro de él, de modo que insertar una tabla a mano renumera
-el resto. Escribir el número como texto produce una numeración que se descuadra
-en silencio en cuanto alguien edita el documento.
+LOS ÍNDICES QUEDAN DESACTUALIZADOS a propósito. Son campos de Word y conservan
+su texto en caché hasta que se actualizan: al abrir el documento hay que
+responder que sí, o pulsar Ctrl+E y F9.
 
 Productos:
-    outputs/06_informe/informe_hidrologico.docx
+    <salida>/informe_hidrologico.docx
     data/02_procesado/M15_informe.json
 
 Uso:
     python src/M15_informe.py
-    python src/M15_informe.py --plantilla   # regenera templates/informe.dotx
+    python src/M15_informe.py --plantilla otra_base.docx
 
 Códigos de salida:
-    0  correcto
+    0  informe escrito sin hallazgos bloqueantes
     1  hay hallazgos bloqueantes
-    3  no se pudo leer la configuración o los insumos
+    3  no se pudo leer la configuración o la plantilla
 """
 
 from __future__ import annotations
@@ -53,6 +46,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -63,8 +57,9 @@ _DIRECTORIO_SRC = Path(__file__).resolve().parent
 if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
+import docx_plantilla as plantilla_docx  # noqa: E402
 from comun import esquema, registro, rutas  # noqa: E402
-from comun.config import Config, cargar  # noqa: E402
+from comun.config import Config, cargar, leer_yaml  # noqa: E402
 from comun.errores import (  # noqa: E402
     ErrorConfiguracion,
     ErrorFormato,
@@ -80,437 +75,219 @@ SALIDA_CORRECTA = 0
 SALIDA_BLOQUEANTE = 1
 SALIDA_ERROR = 3
 
-# Marca que sustituye a un valor que la cadena no resolvió. Se elige visible a
-# propósito: tiene que saltar a la vista al hojear el documento.
-MARCA_SIN_VALOR = "[[SIN DATO]]"
-MARCA_PENDIENTE = "PENDIENTE"
+# Las tres instrucciones que la plantilla marca en verde. El módulo resuelve las
+# dos primeras y respeta la tercera.
+PATRON_FIGURA = re.compile(r"^\s*Colocar\s+Figura\s*:\s*(.+?)\s*$", re.I)
+PATRON_TABLA = re.compile(r"^\s*Completar\s+la\s+Tabla\s+([0-9]+[-‐-―]?[0-9]*)",
+                          re.I)
+PATRON_ANALISIS = re.compile(r"^\s*Analizar\b", re.I)
 
-ESTILO_TITULO = {1: "Ttulo1", 2: "Ttulo2", 3: "Ttulo3", 4: "Ttulo4"}
-ESTILO_TEXTO = "Sinespaciado"
-ESTILO_LEYENDA = "Descripcin"
-ESTILO_FUENTE = "Fuente"
-ESTILO_TABLA = "Tablaconcuadrcula"
+# Un nombre de archivo dentro de la instrucción, con su carpeta si la lleva.
+PATRON_ARCHIVO = re.compile(r"([A-Za-z0-9_\-\.]+\.(?:png|jpg|jpeg|svg))", re.I)
 
 
 @dataclass
 class ResultadoM15:
+    """Lo que el módulo resolvió y lo que dejó pendiente."""
+
+    plantilla: str = ""
     documento: str = ""
-    capitulos: int = 0
-    tablas: int = 0
-    figuras: int = 0
-    parrafos: int = 0
-    pendientes: list[str] = field(default_factory=list)
-    sin_valor: list[str] = field(default_factory=list)
-    ausentes: list[str] = field(default_factory=list)
-    valores: dict[str, Any] = field(default_factory=dict)
-    inyectados: int = 0
-    decisiones: list[str] = field(default_factory=list)
+    figuras_puestas: list[str] = field(default_factory=list)
+    figuras_ausentes: list[dict[str, Any]] = field(default_factory=list)
+    tablas_llenadas: list[dict[str, Any]] = field(default_factory=list)
+    tablas_sin_fuente: list[str] = field(default_factory=list)
+    analisis_pendientes: int = 0
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
 
 # =============================================================================
-# Funciones puras
+# Lectura de la plantilla
 # =============================================================================
-def sustituir(texto: str, valores: dict[str, Any]) -> tuple[str, list[str]]:
+def clasificar(texto: str) -> tuple[str, str]:
     """
-    Rellena las llaves del texto con los valores calculados.
+    Tipo de instrucción y su argumento.
 
-    NO SE INVENTA NADA. Una llave sin valor se sustituye por una marca visible y
-    su nombre se devuelve, para que el módulo lo reporte. Dejar la llave cruda
-    produciría un informe con '{area_km2}' impreso; poner un cero produciría uno
-    con un dato falso que nadie detecta.
-
-    Devuelve el texto y la lista de llaves que no se pudieron resolver.
+    Devuelve ('figura'|'tabla'|'analisis'|'', argumento). Se decide por el texto
+    y no por el color: el sombreado se pierde al copiar y pegar un párrafo, y
+    entonces una instrucción quedaría muda sin que nada lo señalara.
     """
-    faltantes: list[str] = []
-    salida: list[str] = []
-    resto = texto
-    while True:
-        inicio = resto.find("{")
-        if inicio < 0:
-            salida.append(resto)
-            break
-        fin = resto.find("}", inicio)
-        if fin < 0:
-            salida.append(resto)
-            break
-        salida.append(resto[:inicio])
-        clave = resto[inicio + 1:fin].strip()
-        valor = valores.get(clave)
-        if valor is None or valor == "":
-            faltantes.append(clave)
-            salida.append(MARCA_SIN_VALOR)
-        else:
-            salida.append(str(valor))
-        resto = resto[fin + 1:]
-    return "".join(salida), faltantes
+    coincide = PATRON_FIGURA.match(texto)
+    if coincide:
+        archivo = PATRON_ARCHIVO.search(coincide.group(1))
+        return "figura", (archivo.group(1) if archivo else coincide.group(1))
+    coincide = PATRON_TABLA.match(texto)
+    if coincide:
+        return "tabla", coincide.group(1)
+    if PATRON_ANALISIS.match(texto):
+        return "analisis", texto.strip()
+    return "", ""
 
 
-def formatear(valor: Any, decimales: int = 2) -> str:
+def buscar_figura(nombre: str, raices: Sequence[Path]) -> Path | None:
     """
-    Da a un número la forma que el informe usa: coma decimal y sin exponentes.
+    Localiza una figura por su nombre, en el directorio de gráficos y sus temas.
 
-    En un documento en español el separador decimal es la coma. Escribir 220.60
-    obliga al lector a decidir si son doscientos veinte o veintidós mil.
+    SE BUSCA POR NOMBRE Y NO POR RUTA. La instrucción de la plantilla dice el
+    archivo y a veces la carpeta ('de la carpeta individuales/isoyetas_fase'),
+    pero el consultor no tiene por qué llevar la cuenta de en qué subcarpeta lo
+    dejó cada módulo: el nombre es único y basta.
     """
-    if valor is None or valor == "":
-        return ""
-    try:
-        numero = float(valor)
-    except (TypeError, ValueError):
-        return str(valor)
-    if numero == int(numero) and abs(numero) < 1e15:
-        return f"{int(numero):,}".replace(",", ".")
-    return f"{numero:,.{decimales}f}".replace(",", "\x00").replace(
-        ".", ",").replace("\x00", ".")
+    for raiz in raices:
+        raiz = Path(raiz)
+        if not raiz.is_dir():
+            continue
+        directo = raiz / nombre
+        if directo.is_file():
+            return directo
+        for encontrado in raiz.rglob(nombre):
+            if encontrado.is_file():
+                return encontrado
+    return None
 
 
-def leer_tabla(ruta: Path, delimitador: str, columnas: dict[str, str],
-               orden: str = "", filas_max: int = 0,
-               filtro: dict[str, Any] | None = None) -> dict[str, Any]:
-    """
-    Lee un CSV de la cadena y lo deja listo para insertar como tabla.
-
-    SOLO SE MUESTRAN LAS COLUMNAS DECLARADAS, y con su nombre descriptivo. Las
-    tablas de la cadena llevan nombres cortos y de trabajo ('q_T100_m3s'); un
-    informe con esos encabezados obliga al lector a descifrarlos.
-
-    Excepciones
-    -----------
-    ErrorRutas
-        Si el archivo no está.
-    ErrorFormato
-        Si no trae ninguna de las columnas declaradas.
-    """
+def leer_tabla_csv(ruta: Path, delimitador: str) -> list[dict[str, str]]:
+    """Filas de un CSV de la cadena, con su codificación."""
+    ruta = Path(ruta)
     if not ruta.is_file():
         raise ErrorRutas(f"no se encuentra la tabla {ruta}.")
-    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
-        filas = list(csv.DictReader(manejador, delimiter=delimitador))
-    if not filas:
-        raise ErrorFormato(f"{ruta.name} esta vacio.")
+    with ruta.open(encoding="utf-8-sig", newline="") as archivo:
+        return list(csv.DictReader(archivo, delimiter=delimitador))
 
-    presentes = [c for c in columnas if c in filas[0]]
-    if not presentes:
+
+def leer_declaracion_tablas(ruta: Path) -> dict[str, dict[str, Any]]:
+    """
+    Qué fuente alimenta cada tabla del informe, indexada por su número.
+
+    ES UNA DECLARACIÓN Y NO UNA REGLA. Adivinar la fuente por el texto de la
+    leyenda funcionaría hasta el primer informe que llame a las cosas de otro
+    modo. El número de tabla es el que la propia plantilla usa en su
+    instrucción.
+    """
+    ruta = Path(ruta)
+    if not ruta.is_file():
+        return {}
+    declaracion = leer_yaml(ruta) or {}
+    salida: dict[str, dict[str, Any]] = {}
+    for entrada in declaracion.get("tablas") or []:
+        numero = str(entrada.get("numero", "")).strip()
+        if numero:
+            salida[_normalizar_numero(numero)] = entrada
+    return salida
+
+
+def _normalizar_numero(texto: str) -> str:
+    """
+    '2-1', '2‑1' y '21' son el mismo número de tabla.
+
+    Word compone la leyenda con campos y el guion que aparece en pantalla puede
+    ser un guion corto, uno largo o uno de no separación; y al extraer el texto
+    de los campos el separador se pierde del todo.
+    """
+    return re.sub(r"[^0-9]", "", str(texto))
+
+
+# =============================================================================
+# Edición del documento
+# =============================================================================
+def _ancho_util(documento) -> Any:
+    """Ancho de la caja de texto de la primera sección."""
+    seccion = documento.sections[0]
+    return seccion.page_width - seccion.left_margin - seccion.right_margin
+
+
+def _ancho_de_celda(celda, ancho_pagina) -> int:
+    """
+    Ancho util de una celda, para que la figura no la desborde.
+
+    UNA FIGURA A ANCHO DE PAGINA DENTRO DE UNA CELDA rompe la tabla: Word la
+    ensancha hasta salirse del margen. Se toma el ancho declarado de la celda y
+    se le descuenta el margen habitual; si la celda no lo declara, se reparte el
+    ancho de pagina entre las columnas de su fila.
+    """
+    from docx.shared import Emu
+
+    declarado = celda.width
+    if declarado is not None and int(declarado) > 0:
+        return max(int(Emu(360000)), int(declarado) - int(Emu(144000)))
+    return int(ancho_pagina)
+
+
+def poner_figura(parrafo, ruta_imagen: Path, ancho) -> None:
+    """
+    Sustituye el texto de la instrucción por la imagen, centrada.
+
+    SE CONSERVA EL PÁRRAFO, no se crea otro. Su estilo es el que la plantilla
+    reservó para la figura, y los párrafos vecinos son la leyenda y la fuente:
+    insertar uno nuevo dejaría la figura fuera de esa secuencia.
+    """
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Emu
+
+    for run in list(parrafo.runs):
+        run._element.getparent().remove(run._element)
+    parrafo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    parrafo.add_run().add_picture(str(ruta_imagen), width=Emu(int(ancho)))
+
+
+def _fijar_texto(celda, valor: str) -> None:
+    """
+    Escribe en una celda conservando el formato del primer run que ya tenía.
+
+    La plantilla trae las tablas del estudio anterior con su tipografía y su
+    tamaño; el consultor pidió expresamente conservarlos. Reescribir la celda
+    entera perdería ese formato, de modo que se reutiliza el primer run y se
+    vacían los demás.
+    """
+    parrafo = celda.paragraphs[0]
+    if parrafo.runs:
+        parrafo.runs[0].text = valor
+        for run in parrafo.runs[1:]:
+            run.text = ""
+    else:
+        parrafo.add_run(valor)
+    for sobrante in celda.paragraphs[1:]:
+        sobrante._element.getparent().remove(sobrante._element)
+
+
+def llenar_tabla(tabla, filas: Sequence[dict[str, str]],
+                 columnas: Sequence[str], encabezados: int) -> dict[str, Any]:
+    """
+    Reemplaza los datos de la tabla conservando sus filas de encabezado.
+
+    LAS FILAS SOBRANTES SE BORRAN Y LAS QUE FALTAN SE AÑADEN copiando la última
+    de datos: así la fila nueva hereda bordes, sombreado y tipografía de la que
+    ya estaba, en lugar de salir con el formato por defecto de Word.
+
+    Devuelve el recuento, que es lo que el reporte necesita para decir si la
+    tabla quedó con los datos de este estudio o con los del anterior.
+    """
+    import copy
+
+    disponibles = len(tabla.rows) - encabezados
+    if disponibles < 1:
         raise ErrorFormato(
-            f"{ruta.name} no trae ninguna de las columnas declaradas "
-            f"({sorted(columnas)}). Tiene: {sorted(filas[0])[:8]}.")
+            f"la tabla declara {encabezados} fila(s) de encabezado y solo tiene "
+            f"{len(tabla.rows)}: no queda ninguna de datos que rellenar.")
 
-    if filtro:
-        columna, valor = filtro.get("columna", ""), str(filtro.get("valor", ""))
-        filas = [f for f in filas if str(f.get(columna, "")).strip() == valor]
+    modelo = tabla.rows[encabezados]._tr
+    while len(tabla.rows) - encabezados < len(filas):
+        tabla._tbl.append(copy.deepcopy(modelo))
+    while len(tabla.rows) - encabezados > len(filas):
+        ultimo = tabla.rows[-1]._tr
+        ultimo.getparent().remove(ultimo)
 
-    if orden and orden in (filas[0] if filas else {}):
-        def clave(fila):
-            try:
-                return (0, float(fila[orden]))
-            except (TypeError, ValueError):
-                return (1, str(fila[orden]))
-        filas.sort(key=clave)
-
-    total = len(filas)
-    omitidas = 0
-    if filas_max and total > filas_max:
-        filas = filas[:filas_max]
-        omitidas = total - filas_max
-
-    return {
-        "encabezados": [columnas[c] for c in presentes],
-        "filas": [[formatear(f.get(c, "")) for c in presentes] for f in filas],
-        "total": total,
-        "omitidas": omitidas,
-        "columnas_ausentes": [c for c in columnas if c not in presentes],
-    }
-
-
-def recolectar_valores(reportes: dict[str, dict], tablas: dict[str, list],
-                       configuracion) -> dict[str, Any]:
-    """
-    Reúne en un solo diccionario lo que la cadena calculó, para el texto.
-
-    CADA VALOR SALE DE SU MÓDULO Y NO SE RECALCULA AQUÍ. El M15 redacta; si
-    volviera a promediar o a contar, el informe podría decir una cifra y las
-    tablas otra, y esa discrepancia es la que nadie perdona en una revisión.
-    """
-    valores: dict[str, Any] = {}
-
-    def numero(diccionario, *claves, decimales=2):
-        actual: Any = diccionario
-        for clave in claves:
-            if not isinstance(actual, dict):
-                return None
-            actual = actual.get(clave)
-        return formatear(actual, decimales) if actual is not None else None
-
-    # parametros.csv es ANCHO: una sola fila con una columna por parametro. Fue
-    # lo que devolvio la primera version vacio, porque la leia como una tabla
-    # larga de 'parametro' y 'valor', que es la forma que NO tiene.
-    filas = tablas.get("parametros", [])
-    parametros = filas[0] if filas else {}
-    for destino, columna, decimales in (
-            ("area_km2", "area_km2", 2), ("perimetro_km", "perimetro_km", 2),
-            ("longitud_cauce_km", "long_cauce_principal_km", 2),
-            ("cota_min", "cota_min", 0), ("cota_max", "cota_max", 0),
-            ("cota_media", "cota_media", 0)):
-        if parametros.get(columna) not in (None, ""):
-            valores[destino] = formatear(parametros[columna], decimales)
-
-    subcuencas = tablas.get("subcuencas", [])
-    if subcuencas:
-        valores["n_subcuencas"] = len(subcuencas)
-        area_total = sum(float(s.get("area_km2") or 0) for s in subcuencas)
-        if area_total > 0:
-            valores.setdefault("area_km2", formatear(area_total, 2))
-            valores["cn_medio"] = formatear(sum(
-                float(s.get("cn") or 0) * float(s.get("area_km2") or 0)
-                for s in subcuencas) / area_total, 1)
-        for destino, columna in (("tc_mediana_min", "tc_minutos"),
-                                 ("tlag_mediana_min", "tlag_minutos")):
-            serie = sorted(float(s[columna]) for s in subcuencas if s.get(columna))
-            if serie:
-                valores[destino] = formatear(serie[len(serie) // 2], 1)
-
-    caudales = tablas.get("qmax", [])
-    cierre = next((f for f in caudales if str(f.get("tipo")) == "Sink"), None)
-    if cierre and cierre.get("q_T100_m3s"):
-        valores["q_100"] = formatear(cierre["q_T100_m3s"], 1)
-        try:
-            area = float(sum(float(s.get("area_km2") or 0) for s in subcuencas))
-            if area > 0:
-                valores["caudal_especifico_100"] = formatear(
-                    float(cierre["q_T100_m3s"]) / area, 2)
-        except (TypeError, ValueError):
-            pass
-    valores["n_tramos"] = sum(1 for f in caudales if str(f.get("tipo")) == "Reach")
-
-    estaciones = tablas.get("estaciones", [])
-    if estaciones:
-        valores["n_estaciones"] = len(estaciones)
-
-    factores = reportes.get("M12b", {}).get("factores", {})
-    valores["arf"] = numero(factores, "arf", decimales=3)
-    valores["factor_cc"] = numero(factores, "cambio_climatico", decimales=3)
-    valores["duracion_tormenta_h"] = numero(factores, "duracion_h", decimales=0)
-    valores["intervalo_min"] = numero(factores, "intervalo_min", decimales=0)
-    valores["factor_escala"] = numero(
-        factores, "factor_escala_temporal", decimales=3)
-
-    valores["criterio_rezago"] = str(
-        configuracion.obtener("tiempo_rezago.criterio", "") or "")
-    valores["fuente_escala"] = str(configuracion.obtener(
-        "tormenta.coeficiente_desagregacion.fuente", "") or "")
-    # La distribucion la ELIGE el M07 por estacion segun su criterio de ajuste;
-    # la configuracion solo permite forzar una. Se informa la que gobierna en
-    # mas estaciones, y cuantas son, en lugar de dar por hecho que es una sola.
-    forzada = str(configuracion.obtener("frecuencia.distribucion_adoptada", "")
-                  or "").strip()
-    adoptadas = reportes.get("M07", {}).get("adoptadas", {})
-    if forzada:
-        valores["distribucion_adoptada"] = forzada
-    elif isinstance(adoptadas, dict) and adoptadas:
-        conteo: dict[str, int] = {}
-        for ficha in adoptadas.values():
-            nombre = str((ficha or {}).get("distribucion", "")).strip()
-            if nombre:
-                conteo[nombre] = conteo.get(nombre, 0) + 1
-        if conteo:
-            mayor = max(conteo, key=lambda n: conteo[n])
-            valores["distribucion_adoptada"] = (
-                f"{mayor}, que gobierna en {conteo[mayor]} de "
-                f"{sum(conteo.values())} estaciones")
-    periodos = configuracion.obtener("frecuencia.periodos_retorno", []) or []
-    if periodos:
-        textos = [formatear(p, 2) for p in periodos]
-        valores["periodos_retorno"] = ", ".join(textos[:-1]) + " y " + textos[-1]
-
-    return {c: v for c, v in valores.items() if v not in (None, "")}
-
-
-
-def repartir_hallazgos(
-    reportes: dict[str, dict], asignacion: dict[str, Sequence[str]],
-) -> tuple[dict[str, list[dict]], list[dict]]:
-    """
-    Reparte los hallazgos de los módulos entre los apartados del informe.
-
-    LOS HALLAZGOS SON EL ANÁLISIS, y ya están escritos. Cada módulo los emitió
-    en el momento en que midió cada cosa, con su severidad y su porqué: que el
-    gradiente térmico se aparta del adiabático, que el índice de retención cayó
-    a una milésima de su umbral, que dos formulaciones de evapotranspiración
-    difieren un tercio. Redactar eso otra vez desde una plantilla produciría
-    prosa genérica al lado de un análisis que ya existe.
-
-    La asignación va por PREFIJO DE CLAVE y no por módulo: un mismo módulo emite
-    hallazgos que pertenecen a capítulos distintos, y la clave del hallazgo
-    ('temperatura.gradiente_ajustado', 'balance.contraste_ena') dice de qué
-    trata mejor que el módulo que lo produjo.
-
-    Devuelve los hallazgos por apartado y, aparte, los que reclaman una decisión
-    del consultor, para que el informe los reúna al principio en lugar de
-    dejarlos repartidos por el documento.
-    """
-    por_apartado: dict[str, list[dict]] = {}
-    vistos: set[tuple[str, str]] = set()
-    for modulo, reporte in sorted(reportes.items()):
-        for hallazgo in reporte.get("hallazgos", []) or []:
-            clave = str(hallazgo.get("clave", ""))
-            firma = (clave, str(hallazgo.get("mensaje", ""))[:60])
-            if firma in vistos:
-                continue
-            vistos.add(firma)
-            ficha = {**hallazgo, "modulo": modulo}
-            for apartado, prefijos in asignacion.items():
-                if any(clave.startswith(p) for p in prefijos):
-                    por_apartado.setdefault(apartado, []).append(ficha)
-                    break
-
-    orden = {"BLOQUEANTE": 0, "ADVERTENCIA": 1, "INFORMATIVO": 2}
-    for lista in por_apartado.values():
-        lista.sort(key=lambda h: (orden.get(h.get("severidad"), 9),
-                                  h.get("clave", "")))
-    decisiones = [h for lista in por_apartado.values() for h in lista
-                  if reclama_decision(h)]
-    decisiones.sort(key=lambda h: h.get("clave", ""))
-    return por_apartado, decisiones
-
-
-# Marcas con que un hallazgo pide que decida una persona. Se buscan en el texto
-# porque son la forma en que los modulos lo expresan, y mantener una lista de
-# claves aparte se desincronizaria en cuanto se anadiera un modulo.
-SENALES_DE_DECISION = (
-    "decision del consultor", "decision declarada", "el consultor decid",
-    "debe declarar", "el informe debe", "debe quedar", "el consultor debe",
-    "hay que declarar", "conviene declarar", "no es defendible",
-)
-
-
-def reclama_decision(hallazgo: dict) -> bool:
-    """
-    Indica si un hallazgo pide criterio de una persona.
-
-    NO TODOS LOS AVISOS SON DECISIONES. Un hallazgo que informa de una
-    extrapolación describe una limitación del dato; uno que dice que el
-    consultor debe elegir entre dos valores exige una firma. Reunir los segundos
-    al principio del informe es lo que permite revisarlo sin leerlo entero.
-    """
-    if hallazgo.get("severidad") == "INFORMATIVO":
-        return False
-    mensaje = str(hallazgo.get("mensaje", "")).lower()
-    return any(senal in mensaje for senal in SENALES_DE_DECISION)
-
-
-def texto_de_hallazgo(hallazgo: dict) -> str:
-    """
-    Convierte un hallazgo en el párrafo que va al informe.
-
-    SE CONSERVA EL MENSAJE INTACTO. Está redactado como frase completa y
-    resumirlo perdería justamente el porqué, que es lo que hace defendible la
-    decisión. Solo se le antepone una marca cuando la severidad lo merece, para
-    que quien hojee el documento distinga un dato de una salvedad.
-    """
-    mensaje = " ".join(str(hallazgo.get("mensaje", "")).split())
-    if not mensaje:
-        return ""
-    severidad = hallazgo.get("severidad")
-    if severidad == "BLOQUEANTE":
-        return f"Advertencia grave. {mensaje}"
-    if severidad == "ADVERTENCIA":
-        return f"Salvedad. {mensaje}"
-    return mensaje
-
-# =============================================================================
-# Escritura del documento
-# =============================================================================
-def _campo(parrafo, instruccion: str) -> None:
-    """
-    Inserta un campo de Word, que Word evalúa al abrir o al actualizar.
-
-    Se escribe en tres piezas (begin, instrucción, end) porque es como el
-    formato lo define. El resultado no se precalcula: lo pone Word, y por eso
-    la numeración sobrevive a que alguien inserte una tabla a mano.
-    """
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
-
-    inicio = OxmlElement("w:fldChar")
-    inicio.set(qn("w:fldCharType"), "begin")
-    texto = OxmlElement("w:instrText")
-    texto.set(qn("xml:space"), "preserve")
-    texto.text = instruccion
-    fin = OxmlElement("w:fldChar")
-    fin.set(qn("w:fldCharType"), "end")
-    corrida = parrafo.add_run()._r
-    corrida.append(inicio)
-    corrida.append(texto)
-    corrida.append(fin)
-
-
-def escribir_leyenda(documento, tipo: str, titulo: str, fuente: str,
-                     separador: str = "-") -> None:
-    """
-    Leyenda numerada por capítulo, con su línea de procedencia debajo.
-
-    LA NUMERACIÓN LA LLEVA WORD. 'STYLEREF 1 \\s' devuelve el número del
-    capítulo en curso y 'SEQ <tipo> \\* ARABIC \\s 1' el consecutivo dentro de
-    él, que se reinicia en cada capítulo. Así, insertar una tabla a mano
-    renumera las siguientes; con el número escrito como texto, la numeración se
-    descuadra sin que nada lo señale.
-
-    El separador se añade porque el informe de referencia concatena capítulo y
-    consecutivo, y 'Tabla 621' se lee como el número seiscientos veintiuno.
-    """
-    parrafo = documento.add_paragraph(style=ESTILO_LEYENDA)
-    parrafo.add_run(f"{tipo} ")
-    _campo(parrafo, r" STYLEREF 1 \s ")
-    parrafo.add_run(separador)
-    _campo(parrafo, rf" SEQ {tipo} \* ARABIC \s 1 ")
-    parrafo.add_run(f". {titulo}")
-    documento.add_paragraph(f"Fuente: {fuente}", style=ESTILO_FUENTE)
-
-
-def escribir_tabla(documento, datos: dict[str, Any]) -> None:
-    """Inserta la tabla con el estilo de cuadrícula de la plantilla."""
-    tabla = documento.add_table(
-        rows=1, cols=len(datos["encabezados"]), style=ESTILO_TABLA)
-    for celda, encabezado in zip(tabla.rows[0].cells, datos["encabezados"]):
-        celda.text = ""
-        corrida = celda.paragraphs[0].add_run(encabezado)
-        corrida.bold = True
-    for fila in datos["filas"]:
-        celdas = tabla.add_row().cells
-        for celda, valor in zip(celdas, fila):
-            celda.text = str(valor)
-
-
-def escribir_tabla_de_contenido(documento) -> None:
-    """
-    Deja el campo de tabla de contenido, que Word rellena al actualizar.
-
-    NO SE PUEDE PRECALCULAR: los números de página dependen de la paginación,
-    que solo conoce el programa que compone el documento. Word pregunta al abrir
-    si se actualizan los campos, y ahí se construye.
-    """
-    documento.add_paragraph("TABLA DE CONTENIDO", style="TtuloTDC")
-    parrafo = documento.add_paragraph()
-    _campo(parrafo, r' TOC \o "1-3" \h \z \u ')
-    documento.add_paragraph(
-        "Situar el cursor sobre la tabla de contenido y pulsar F9 para "
-        "actualizarla, o responder que si al abrir el documento.",
-        style=ESTILO_FUENTE)
-
-
-def escribir_pendiente(documento, texto: str) -> None:
-    """
-    Marca visible de lo que espera al consultor.
-
-    Es parte del producto y no un descuido: hay apartados que ninguna cadena
-    puede redactar. Se marca en lugar de rellenarse con texto de relleno, que
-    es lo que produce informes que nadie lee.
-    """
-    parrafo = documento.add_paragraph(style=ESTILO_TEXTO)
-    corrida = parrafo.add_run(f"[{MARCA_PENDIENTE}] {texto.strip()}")
-    corrida.bold = True
-    corrida.italic = True
+    sin_columna: set[str] = set()
+    for indice, fila in enumerate(filas):
+        celdas = tabla.rows[encabezados + indice].cells
+        for posicion, columna in enumerate(columnas):
+            if posicion >= len(celdas):
+                break
+            if columna not in fila:
+                sin_columna.add(columna)
+            _fijar_texto(celdas[posicion], str(fila.get(columna, "")).strip())
+    return {"filas": len(filas), "columnas": len(columnas),
+            "sin_columna": sorted(sin_columna)}
 
 
 # =============================================================================
@@ -520,11 +297,11 @@ def ejecutar(
     raiz: Path | None = None,
     ruta_config: Path | None = None,
     ruta_json: Path | None = None,
-    regenerar_plantilla: bool = False,
+    ruta_plantilla: Path | None = None,
     consola: bool = True,
 ) -> tuple[int, list[Hallazgo]]:
-    """Compone el informe a partir de los productos de la cadena."""
-    inicio_reloj = time.perf_counter()
+    """Resuelve figuras y tablas sobre la plantilla y escribe el informe."""
+    inicio = time.perf_counter()
 
     base = Path(raiz).resolve() if raiz is not None else rutas.raiz_proyecto()
     configuracion: Config = cargar(ruta=ruta_config, raiz=base)
@@ -532,298 +309,197 @@ def ejecutar(
         MODULO, nivel=configuracion.obtener("ejecucion.nivel_log", "INFO"),
         raiz=base, consola=consola,
     )
-    resultado = ResultadoM15()
-    ruta_json = ruta_json or (
-        rutas.directorio("procesado", base, crear=True) / "M15_informe.json")
+
+    origen = (Path(ruta_plantilla) if ruta_plantilla is not None
+              else rutas.resolver(configuracion.obtener("informe.plantilla_base"),
+                                  rutas.raiz_codigo()))
+    delimitador = configuracion.obtener("insumos_usuario.delimitador_csv", ";")
+    graficos = rutas.resolver(configuracion.obtener("graficos.directorio"), base)
+    individuales = rutas.resolver(
+        configuracion.obtener("graficos.directorio_individuales"), base)
+    declaracion = leer_declaracion_tablas(
+        rutas.resolver(configuracion.obtener("informe.tablas"), base))
+
+    resultado = ResultadoM15(plantilla=str(origen))
 
     registro.registrar_cabecera(
         logger, MODULO, DESCRIPCION, config=configuracion,
-        insumos={"plantilla": configuracion.obtener("informe.plantilla")},
-        parametros=configuracion.parametros("informe"))
+        insumos={"plantilla": str(origen),
+                 "figuras": rutas.relativa(graficos, base),
+                 "tablas declaradas": str(len(declaracion))},
+        parametros={"informe.archivo": configuracion.obtener("informe.archivo")},
+    )
 
     try:
-        import docx_plantilla
-    except ImportError as error:
+        documento = plantilla_docx.abrir(origen)
+    except (plantilla_docx.ErrorPlantilla, ErrorRutas) as error:
         resultado.hallazgos.append(Hallazgo(
-            BLOQUEANTE, "informe.sin_libreria", str(error)))
-        return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
+            BLOQUEANTE, "informe.plantilla", str(error)))
+        return _cerrar(logger, resultado, base, ruta_json, inicio,
                        SALIDA_BLOQUEANTE)
 
-    ruta_plantilla = rutas.resolver(
-        configuracion.obtener("informe.plantilla"), base)
-    if regenerar_plantilla or not ruta_plantilla.is_file():
-        with registro.bloque(logger, "Plantilla"):
-            if not _derivar_plantilla(configuracion, base, ruta_plantilla,
-                                      docx_plantilla, resultado, logger):
-                return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
-                               SALIDA_BLOQUEANTE)
+    ancho = _ancho_util(documento)
+    cuerpo = list(documento.element.body)
+    parrafos = {p._element: p for p in documento.paragraphs}
+    tablas = {t._tbl: t for t in documento.tables}
 
-    try:
-        estructura = _leer_declaracion(configuracion, base, "informe.estructura",
-                                       "config/informe.yaml")
-        narrativa = _leer_declaracion(configuracion, base, "informe.texto",
-                                      "templates/informe/texto.yaml")
-    except (ErrorRutas, ErrorFormato) as error:
-        resultado.hallazgos.append(Hallazgo(
-            BLOQUEANTE, "informe.declaracion", str(error)))
-        return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
-                       SALIDA_BLOQUEANTE)
+    with registro.bloque(logger, "Instrucciones de la plantilla"):
+        for posicion, elemento in enumerate(cuerpo):
+            parrafo = parrafos.get(elemento)
+            if parrafo is None:
+                continue
+            tipo, argumento = clasificar(parrafo.text)
+            if tipo == "analisis":
+                resultado.analisis_pendientes += 1
+            elif tipo == "figura":
+                _resolver_figura(parrafo, argumento, [graficos, individuales],
+                                 ancho, resultado, base)
+            elif tipo == "tabla":
+                _resolver_tabla(cuerpo, posicion, tablas, argumento,
+                                declaracion, delimitador, base, resultado)
 
-    with registro.bloque(logger, "Insumos de la cadena"):
-        reportes, tablas = _reunir_insumos(base, configuracion, logger)
-        resultado.valores = recolectar_valores(reportes, tablas, configuracion)
-        logger.info("%d valor(es) disponibles para el texto",
-                    len(resultado.valores))
+        # LAS INSTRUCCIONES TAMBIEN VIVEN DENTRO DE LAS TABLAS. La plantilla
+        # compone algunas figuras en celdas, para ponerlas de a dos, y esos
+        # parrafos no estan en documento.paragraphs: son 16 de las 92, y sin
+        # recorrerlas quedaban mudas sin que nada lo dijera.
+        for tabla_contenedora in documento.tables:
+            for fila in tabla_contenedora.rows:
+                for celda in fila.cells:
+                    for parrafo in celda.paragraphs:
+                        tipo, argumento = clasificar(parrafo.text)
+                        if tipo == "analisis":
+                            resultado.analisis_pendientes += 1
+                        elif tipo == "figura":
+                            _resolver_figura(
+                                parrafo, argumento, [graficos, individuales],
+                                _ancho_de_celda(celda, ancho), resultado, base)
 
-    with registro.bloque(logger, "Composicion"):
-        try:
-            documento = docx_plantilla.abrir(ruta_plantilla)
-        except docx_plantilla.ErrorPlantilla as error:
-            resultado.hallazgos.append(Hallazgo(
-                BLOQUEANTE, "informe.plantilla", str(error)))
-            return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
-                           SALIDA_BLOQUEANTE)
+        logger.info("%d figura(s) puestas, %d tabla(s) llenadas, %d analisis "
+                    "sin tocar", len(resultado.figuras_puestas),
+                    len(resultado.tablas_llenadas),
+                    resultado.analisis_pendientes)
 
-        asignacion = {c: list(p) for c, p in
-                      (estructura.get("hallazgos") or {}).items()}
-        por_apartado, decisiones = repartir_hallazgos(reportes, asignacion)
-        resultado.decisiones = [h.get("clave", "") for h in decisiones]
-        contexto = {
-            "base": base, "configuracion": configuracion,
-            "hallazgos": por_apartado,
-            "narrativa": narrativa.get("texto", narrativa),
-            "delimitador": str(configuracion.obtener(
-                "insumos_usuario.delimitador_csv")),
-            "graficos": rutas.resolver(
-                configuracion.obtener("graficos.directorio"), base),
-            "fuente": str(estructura.get("fuente_propia", "Elaboracion propia")),
-            "separador": str(configuracion.obtener(
-                "informe.separador_numeracion", "-")),
-        }
-        escribir_tabla_de_contenido(documento)
-        _escribir_decisiones(documento, decisiones, resultado)
-        for nodo in estructura.get("capitulos", []):
-            _escribir_nodo(documento, nodo, contexto, resultado, logger)
+    salida = rutas.directorio("resultados", base, crear=True) / str(
+        configuracion.obtener("informe.archivo"))
+    salida.parent.mkdir(parents=True, exist_ok=True)
+    documento.save(str(salida))
+    resultado.documento = rutas.relativa(salida, base)
+    resultado.productos.append(resultado.documento)
 
-        destino = rutas.directorio("informe", base, crear=True) / str(
-            configuracion.obtener("informe.archivo", "informe_hidrologico.docx"))
-        documento.save(str(destino))
-        resultado.documento = str(destino)
-        resultado.productos.append(rutas.relativa(destino, base))
-        logger.info("Informe escrito: %s", rutas.relativa(destino, base))
-
-    _hallazgos_finales(resultado)
-    resultado.productos = [str(p) for p in resultado.productos]
-    return _cerrar(logger, resultado, base, ruta_json, inicio_reloj,
-                   SALIDA_CORRECTA)
+    resultado.hallazgos.extend(_resumir(resultado))
+    codigo = (SALIDA_BLOQUEANTE
+              if any(h.severidad == BLOQUEANTE for h in resultado.hallazgos)
+              else SALIDA_CORRECTA)
+    return _cerrar(logger, resultado, base, ruta_json, inicio, codigo)
 
 
-def _derivar_plantilla(configuracion, base, destino, docx_plantilla, resultado,
-                       logger) -> bool:
-    """Genera la plantilla a partir del informe de referencia del consultor."""
-    origen = rutas.resolver(
-        configuracion.obtener("informe.informe_de_referencia"), base)
-    try:
-        detalle = docx_plantilla.extraer_plantilla(origen, destino)
-    except docx_plantilla.ErrorPlantilla as error:
-        resultado.hallazgos.append(Hallazgo(
-            BLOQUEANTE, "informe.plantilla_no_derivable", str(error)))
-        return False
-    resultado.productos.append(rutas.relativa(destino, base))
-    descartadas = sum(len(v) for v in detalle["relaciones_descartadas"].values())
-    logger.info("Plantilla derivada de %s: %s KB", origen.name, detalle["kb"])
-    resultado.hallazgos.append(Hallazgo(
-        INFORMATIVO, "informe.plantilla_derivada",
-        f"la plantilla se derivo de {origen.name}: {detalle['kb']} KB con los "
-        f"estilos, la numeracion, los encabezados y la configuracion de pagina, "
-        f"sin su contenido. Se conservaron "
-        f"{len(detalle['medios_conservados'])} imagen(es) de membrete y se "
-        f"descartaron {descartadas} relacion(es) que no resolvian, incluida una "
-        "con destino 'NULL' que impedia abrir el archivo original con "
-        "python-docx. El formato de casa sale del informe del consultor, que es "
-        "de su propiedad; su redaccion se conserva en templates/informe.",
-    ))
-    return True
+def _resolver_figura(parrafo, nombre, raices, ancho, resultado, base) -> None:
+    """Pone la figura si existe; si no, deja la instrucción y lo reporta."""
+    ruta = buscar_figura(nombre, raices)
+    if ruta is None:
+        # LA INSTRUCCION SE DEJA INTACTA. Borrarla dejaria un hueco mudo en el
+        # informe y nadie sabria que falta una figura.
+        resultado.figuras_ausentes.append({"archivo": nombre})
+        return
+    poner_figura(parrafo, ruta, ancho)
+    resultado.figuras_puestas.append(rutas.relativa(ruta, base))
 
 
-def _leer_declaracion(configuracion, base, clave, por_defecto) -> dict:
-    """Lee un YAML de declaración, buscándolo primero en el estudio."""
-    import yaml
+def _resolver_tabla(cuerpo, posicion, tablas, numero, declaracion,
+                    delimitador, base, resultado) -> None:
+    """
+    Llena la primera tabla que sigue a la instrucción.
 
-    ruta = rutas.resolver(configuracion.obtener(clave, por_defecto), base)
-    if not ruta.is_file():
-        raise ErrorRutas(f"no se encuentra {ruta}, declarado en {clave}.")
-    try:
-        datos = yaml.safe_load(ruta.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as error:
-        raise ErrorFormato(f"{ruta.name}: YAML invalido ({error}).") from error
-    if not isinstance(datos, dict):
-        raise ErrorFormato(f"{ruta.name} no contiene un mapa.")
-    return datos
-
-
-def _reunir_insumos(base, configuracion, logger):
-    """Carga los reportes JSON y las tablas que el texto y las tablas usan."""
-    reportes: dict[str, dict] = {}
-    procesado = rutas.directorio("procesado", base)
-    for archivo in sorted(procesado.glob("M*.json")):
-        modulo = archivo.name.split("_")[0]
-        try:
-            reportes[modulo] = json.loads(archivo.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-    logger.info("%d reporte(s) de modulo leidos", len(reportes))
-
-    delimitador = str(configuracion.obtener("insumos_usuario.delimitador_csv"))
-
-    def leer(ruta_relativa):
-        ruta = base / ruta_relativa
-        if not ruta.is_file():
-            return []
-        with ruta.open(encoding="utf-8-sig", newline="") as manejador:
-            return list(csv.DictReader(manejador, delimiter=delimitador))
-
-    tablas = {
-        "parametros": leer("data/02_procesado/morfometria/parametros.csv"),
-        "subcuencas": leer("data/02_procesado/morfometria/subcuencas.csv"),
-        "qmax": leer("data/02_procesado/hidrologia/qmax_por_periodo.csv"),
-        "estaciones": leer("data/02_procesado/estaciones/inventario_estaciones.csv"),
-    }
-    return reportes, tablas
-
-
-def _escribir_nodo(documento, nodo, contexto, resultado, logger) -> None:
-    """Escribe un capítulo y, recursivamente, los que cuelgan de él."""
-    nivel = int(nodo.get("nivel", 1))
-    documento.add_paragraph(str(nodo.get("titulo", "")).strip(),
-                            style=ESTILO_TITULO.get(nivel, "Ttulo4"))
-    resultado.capitulos += 1
-
-    for parrafo in contexto["narrativa"].get(nodo.get("texto", ""), []) or []:
-        texto, faltantes = sustituir(" ".join(str(parrafo).split()),
-                                     resultado.valores)
-        documento.add_paragraph(texto, style=ESTILO_TEXTO)
-        resultado.parrafos += 1
-        for clave in faltantes:
-            if clave not in resultado.sin_valor:
-                resultado.sin_valor.append(clave)
-
-    for hallazgo in contexto["hallazgos"].get(nodo.get("texto", ""), []):
-        texto = texto_de_hallazgo(hallazgo)
-        if texto:
-            documento.add_paragraph(texto, style=ESTILO_TEXTO)
-            resultado.parrafos += 1
-            resultado.inyectados += 1
-
-    for declarada in nodo.get("tablas", []) or []:
-        _escribir_tabla_declarada(documento, declarada, contexto, resultado,
-                                  logger)
-    for declarada in nodo.get("figuras", []) or []:
-        _escribir_figura_declarada(documento, declarada, contexto, resultado,
-                                   logger)
-
-    if nodo.get("pendiente"):
-        escribir_pendiente(documento, str(nodo["pendiente"]))
-        resultado.pendientes.append(str(nodo.get("titulo", "")))
-
-    for hijo in nodo.get("hijos", []) or []:
-        _escribir_nodo(documento, hijo, contexto, resultado, logger)
-
-
-def _escribir_tabla_declarada(documento, declarada, contexto, resultado,
-                              logger) -> None:
-    """Inserta una tabla declarada, o anota su ausencia sin detenerse."""
-    ruta = contexto["base"] / str(declarada.get("archivo", ""))
-    try:
-        datos = leer_tabla(
-            ruta, contexto["delimitador"],
-            {str(c): str(e) for c, e in (declarada.get("columnas") or {}).items()},
-            orden=str(declarada.get("orden", "")),
-            filas_max=int(declarada.get("filas_max", 0) or 0),
-            filtro=declarada.get("filtro"))
-    except (ErrorRutas, ErrorFormato) as error:
-        resultado.ausentes.append(f"tabla {declarada.get('titulo')}: {error}")
+    ENTRE LA INSTRUCCION Y LA TABLA VA LA LEYENDA, de modo que no basta con
+    mirar el elemento siguiente. Se avanza hasta encontrar la tabla, y si antes
+    aparece otra instrucción se abandona: significa que esta no tenía tabla.
+    """
+    clave = _normalizar_numero(numero)
+    entrada = declaracion.get(clave)
+    if entrada is None:
+        resultado.tablas_sin_fuente.append(numero)
         return
 
-    escribir_leyenda(documento, "Tabla", str(declarada.get("titulo", "")),
-                     str(declarada.get("fuente", contexto["fuente"])),
-                     contexto["separador"])
-    escribir_tabla(documento, datos)
-    if datos["omitidas"]:
-        documento.add_paragraph(
-            f"Se presentan {len(datos['filas'])} de {datos['total']} registros. "
-            f"Los {datos['omitidas']} restantes estan en los anexos de calculo.",
-            style=ESTILO_FUENTE)
-    resultado.tablas += 1
-
-
-def _escribir_figura_declarada(documento, declarada, contexto, resultado,
-                               logger) -> None:
-    """Inserta una figura declarada, o anota su ausencia sin detenerse."""
-    from docx.shared import Cm
-
-    ruta = contexto["graficos"] / str(declarada.get("archivo", ""))
-    if not ruta.is_file():
-        resultado.ausentes.append(
-            f"figura {declarada.get('archivo')}: no se encuentra en "
-            f"{contexto['graficos'].name}")
+    tabla = None
+    for elemento in cuerpo[posicion + 1:posicion + 8]:
+        if elemento in tablas:
+            tabla = tablas[elemento]
+            break
+    if tabla is None:
+        resultado.tablas_sin_fuente.append(numero)
         return
-    ancho = float(declarada.get("ancho_cm", 15.0))
-    documento.add_picture(str(ruta), width=Cm(ancho))
-    documento.paragraphs[-1].alignment = 1  # centrada
-    escribir_leyenda(documento, "Ilustración", str(declarada.get("titulo", "")),
-                     str(declarada.get("fuente", contexto["fuente"])),
-                     contexto["separador"])
-    resultado.figuras += 1
+
+    try:
+        filas = leer_tabla_csv(rutas.resolver(str(entrada["fuente"]), base),
+                               delimitador)
+        detalle = llenar_tabla(tabla, filas,
+                               [str(c) for c in entrada.get("columnas") or []],
+                               int(entrada.get("encabezados", 1)))
+    except (ErrorRutas, ErrorFormato, KeyError, ValueError) as error:
+        resultado.tablas_sin_fuente.append(f"{numero} ({error})")
+        return
+    detalle["numero"] = numero
+    detalle["fuente"] = str(entrada["fuente"])
+    resultado.tablas_llenadas.append(detalle)
 
 
-def _hallazgos_finales(resultado) -> None:
-    """Convierte lo ocurrido durante la composición en hallazgos del reporte."""
-    resultado.hallazgos.append(Hallazgo(
-        INFORMATIVO, "informe.compuesto",
-        f"{resultado.capitulos} apartado(s), {resultado.parrafos} parrafo(s) "
-        f"de los cuales {resultado.inyectados} son hallazgos que los modulos "
-        f"emitieron al medir, {resultado.tablas} tabla(s) y "
-        f"{resultado.figuras} figura(s). La "
-        "numeracion de leyendas va con campos de Word (STYLEREF y SEQ): al "
-        "abrir el documento hay que responder que si a la actualizacion de "
-        "campos, o pulsar F9, para que se numeren y se arme la tabla de "
-        "contenido.",
+def _resumir(resultado: ResultadoM15) -> list[Hallazgo]:
+    """Lo que el módulo resolvió y lo que queda por hacer a mano."""
+    hallazgos: list[Hallazgo] = []
+
+    hallazgos.append(Hallazgo(
+        INFORMATIVO, "informe.resuelto",
+        f"{len(resultado.figuras_puestas)} figura(s) insertadas y "
+        f"{len(resultado.tablas_llenadas)} tabla(s) llenadas con los datos de "
+        "este estudio. Se editó el documento, no se reconstruyó: las "
+        "referencias cruzadas, las leyendas numeradas por campo, los "
+        "hipervínculos y los marcadores quedan intactos.",
     ))
-    if resultado.decisiones:
-        resultado.hallazgos.append(Hallazgo(
-            ADVERTENCIA, "informe.decisiones",
-            f"{len(resultado.decisiones)} punto(s) del estudio reclaman "
-            f"criterio del consultor y se reunen en un apartado al PRINCIPIO "
-            f"del documento: {resultado.decisiones[:6]}. Es lo que permite "
-            "revisar el informe sin leerlo entero; repartidas por los "
-            "capitulos, esas salvedades pasan desapercibidas.",
+
+    if resultado.analisis_pendientes:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "informe.analisis_pendiente",
+            f"{resultado.analisis_pendientes} instruccion(es) de análisis "
+            "siguen en verde y sin resolver, que es lo previsto: exigen mirar "
+            "el resultado y decir qué significa, y eso no se programa. El "
+            "informe NO está terminado hasta que se redacten y se borren.",
         ))
-    if resultado.pendientes:
-        resultado.hallazgos.append(Hallazgo(
-            ADVERTENCIA, "informe.pendientes",
-            f"{len(resultado.pendientes)} apartado(s) quedan con marca "
-            f"'[{MARCA_PENDIENTE}]' porque ninguna cadena los puede redactar: "
-            f"{resultado.pendientes}. Son el alcance del contrato, la "
-            "descripcion del sistema hidrico con conocimiento de campo y las "
-            "conclusiones. El informe NO se entrega con esas marcas dentro.",
+
+    if resultado.figuras_ausentes:
+        nombres = sorted({f["archivo"] for f in resultado.figuras_ausentes})
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "informe.figuras_ausentes",
+            f"{len(nombres)} figura(s) que la plantilla pide no están en el "
+            f"estudio: {nombres}. Su instrucción se dejó en el documento en "
+            "lugar de borrarla: un hueco mudo no se ve al revisar.",
         ))
-    if resultado.sin_valor:
-        resultado.hallazgos.append(Hallazgo(
-            ADVERTENCIA, "informe.valores_sin_resolver",
-            f"{len(resultado.sin_valor)} valor(es) del texto no los resolvio "
-            f"la cadena y quedaron como '{MARCA_SIN_VALOR}': "
-            f"{sorted(resultado.sin_valor)}. Se marcan en lugar de rellenarse "
-            "con una cifra plausible: un hueco senalado se ve, un dato "
-            "inventado no. Revisar si falta ejecutar el modulo que los produce.",
+
+    if resultado.tablas_sin_fuente:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "informe.tablas_sin_fuente",
+            f"{len(resultado.tablas_sin_fuente)} tabla(s) quedaron con los "
+            f"datos de la plantilla: {sorted(resultado.tablas_sin_fuente)}. "
+            "Falta declarar su fuente en informe.tablas, o la fuente declarada "
+            "no se pudo leer.",
         ))
-    if resultado.ausentes:
-        resultado.hallazgos.append(Hallazgo(
-            ADVERTENCIA, "informe.insumos_ausentes",
-            f"{len(resultado.ausentes)} tabla(s) o figura(s) declaradas no se "
-            f"pudieron insertar: {resultado.ausentes[:6]}. El informe se "
-            "compone sin ellas y el apartado queda sin su respaldo grafico.",
+
+    sin_columna = sorted({c for t in resultado.tablas_llenadas
+                          for c in t.get("sin_columna", [])})
+    if sin_columna:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "informe.columnas_ausentes",
+            f"se declararon columnas que su CSV no tiene: {sin_columna}. Esas "
+            "celdas quedaron VACIAS, no con el valor anterior: un dato del "
+            "estudio pasado en una tabla de este es peor que un hueco.",
         ))
+
+    hallazgos.append(Hallazgo(
+        INFORMATIVO, "informe.actualizar_campos",
+        "los índices de contenido, de ilustraciones y de tablas son campos de "
+        "Word y conservan su texto en caché: al abrir el documento hay que "
+        "responder que sí a la actualización, o pulsar Ctrl+E y F9.",
+    ))
+    return hallazgos
 
 
 def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
@@ -841,26 +517,25 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
             continue
         emitir("%s (%d)", severidad, len(grupo))
         for hallazgo in grupo:
-            emitir("  %-44s %s", hallazgo.clave, hallazgo.mensaje)
+            emitir("  %-40s %s", hallazgo.clave, hallazgo.mensaje)
 
     conteo = esquema.resumen_por_severidad(hallazgos)
     logger.info(registro.SEPARADOR)
     logger.info("RESUMEN: %d bloqueante(s), %d advertencia(s), %d informativo(s)",
                 conteo[BLOQUEANTE], conteo[ADVERTENCIA], conteo[INFORMATIVO])
 
+    if ruta_json is None:
+        ruta_json = (rutas.directorio("procesado", base, crear=True)
+                     / "M15_informe.json")
     reporte = {
         "modulo": MODULO,
+        "plantilla": resultado.plantilla,
         "documento": resultado.documento,
-        "capitulos": resultado.capitulos,
-        "parrafos": resultado.parrafos,
-        "tablas": resultado.tablas,
-        "figuras": resultado.figuras,
-        "pendientes": resultado.pendientes,
-        "hallazgos_inyectados": resultado.inyectados,
-        "decisiones_del_consultor": resultado.decisiones,
-        "valores_sin_resolver": sorted(resultado.sin_valor),
-        "insumos_ausentes": resultado.ausentes,
-        "valores": resultado.valores,
+        "figuras_puestas": resultado.figuras_puestas,
+        "figuras_ausentes": resultado.figuras_ausentes,
+        "tablas_llenadas": resultado.tablas_llenadas,
+        "tablas_sin_fuente": resultado.tablas_sin_fuente,
+        "analisis_pendientes": resultado.analisis_pendientes,
         "productos": resultado.productos,
         "resumen": conteo,
         "codigo_salida": codigo,
@@ -868,7 +543,7 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "hallazgos": [h.como_dict() for h in hallazgos],
     }
     ruta_json.parent.mkdir(parents=True, exist_ok=True)
-    ruta_json.write_text(json.dumps(reporte, ensure_ascii=False, indent=1),
+    ruta_json.write_text(json.dumps(reporte, ensure_ascii=False, indent=2),
                          encoding="utf-8")
 
     productos = {f"producto {i}": p
@@ -884,64 +559,36 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
     return codigo, hallazgos
 
 
-def _analizar_argumentos(argv=None):
-    analizador = argparse.ArgumentParser(description=DESCRIPCION)
-    analizador.add_argument("--raiz", type=Path, default=None)
-    analizador.add_argument("--config", type=Path, default=None)
-    analizador.add_argument("--json", type=Path, default=None)
-    analizador.add_argument(
-        "--plantilla", action="store_true",
-        help="regenera la plantilla a partir del informe de referencia")
-    return analizador.parse_args(argv)
-
-
+# =============================================================================
+# Interfaz de linea de comandos
+# =============================================================================
 def main(argv=None) -> int:
     """Punto de entrada. Devuelve el codigo de salida del proceso."""
-    argumentos = _analizar_argumentos(argv)
+    analizador = argparse.ArgumentParser(
+        prog="M15_informe.py",
+        description="Resuelve figuras y tablas sobre la plantilla del informe.")
+    analizador.add_argument("--raiz", type=Path, default=None)
+    analizador.add_argument("--config", type=Path, default=None)
+    analizador.add_argument("--plantilla", type=Path, default=None)
+    analizador.add_argument("--json", type=Path, default=None,
+                            dest="json_salida")
+    analizador.add_argument("--silencioso", action="store_true")
+    argumentos = analizador.parse_args(argv)
     try:
         codigo, _ = ejecutar(
             raiz=argumentos.raiz, ruta_config=argumentos.config,
-            ruta_json=argumentos.json,
-            regenerar_plantilla=argumentos.plantilla)
-    except (ErrorConfiguracion, ErrorRutas, ErrorFormato,
-            ErrorHidrologia) as error:
-        print(f"{MODULO}: {error}", file=sys.stderr)
+            ruta_json=argumentos.json_salida,
+            ruta_plantilla=argumentos.plantilla,
+            consola=not argumentos.silencioso,
+        )
+        return codigo
+    except (ErrorRutas, ErrorConfiguracion, ErrorFormato) as exc:
+        print(f"ERROR    | {exc}", file=sys.stderr)
         return SALIDA_ERROR
-    return codigo
-
-
-def _escribir_decisiones(documento, decisiones, resultado) -> None:
-    """
-    Reúne al principio del informe lo que exige criterio de una persona.
-
-    ES LO QUE PERMITE REVISAR EL DOCUMENTO SIN LEERLO ENTERO. La cadena resuelve
-    todo lo que puede resolverse y deja señalado, en un solo sitio, aquello
-    donde eligió por defecto o donde hay dos valores defendibles. El consultor
-    firma esas decisiones; el resto del informe las da por tomadas.
-
-    NO SE OCULTAN NI SE DILUYEN entre los capítulos: repartidas por el
-    documento, trece salvedades pasan desapercibidas.
-    """
-    documento.add_paragraph("DECISIONES QUE REQUIEREN CRITERIO",
-                            style=ESTILO_TITULO[1])
-    if not decisiones:
-        documento.add_paragraph(
-            "La cadena no encontro ninguna decision con margen pendiente de "
-            "criterio en esta ejecucion.", style=ESTILO_TEXTO)
-        return
-    documento.add_paragraph(
-        f"La cadena identifico {len(decisiones)} punto(s) en que eligio por "
-        "defecto o en que hay mas de un valor defendible. Se reunen aqui para "
-        "que puedan revisarse y firmarse sin recorrer el documento entero; en "
-        "los capitulos correspondientes vuelven a aparecer con su contexto.",
-        style=ESTILO_TEXTO)
-    for hallazgo in decisiones:
-        parrafo = documento.add_paragraph(style=ESTILO_TEXTO)
-        corrida = parrafo.add_run(f"{hallazgo.get('clave', '')}. ")
-        corrida.bold = True
-        parrafo.add_run(" ".join(str(hallazgo.get("mensaje", "")).split()))
-        resultado.parrafos += 1
+    except ErrorHidrologia as exc:
+        print(f"ERROR    | {exc}", file=sys.stderr)
+        return SALIDA_ERROR
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

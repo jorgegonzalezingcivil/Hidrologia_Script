@@ -1309,6 +1309,8 @@ ESQUEMA: dict[str, Campo] = {
         "tabla de gradientes térmicos de referencia", no_vacio=True),
     "temperatura.salida": texto(
         "directorio de las tablas de temperatura", no_vacio=True),
+    "informe.plantilla_base": ruta("plantilla del consultor"),
+    "informe.tablas": ruta("fuentes de las tablas del informe"),
     "informe.plantilla": ruta("plantilla .dotx del informe"),
     "informe.estructura": ruta("declaración del árbol de capítulos"),
     "informe.texto": ruta("narrativa del informe, con sus huecos"),

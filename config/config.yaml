@@ -1443,6 +1443,12 @@ graficos:
 informe:
   # TRES COSAS FUERA DEL CODIGO: el formato, la estructura y la redaccion.
   # Reordenar capitulos o cambiar una frase no exige tocar Python.
+  # LA PLANTILLA ES EL DOCUMENTO DEL CONSULTOR, saneado. Lleva sus estilos, sus
+  # 92 referencias cruzadas, sus 152 leyendas numeradas por campo y sus
+  # instrucciones marcadas en verde. El M15 la EDITA y no la reconstruye.
+  plantilla_base: "templates/informe_base.docx"
+  # Que fuente alimenta cada tabla del informe.
+  tablas: "config/informe_tablas.yaml"
   plantilla: "templates/informe.dotx"
   estructura: "config/informe.yaml"
   texto: "templates/informe/texto.yaml"

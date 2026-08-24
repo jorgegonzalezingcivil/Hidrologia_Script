@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Pruebas del M15: redacción del informe en Word.
+Pruebas del M15: resolución de las instrucciones de la plantilla.
+
+Se prueban las funciones puras y la declaración real del repositorio. La
+edición del documento exige python-docx y una plantilla de 3,7 MB, de modo que
+se verifica sobre la del estudio en las pruebas de integración y aquí solo lo
+que decide qué se hace con cada instrucción.
 
     python tests/test_m15.py
 """
@@ -17,285 +22,141 @@ _DIRECTORIO_SRC = _RAIZ_REPO / "src"
 if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
-import docx_plantilla  # noqa: E402
 import M15_informe as m15  # noqa: E402
-from comun.config import cargar  # noqa: E402
-from comun.errores import ErrorFormato, ErrorRutas  # noqa: E402
-
-_CFG = cargar(raiz=_RAIZ_REPO)
+from comun.errores import ErrorRutas  # noqa: E402
 
 
-class PruebaSustitucion(unittest.TestCase):
+class PruebaClasificacion(unittest.TestCase):
     """
-    Un valor que la cadena no resolvió NO se inventa. Un hueco señalado se ve al
-    hojear el documento; una cifra plausible y falsa no la detecta nadie.
+    SE DECIDE POR EL TEXTO Y NO POR EL COLOR. El sombreado se pierde al copiar y
+    pegar un párrafo, y entonces la instrucción quedaría muda sin que nada lo
+    señalara.
     """
 
-    def test_rellena_lo_que_hay(self) -> None:
-        texto, faltan = m15.sustituir(
-            "El area es de {area_km2} km2.", {"area_km2": "220,31"})
-        self.assertEqual(texto, "El area es de 220,31 km2.")
-        self.assertEqual(faltan, [])
+    def test_reconoce_una_figura_y_extrae_su_archivo(self) -> None:
+        tipo, argumento = m15.clasificar("Colocar Figura: M10_mapa_cn.png")
+        self.assertEqual(tipo, "figura")
+        self.assertEqual(argumento, "M10_mapa_cn.png")
 
-    def test_marca_lo_que_falta_y_lo_reporta(self) -> None:
-        texto, faltan = m15.sustituir("Area {area_km2}, cota {cota_max}.",
-                                      {"area_km2": "220,31"})
-        self.assertIn(m15.MARCA_SIN_VALOR, texto)
-        self.assertNotIn("{cota_max}", texto)
-        self.assertEqual(faltan, ["cota_max"])
+    def test_extrae_el_archivo_aunque_la_instruccion_diga_la_carpeta(self) -> None:
+        # La plantilla a veces añade 'de la carpeta individuales/isoyetas_fase'.
+        tipo, argumento = m15.clasificar(
+            "Colocar Figura: compuesto.png de la carpeta individuales/isoyetas_fase")
+        self.assertEqual(tipo, "figura")
+        self.assertEqual(argumento, "compuesto.png")
 
-    def test_un_valor_vacio_cuenta_como_ausente(self) -> None:
-        # Una cadena vacía dejaría la frase coja sin que nada lo señalara.
-        _, faltan = m15.sustituir("Area {area_km2}.", {"area_km2": ""})
-        self.assertEqual(faltan, ["area_km2"])
+    def test_reconoce_una_tabla_y_su_numero(self) -> None:
+        tipo, argumento = m15.clasificar(
+            "Completar la Tabla 2-1 con datos según estaciones identificadas")
+        self.assertEqual(tipo, "tabla")
+        self.assertEqual(m15._normalizar_numero(argumento), "21")
 
-    def test_una_llave_sin_cerrar_no_rompe_el_texto(self) -> None:
-        texto, faltan = m15.sustituir("Area {area_km2 sin cerrar", {})
-        self.assertEqual(texto, "Area {area_km2 sin cerrar")
-        self.assertEqual(faltan, [])
+    def test_reconoce_el_analisis_y_no_lo_resuelve(self) -> None:
+        tipo, _argumento = m15.clasificar("Analizar Ilustración 3-5 y 3-6.")
+        self.assertEqual(tipo, "analisis")
 
-    def test_un_texto_sin_llaves_pasa_intacto(self) -> None:
-        texto, faltan = m15.sustituir("Sin valores.", {"area_km2": "1"})
-        self.assertEqual(texto, "Sin valores.")
-        self.assertEqual(faltan, [])
+    def test_un_parrafo_corriente_no_es_instruccion(self) -> None:
+        for texto in ("En la Tabla 2-1 se presentan las características",
+                      "Fuente: IDEAM, 2024.", "", "   ",
+                      "Ilustración 22. Localización Estaciones"):
+            self.assertEqual(m15.clasificar(texto)[0], "")
+
+    def test_no_distingue_mayusculas(self) -> None:
+        self.assertEqual(m15.clasificar("colocar figura: x.png")[0], "figura")
+        self.assertEqual(m15.clasificar("COMPLETAR LA TABLA 3-1")[0], "tabla")
 
 
-class PruebaFormato(unittest.TestCase):
+class PruebaNumeroDeTabla(unittest.TestCase):
     """
-    En un documento en español el separador decimal es la coma. Escribir 220.60
-    obliga al lector a decidir si son doscientos veinte o veintidós mil.
+    Word compone la leyenda con campos y el guion se pierde al extraer su texto,
+    o aparece como guion corto, largo o de no separación según cómo se escribió.
     """
 
-    def test_usa_coma_decimal(self) -> None:
-        self.assertEqual(m15.formatear(220.31), "220,31")
+    def test_los_tres_guiones_dan_el_mismo_numero(self) -> None:
+        self.assertEqual(m15._normalizar_numero("2-1"), "21")
+        self.assertEqual(m15._normalizar_numero("2‑1"), "21")
+        self.assertEqual(m15._normalizar_numero("2—1"), "21")
+        self.assertEqual(m15._normalizar_numero("21"), "21")
 
-    def test_usa_punto_para_los_miles(self) -> None:
-        self.assertEqual(m15.formatear(3687.0), "3.687")
-
-    def test_respeta_los_decimales_pedidos(self) -> None:
-        self.assertEqual(m15.formatear(0.5946, 3), "0,595")
-
-    def test_un_texto_no_se_toca(self) -> None:
-        self.assertEqual(m15.formatear("gumbel_max"), "gumbel_max")
-
-    def test_un_vacio_no_produce_cero(self) -> None:
-        # Un cero afirmaría un valor; el vacío deja ver que no lo hay.
-        self.assertEqual(m15.formatear(None), "")
-        self.assertEqual(m15.formatear(""), "")
+    def test_distingue_numeros_distintos(self) -> None:
+        # 3-1 y 3-10 no pueden colapsar en el mismo, o una tabla se llenaria
+        # con los datos de la otra.
+        self.assertNotEqual(m15._normalizar_numero("3-1"),
+                            m15._normalizar_numero("3-10"))
 
 
-class PruebaTabla(unittest.TestCase):
-    CABECERA = "elemento;tipo;q_T100_m3s;area_km2\n"
+class PruebaBusquedaDeFiguras(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "individuales" / "enso").mkdir(parents=True)
+        (self.tmp / "M10_mapa_cn.png").write_bytes(b"x")
+        (self.tmp / "individuales" / "enso" / "guasca.png").write_bytes(b"x")
 
-    def _escribir(self, filas: str) -> Path:
-        ruta = Path(tempfile.mkdtemp()) / "tabla.csv"
-        ruta.write_text(self.CABECERA + filas, encoding="utf-8")
-        return ruta
+    def test_encuentra_en_la_raiz(self) -> None:
+        self.assertIsNotNone(m15.buscar_figura("M10_mapa_cn.png", [self.tmp]))
 
-    FILAS = ("Sink-1;Sink;184.5;220.31\nSB1;Subbasin;1.2;1.5\n"
-             "R1;Reach;90.0;50.0\n")
+    def test_encuentra_en_una_subcarpeta(self) -> None:
+        # El consultor no tiene por que saber en que tema la dejo cada modulo.
+        encontrada = m15.buscar_figura("guasca.png", [self.tmp])
+        self.assertIsNotNone(encontrada)
+        self.assertEqual(encontrada.name, "guasca.png")
 
-    def test_solo_salen_las_columnas_declaradas_y_con_su_nombre(self) -> None:
-        # Las tablas de la cadena llevan nombres de trabajo; un informe con
-        # 'q_T100_m3s' de encabezado obliga a descifrarlo.
-        datos = m15.leer_tabla(self._escribir(self.FILAS), ";",
-                               {"elemento": "Elemento", "q_T100_m3s": "T = 100 años"})
-        self.assertEqual(datos["encabezados"], ["Elemento", "T = 100 años"])
-        self.assertEqual(len(datos["filas"][0]), 2)
+    def test_lo_que_no_existe_devuelve_nada(self) -> None:
+        self.assertIsNone(m15.buscar_figura("no_existe.png", [self.tmp]))
 
-    def test_el_filtro_deja_solo_lo_pedido(self) -> None:
-        datos = m15.leer_tabla(self._escribir(self.FILAS), ";",
-                               {"elemento": "Elemento"},
-                               filtro={"columna": "tipo", "valor": "Sink"})
-        self.assertEqual(datos["filas"], [["Sink-1"]])
+    def test_una_raiz_ausente_no_es_error(self) -> None:
+        self.assertIsNone(
+            m15.buscar_figura("x.png", [self.tmp / "no_esta"]))
 
-    def test_los_numeros_salen_con_coma_decimal(self) -> None:
-        datos = m15.leer_tabla(self._escribir(self.FILAS), ";",
-                               {"q_T100_m3s": "Caudal"},
-                               filtro={"columna": "tipo", "valor": "Sink"})
-        self.assertEqual(datos["filas"], [["184,50"]])
 
-    def test_el_corte_de_filas_se_reporta(self) -> None:
-        # Cortar en silencio dejaría una tabla incompleta con aspecto completo.
-        datos = m15.leer_tabla(self._escribir(self.FILAS), ";",
-                               {"elemento": "Elemento"}, filas_max=2)
-        self.assertEqual(len(datos["filas"]), 2)
-        self.assertEqual(datos["omitidas"], 1)
-        self.assertEqual(datos["total"], 3)
+class PruebaDeclaracionDeTablas(unittest.TestCase):
+    """La declaración real del repositorio, no una inventada para la prueba."""
 
-    def test_una_columna_declarada_que_no_existe_se_reporta(self) -> None:
-        datos = m15.leer_tabla(self._escribir(self.FILAS), ";",
-                               {"elemento": "Elemento", "no_existe": "X"})
-        self.assertEqual(datos["columnas_ausentes"], ["no_existe"])
+    def setUp(self) -> None:
+        self.declaracion = m15.leer_declaracion_tablas(
+            _RAIZ_REPO / "config" / "informe_tablas.yaml")
 
-    def test_sin_ninguna_columna_declarada_es_error(self) -> None:
-        with self.assertRaises(ErrorFormato):
-            m15.leer_tabla(self._escribir(self.FILAS), ";", {"no_existe": "X"})
+    def test_la_declaracion_del_repositorio_se_lee(self) -> None:
+        self.assertTrue(self.declaracion)
 
-    def test_tabla_ausente(self) -> None:
+    def test_toda_tabla_declara_fuente_y_columnas(self) -> None:
+        for numero, entrada in self.declaracion.items():
+            self.assertTrue(entrada.get("fuente"), numero)
+            self.assertTrue(entrada.get("columnas"), numero)
+
+    def test_los_numeros_no_colisionan(self) -> None:
+        # Dos tablas con el mismo numero normalizado harian que una se llenara
+        # con los datos de la otra sin ninguna senal.
+        crudos = [str(e.get("numero")) for e in self.declaracion.values()]
+        self.assertEqual(len(crudos), len(set(crudos)))
+
+    def test_los_encabezados_son_al_menos_uno(self) -> None:
+        # Con cero, la primera fila de titulos se sobreescribiria con datos.
+        for numero, entrada in self.declaracion.items():
+            self.assertGreaterEqual(int(entrada.get("encabezados", 1)), 1,
+                                    numero)
+
+    def test_una_declaracion_ausente_no_es_error(self) -> None:
+        # Significa que aun no se declaro ninguna tabla, no que falte algo.
+        self.assertEqual(
+            m15.leer_declaracion_tablas(Path("no_existe.yaml")), {})
+
+
+class PruebaLecturaDeTabla(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.ruta = self.tmp / "datos.csv"
+        self.ruta.write_text("a;b\n1;2\n3;4\n", encoding="utf-8-sig")
+
+    def test_lee_las_filas(self) -> None:
+        filas = m15.leer_tabla_csv(self.ruta, ";")
+        self.assertEqual(len(filas), 2)
+        self.assertEqual(filas[0]["a"], "1")
+
+    def test_una_tabla_ausente_es_error(self) -> None:
+        # Se detiene en lugar de dejar la tabla del estudio anterior en pie.
         with self.assertRaises(ErrorRutas):
-            m15.leer_tabla(Path("no_existe.csv"), ";", {"a": "A"})
-
-
-class PruebaPlantilla(unittest.TestCase):
-    """
-    La plantilla se deriva del informe de referencia del consultor, que es su
-    propiedad y define el formato de entrega (CLAUDE.md, sección 10).
-    """
-
-    def test_la_plantilla_existe_y_abre(self) -> None:
-        ruta = _RAIZ_REPO / _CFG.obtener("informe.plantilla")
-        if not ruta.is_file():
-            self.skipTest("la plantilla aún no se ha derivado")
-        documento = docx_plantilla.abrir(ruta)
-        self.assertEqual(len(documento.paragraphs), 0)
-        self.assertEqual(len(documento.tables), 0)
-
-    def test_conserva_los_estilos_que_el_modulo_usa(self) -> None:
-        ruta = _RAIZ_REPO / _CFG.obtener("informe.plantilla")
-        if not ruta.is_file():
-            self.skipTest("la plantilla aún no se ha derivado")
-        identificadores = {e.style_id for e in docx_plantilla.abrir(ruta).styles}
-        for estilo in (list(m15.ESTILO_TITULO.values())
-                       + [m15.ESTILO_TEXTO, m15.ESTILO_LEYENDA,
-                          m15.ESTILO_FUENTE, m15.ESTILO_TABLA]):
-            self.assertIn(estilo, identificadores)
-
-    def test_conserva_el_tamano_de_pagina(self) -> None:
-        # Sin el sectPr final el documento sale en A4 con márgenes por defecto,
-        # y el informe de referencia es carta.
-        ruta = _RAIZ_REPO / _CFG.obtener("informe.plantilla")
-        if not ruta.is_file():
-            self.skipTest("la plantilla aún no se ha derivado")
-        seccion = docx_plantilla.abrir(ruta).sections[0]
-        self.assertEqual(seccion.page_width.twips, 12240)
-        self.assertEqual(seccion.page_height.twips, 15840)
-
-    def test_no_arrastra_las_imagenes_del_informe(self) -> None:
-        # De 197 imágenes solo sobreviven las de membrete: la plantilla pesa
-        # cientos de kilobytes en lugar de decenas de megabytes.
-        ruta = _RAIZ_REPO / _CFG.obtener("informe.plantilla")
-        if not ruta.is_file():
-            self.skipTest("la plantilla aún no se ha derivado")
-        self.assertLess(ruta.stat().st_size, 2_000_000)
-
-    def test_un_origen_ausente_es_error_explicito(self) -> None:
-        with self.assertRaises(docx_plantilla.ErrorPlantilla):
-            docx_plantilla.extraer_plantilla(
-                Path("no_existe.docx"), Path(tempfile.mkdtemp()) / "x.dotx")
-
-    def test_una_plantilla_ausente_es_error_explicito(self) -> None:
-        with self.assertRaises(docx_plantilla.ErrorPlantilla):
-            docx_plantilla.abrir(Path("no_existe.dotx"))
-
-
-class PruebaDeclaraciones(unittest.TestCase):
-    def _cargar(self, clave):
-        import yaml
-        ruta = _RAIZ_REPO / _CFG.obtener(clave)
-        return yaml.safe_load(ruta.read_text(encoding="utf-8"))
-
-    def test_la_estructura_declara_capitulos(self) -> None:
-        capitulos = self._cargar("informe.estructura").get("capitulos", [])
-        self.assertGreater(len(capitulos), 40)
-        for nodo in capitulos:
-            self.assertTrue(str(nodo.get("titulo", "")).strip())
-            self.assertIn(int(nodo.get("nivel", 0)), m15.ESTILO_TITULO)
-
-    def test_cada_familia_de_hallazgos_tiene_apartado(self) -> None:
-        # Un prefijo sin apartado deja su hallazgo fuera del informe, y anadir
-        # un modulo obliga a decidir donde va lo que dice.
-        estructura = self._cargar("informe.estructura")
-        apartados = {n.get("texto") for n in estructura.get("capitulos", [])}
-        for apartado in estructura.get("hallazgos", {}):
-            self.assertIn(apartado, apartados,
-                          f"{apartado} recibe hallazgos y no es un apartado")
-
-    def test_cada_texto_declarado_existe_en_la_narrativa(self) -> None:
-        # Una clave mal escrita produciría un apartado mudo y ninguna señal.
-        narrativa = self._cargar("informe.texto")
-        pendientes = [self._cargar("informe.estructura").get("capitulos", [])]
-        claves = []
-        while pendientes:
-            for nodo in pendientes.pop():
-                if nodo.get("texto"):
-                    claves.append(nodo["texto"])
-                if nodo.get("hijos"):
-                    pendientes.append(nodo["hijos"])
-        self.assertTrue(claves)
-        for clave in claves:
-            self.assertIn(clave, narrativa, f"falta el texto {clave!r}")
-
-    def test_los_estilos_de_titulo_cubren_los_niveles_declarados(self) -> None:
-        pendientes = [self._cargar("informe.estructura").get("capitulos", [])]
-        while pendientes:
-            for nodo in pendientes.pop():
-                self.assertIn(int(nodo.get("nivel", 1)), m15.ESTILO_TITULO)
-                if nodo.get("hijos"):
-                    pendientes.append(nodo["hijos"])
-
-
-class PruebaRepartoDeHallazgos(unittest.TestCase):
-    """
-    Los hallazgos SON el análisis: cada módulo los emitió al medir, con su
-    severidad y su porqué. El M15 los reparte, no los reescribe.
-    """
-
-    REPORTES = {
-        "M18a": {"hallazgos": [
-            {"clave": "temperatura.gradiente_ajustado", "severidad": "INFORMATIVO",
-             "mensaje": "gradiente de 8,10 C/km"},
-            {"clave": "etp.discrepancia", "severidad": "ADVERTENCIA",
-             "mensaje": "difieren un 35 %, y el informe debe declararlo"}]},
-        "M19": {"hallazgos": [
-            {"clave": "regimen.irh", "severidad": "INFORMATIVO",
-             "mensaje": "indice de 0,7010"}]},
-    }
-    ASIGNACION = {"temperatura": ["temperatura"],
-                  "evapotranspiracion_potencial": ["etp"],
-                  "indice_de_retencion_y_regulacion_hidrica": ["regimen.irh"]}
-
-    def test_cada_hallazgo_cae_en_su_apartado(self) -> None:
-        por_apartado, _ = m15.repartir_hallazgos(self.REPORTES, self.ASIGNACION)
-        self.assertEqual(len(por_apartado["temperatura"]), 1)
-        self.assertEqual(len(por_apartado["evapotranspiracion_potencial"]), 1)
-
-    def test_el_reparto_es_por_clave_y_no_por_modulo(self) -> None:
-        # Un mismo módulo emite hallazgos de capítulos distintos.
-        por_apartado, _ = m15.repartir_hallazgos(self.REPORTES, self.ASIGNACION)
-        self.assertEqual(
-            por_apartado["evapotranspiracion_potencial"][0]["modulo"], "M18a")
-
-    def test_las_decisiones_se_reunen_aparte(self) -> None:
-        _, decisiones = m15.repartir_hallazgos(self.REPORTES, self.ASIGNACION)
-        self.assertEqual([d["clave"] for d in decisiones], ["etp.discrepancia"])
-
-    def test_un_informativo_no_es_una_decision(self) -> None:
-        # Describe una limitación; no exige una firma.
-        self.assertFalse(m15.reclama_decision(
-            {"severidad": "INFORMATIVO", "mensaje": "el informe debe declarar"}))
-
-    def test_no_se_repite_un_hallazgo_que_dos_modulos_emiten(self) -> None:
-        reportes = dict(self.REPORTES)
-        reportes["M18"] = {"hallazgos": [
-            {"clave": "regimen.irh", "severidad": "INFORMATIVO",
-             "mensaje": "indice de 0,7010"}]}
-        por_apartado, _ = m15.repartir_hallazgos(reportes, self.ASIGNACION)
-        self.assertEqual(
-            len(por_apartado["indice_de_retencion_y_regulacion_hidrica"]), 1)
-
-    def test_la_severidad_encabeza_el_parrafo(self) -> None:
-        texto = m15.texto_de_hallazgo(
-            {"severidad": "ADVERTENCIA", "mensaje": "algo que revisar"})
-        self.assertTrue(texto.startswith("Salvedad."))
-        self.assertIn("algo que revisar", texto)
-
-    def test_el_mensaje_se_conserva_intacto(self) -> None:
-        # Resumirlo perdería el porqué, que es lo que hace defendible la
-        # decisión.
-        mensaje = "la razon es que el gradiente supera el adiabatico"
-        self.assertIn(mensaje, m15.texto_de_hallazgo(
-            {"severidad": "INFORMATIVO", "mensaje": mensaje}))
+            m15.leer_tabla_csv(self.tmp / "no_existe.csv", ";")
 
 
 if __name__ == "__main__":
