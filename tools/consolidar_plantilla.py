@@ -442,6 +442,98 @@ def consolidar_revision_teorica(documento, escribir: bool) -> list[str]:
 
     return hechos
 
+
+# -----------------------------------------------------------------------------
+# INSTRUCCIONES EN ROSA YA RESUELTAS: SE BORRAN DE LA PLANTILLA
+#
+# El rosa es distinto del verde. El verde marca donde va el dato de CADA
+# estudio y tiene que sobrevivir para el siguiente; el rosa es una nota de
+# autoria de la plantilla ("falta escribir esta teoria") y una vez escrita no
+# tiene funcion futura, ni para este estudio ni para el proximo. Decision del
+# consultor: se borra la instruccion, no solo su resaltado, porque dejar el
+# texto sin marca lo confundiria con contenido del informe.
+# -----------------------------------------------------------------------------
+INSTRUCCIONES_ROSA_RESUELTAS = (
+    "Revisar de la siguiente teoría cuáles autores nos falta por incluir "
+    "según la programación hecha.",
+    "Revisar la teoría de los siguientes párrafos y ajustar lo necesario "
+    "según la metodología finalmente adoptada.",
+    "Ajustar los parámetros de la Tabla 5-10 según la metodología adoptada.",
+    "Incluir una tabla que relacione los autores con su viabilidad de uso en "
+    "el cálculo según las características de las cuencas y el tipo de cuerpo "
+    "de agua.",
+)
+
+
+def borrar_instrucciones_rosa_resueltas(documento, escribir: bool) -> list[str]:
+    """Quita del documento las instrucciones rosa cuyo contenido ya se escribio."""
+    hechos: list[str] = []
+    for objetivo in INSTRUCCIONES_ROSA_RESUELTAS:
+        coincidencias = [p for p in _parrafos(documento)
+                         if p.text.strip() == objetivo]
+        if not coincidencias:
+            hechos.append(f"YA BORRADA: {objetivo[:55]}...")
+            continue
+        if escribir:
+            for parrafo in coincidencias:
+                parrafo._element.getparent().remove(parrafo._element)
+        hechos.append(f"borrada(s) {len(coincidencias)} instruccion(es): "
+                      f"{objetivo[:55]}...")
+    return hechos
+
+
+# -----------------------------------------------------------------------------
+# TABLA DE VIABILIDAD DE AUTORES DE TIEMPO DE CONCENTRACION
+#
+# La pide la plantilla: "Incluir una tabla que relacione los autores con su
+# viabilidad de uso en el calculo segun las caracteristicas de las cuencas y
+# el tipo de cuerpo de agua." Es exactamente lo que ya vive en
+# data/referencia/tc_aplicabilidad.csv: se lee de ahi y no se reinventa, para
+# que la tabla del informe y la matriz que decide la mediana adoptada nunca
+# puedan decir cosas distintas.
+# -----------------------------------------------------------------------------
+def consolidar_tabla_viabilidad(documento, escribir: bool) -> list[str]:
+    """Inserta la tabla de autores de Tc con su rango de aplicabilidad."""
+    import csv as _csv
+
+    ancla_texto = ("Incluir una tabla que relacione los autores con su "
+                   "viabilidad de uso en el cálculo según las características "
+                   "de las cuencas y el tipo de cuerpo de agua.")
+    ya_insertada = any(
+        "Rango de área aplicable" in p.text for p in _parrafos(documento))
+    if ya_insertada:
+        return ["YA INSERTADA la tabla de viabilidad de autores de Tc"]
+
+    ancla = next((p for p in _parrafos(documento)
+                 if p.text.strip() == ancla_texto), None)
+    if ancla is None:
+        return ["NO SE ENCONTRO el ancla de la tabla de viabilidad de Tc"]
+
+    ruta = _RAIZ / "data" / "referencia" / "tc_aplicabilidad.csv"
+    filas = list(_csv.DictReader(ruta.open(encoding="utf-8-sig", newline=""),
+                                 delimiter=";"))
+    if not escribir:
+        return [f"insertaria tabla de viabilidad con {len(filas)} autor(es)"]
+
+    tabla = documento.add_table(rows=1 + len(filas), cols=3)
+    tabla.style = "Grid Table 1 Light"
+    encabezado = tabla.rows[0].cells
+    for celda, titulo in zip(encabezado,
+                             ("Autor", "Rango de área aplicable (km²)",
+                              "Tipo de cuenca")):
+        celda.text = titulo
+    for indice, fila in enumerate(filas, start=1):
+        celdas = tabla.rows[indice].cells
+        desde = fila.get("area_min_km2", "").strip()
+        hasta = fila.get("area_max_km2", "").strip()
+        celdas[0].text = fila.get("nombre", "")
+        celdas[1].text = f"{desde} a {hasta}" if desde or hasta else ""
+        celdas[2].text = (fila.get("tipo_cuenca", "") or "").capitalize()
+
+    ancla._element.addnext(tabla._tbl)
+    return [f"tabla de viabilidad insertada con {len(filas)} autor(es), "
+           f"leida de tc_aplicabilidad.csv"]
+
 def consolidar(ruta: Path, escribir: bool) -> list[str]:
     """Aplica los cambios y devuelve lo que hizo, o lo que haría."""
     documento = plantilla_docx.abrir(ruta)
@@ -499,6 +591,15 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
 
     # --- 5. Las cuatro secciones de revision teorica -------------------------
     hechos.extend(consolidar_revision_teorica(documento, escribir))
+
+    # --- 6. Tabla de viabilidad de autores de Tc -----------------------------
+    hechos.extend(consolidar_tabla_viabilidad(documento, escribir))
+
+    # --- 7. Instrucciones rosa ya resueltas: se borran -----------------------
+    # VA AL FINAL: tiene que ver escritas las secciones 1 a 6 antes de borrar
+    # sus notas, o borraria la instruccion sin haber comprobado que el
+    # contenido que la reemplaza ya esta.
+    hechos.extend(borrar_instrucciones_rosa_resueltas(documento, escribir))
 
     if escribir and hechos:
         documento.save(str(ruta))
