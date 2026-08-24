@@ -224,6 +224,21 @@ def leer_correcciones(ruta: Path) -> dict[str, dict[str, Any]]:
     return salida
 
 
+def leer_sustituciones(ruta: Path) -> list[dict[str, Any]]:
+    """
+    Qué nombres el informe escribe de otra forma que sus fuentes.
+
+    El catálogo del IDEAM entrega la entidad operadora con su razón social
+    completa en las 44 estaciones del inventario, y el informe la nombra por su
+    sigla. Es una convención de redacción del consultor, de modo que se declara
+    junto a las correcciones y no se codifica.
+    """
+    ruta = Path(ruta)
+    if not ruta.is_file():
+        return []
+    return list((leer_yaml(ruta) or {}).get("texto") or [])
+
+
 def leyendas_de_instruccion(documento) -> dict[Any, str]:
     """
     La leyenda que precede a cada instrucción de figura.
@@ -405,8 +420,130 @@ def _fijar_texto(celda, valor: str) -> None:
         sobrante._element.getparent().remove(sobrante._element)
 
 
+def formatear_numero(texto: str, decimales: int) -> str:
+    """
+    Deja una cifra con los decimales que el informe usa, y lo demás intacto.
+
+    SOLO SE TOCA LO QUE YA TRAE DECIMALES. Un año, un código de estación o un
+    conteo son números y no llevan parte decimal: redondearlos a dos los
+    convertiría en '1983.00' y en '21201230.00'. La regla se aplica a lo que
+    tiene separador decimal y a nada más.
+
+    UNA CIFRA PEQUEÑA NO SE CONVIERTE EN CERO. Si redondear deja 0.00 y el
+    valor no era cero, se conserva como venía: un caudal de 0.0004 m3/s es un
+    dato y '0.00' es una pérdida silenciosa.
+
+    El separador es el punto, que es el que la plantilla usa (medido: 50 cifras
+    con punto y una con coma).
+    """
+    limpio = texto.strip()
+    if not limpio or "." not in limpio:
+        return texto
+    try:
+        valor = float(limpio)
+    except ValueError:
+        return texto
+    redondeado = f"{valor:.{decimales}f}"
+    if float(redondeado) == 0.0 and valor != 0.0:
+        return texto
+    return redondeado
+
+
+def aplicar_sustituciones(texto: str,
+                          sustituciones: Sequence[dict[str, Any]]) -> str:
+    """
+    Cambia los nombres que el informe escribe de otra forma.
+
+    El catálogo del IDEAM entrega la entidad operadora con su razón social
+    completa, y el informe la nombra por su sigla. Es una convención de
+    redacción del consultor y por eso se declara, no se codifica.
+    """
+    for regla in sustituciones or []:
+        busca = str(regla.get("busca", ""))
+        if busca and busca in texto:
+            texto = texto.replace(busca, str(regla.get("pone", "")))
+    return texto
+
+
+def _valor(texto: Any, decimales: int, sustituciones) -> str:
+    """Lo que se escribe en una celda: cifra redondeada y nombre sustituido."""
+    return formatear_numero(
+        aplicar_sustituciones(str(texto).strip(), sustituciones), decimales)
+
+
+def llenar_matriz(tabla, filas: Sequence[dict[str, str]],
+                  matriz: dict[str, Any], encabezados: int,
+                  decimales: int = 2, sustituciones=()) -> dict[str, Any]:
+    """
+    Llena una tabla cuyas columnas son valores de un campo, no campos.
+
+    DOCE DE LAS TABLAS DEL INFORME SON MATRICES: año por mes, duración por
+    periodo de retorno, autor por subcuenca. El CSV las trae en formato largo,
+    una fila por celda, y la declaración dice qué campo da la etiqueta de fila,
+    qué campo da las columnas y cuál el dato.
+
+    'orden' enumera los valores de la columna EN EL ORDEN DE LA TABLA, y no se
+    deduce del encabezado: la plantilla escribe '2.33' donde el CSV dice
+    '2.33', pero escribe 'ENE' donde el CSV dice '1'. Deducirlo funcionaría
+    hasta el primer informe que abrevie los meses de otro modo.
+
+    Una celda sin dato queda VACIA y se reporta. Dejarla con lo que la
+    plantilla traía pondría un valor de otro estudio en esta tabla.
+    """
+    import copy
+
+    campo_fila = str(matriz["fila"])
+    campo_columna = str(matriz["columna"])
+    campo_valor = str(matriz["valor"])
+    orden = [str(v) for v in matriz.get("orden") or []]
+
+    for campo in (campo_fila, campo_columna, campo_valor):
+        if filas and campo not in filas[0]:
+            raise ErrorFormato(
+                f"la fuente no tiene la columna '{campo}' que la matriz "
+                f"declara; tiene {sorted(filas[0])}.")
+
+    etiquetas: list[str] = []
+    celdas: dict[tuple[str, str], str] = {}
+    for fila in filas:
+        clave_fila = str(fila.get(campo_fila, "")).strip()
+        if clave_fila not in etiquetas:
+            etiquetas.append(clave_fila)
+        celdas[(clave_fila, str(fila.get(campo_columna, "")).strip())] = str(
+            fila.get(campo_valor, ""))
+
+    disponibles = len(tabla.rows) - encabezados
+    if disponibles < 1:
+        raise ErrorFormato(
+            f"la tabla declara {encabezados} fila(s) de encabezado y solo "
+            f"tiene {len(tabla.rows)}: no queda ninguna de datos.")
+
+    modelo = tabla.rows[encabezados]._tr
+    while len(tabla.rows) - encabezados < len(etiquetas):
+        tabla._tbl.append(copy.deepcopy(modelo))
+    while len(tabla.rows) - encabezados > len(etiquetas):
+        ultimo = tabla.rows[-1]._tr
+        ultimo.getparent().remove(ultimo)
+
+    huecos = 0
+    for indice, etiqueta in enumerate(etiquetas):
+        fila_tabla = tabla.rows[encabezados + indice].cells
+        _fijar_texto(fila_tabla[0], _valor(etiqueta, decimales, sustituciones))
+        for posicion, columna in enumerate(orden, start=1):
+            if posicion >= len(fila_tabla):
+                break
+            if (etiqueta, columna) not in celdas:
+                huecos += 1
+            _fijar_texto(fila_tabla[posicion],
+                         _valor(celdas.get((etiqueta, columna), ""),
+                                decimales, sustituciones))
+    return {"filas": len(etiquetas), "columnas": 1 + len(orden),
+            "sin_columna": [], "huecos": huecos}
+
+
 def llenar_tabla(tabla, filas: Sequence[dict[str, str]],
-                 columnas: Sequence[str], encabezados: int) -> dict[str, Any]:
+                 columnas: Sequence[str], encabezados: int,
+                 decimales: int = 2, sustituciones=()) -> dict[str, Any]:
     """
     Reemplaza los datos de la tabla conservando sus filas de encabezado.
 
@@ -440,7 +577,9 @@ def llenar_tabla(tabla, filas: Sequence[dict[str, str]],
                 break
             if columna not in fila:
                 sin_columna.add(columna)
-            _fijar_texto(celdas[posicion], str(fila.get(columna, "")).strip())
+            _fijar_texto(celdas[posicion],
+                         _valor(fila.get(columna, ""), decimales,
+                                sustituciones))
     return {"filas": len(filas), "columnas": len(columnas),
             "sin_columna": sorted(sin_columna)}
 
@@ -475,9 +614,12 @@ def ejecutar(
         configuracion.obtener("graficos.directorio_individuales"), base)
     declaracion = leer_declaracion_tablas(
         rutas.resolver(configuracion.obtener("informe.tablas"), base))
-    correcciones = leer_correcciones(rutas.resolver(
+    ruta_correcciones = rutas.resolver(
         configuracion.obtener("informe.correcciones",
-                              "config/informe_correcciones.yaml"), base))
+                              "config/informe_correcciones.yaml"), base)
+    correcciones = leer_correcciones(ruta_correcciones)
+    sustituciones = leer_sustituciones(ruta_correcciones)
+    decimales = int(configuracion.obtener("informe.decimales", 2))
 
     resultado = ResultadoM15(plantilla=str(origen))
 
@@ -519,7 +661,7 @@ def ejecutar(
             elif tipo == "tabla":
                 _resolver_tabla(cuerpo, posicion, tablas, parrafos,
                                 argumento, declaracion, delimitador, base,
-                                resultado)
+                                resultado, decimales, sustituciones)
 
         # LAS INSTRUCCIONES TAMBIEN VIVEN DENTRO DE LAS TABLAS. La plantilla
         # compone algunas figuras en celdas, para ponerlas de a dos, y esos
@@ -595,7 +737,8 @@ def _resolver_figura(parrafo, nombre, raices, ancho, resultado, base,
 
 
 def _resolver_tabla(cuerpo, posicion, tablas, parrafos, numero, declaracion,
-                    delimitador, base, resultado) -> None:
+                    delimitador, base, resultado, decimales=2,
+                    sustituciones=()) -> None:
     """
     Llena la primera tabla que sigue a la instrucción, buscada por su leyenda.
 
@@ -626,7 +769,12 @@ def _resolver_tabla(cuerpo, posicion, tablas, parrafos, numero, declaracion,
     # columnas de las que la tabla tiene, las sobrantes se quedan con los
     # numeros del estudio del que se copio la plantilla, y la tabla sale
     # mezclando dos estudios sin que nada lo advierta.
-    columnas = [str(c) for c in entrada.get("columnas") or []]
+    matriz = entrada.get("matriz")
+    if matriz:
+        columnas = [str(matriz.get("fila", ""))] + [
+            str(v) for v in matriz.get("orden") or []]
+    else:
+        columnas = [str(c) for c in entrada.get("columnas") or []]
     if len(columnas) != len(tabla.columns):
         resultado.tablas_sin_fuente.append(
             f"{leyenda or numero}: se declararon {len(columnas)} columna(s) y "
@@ -636,8 +784,26 @@ def _resolver_tabla(cuerpo, posicion, tablas, parrafos, numero, declaracion,
     try:
         filas = leer_tabla_csv(rutas.resolver(str(entrada["fuente"]), base),
                                delimitador)
-        detalle = llenar_tabla(tabla, filas, columnas,
-                               int(entrada.get("encabezados", 1)))
+        filtro = entrada.get("filtro") or {}
+        if filtro:
+            # UNA FUENTE PUEDE TRAER MAS DE LO QUE LA TABLA PIDE. La de
+            # precipitacion por subcuenca viaja etiquetada por hipotesis y
+            # escenario, y sin acotarla la matriz mezclaria escenarios en la
+            # misma celda quedandose con el ultimo.
+            filas = [f for f in filas
+                     if all(str(f.get(k, "")) == str(v)
+                            for k, v in filtro.items())]
+            if not filas:
+                raise ErrorFormato(
+                    f"el filtro {filtro} no dejo ninguna fila de la fuente.")
+        if matriz:
+            detalle = llenar_matriz(tabla, filas, matriz,
+                                    int(entrada.get("encabezados", 1)),
+                                    decimales, sustituciones)
+        else:
+            detalle = llenar_tabla(tabla, filas, columnas,
+                                   int(entrada.get("encabezados", 1)),
+                                   decimales, sustituciones)
     except (ErrorRutas, ErrorFormato, KeyError, ValueError) as error:
         resultado.tablas_sin_fuente.append(f"{leyenda or numero} ({error})")
         return

@@ -1454,6 +1454,11 @@ informe:
   # plantilla del consultor no se toca y la copia saneada se regenera:
   # una correccion escrita en ella se perderia sin aviso.
   correcciones: "config/informe_correcciones.yaml"
+
+  # Decimales de toda cifra que el modulo escriba en una tabla. Solo
+  # afecta a lo que ya trae parte decimal: un anio o un codigo de
+  # estacion no se convierten en '1983.00'.
+  decimales: 2
   plantilla: "templates/informe.dotx"
   estructura: "config/informe.yaml"
   texto: "templates/informe/texto.yaml"

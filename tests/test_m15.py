@@ -119,10 +119,14 @@ class PruebaDeclaracionDeTablas(unittest.TestCase):
     def test_la_declaracion_del_repositorio_se_lee(self) -> None:
         self.assertTrue(self.declaracion)
 
-    def test_toda_tabla_declara_fuente_y_columnas(self) -> None:
-        for numero, entrada in self.declaracion.items():
-            self.assertTrue(entrada.get("fuente"), numero)
-            self.assertTrue(entrada.get("columnas"), numero)
+    def test_toda_tabla_declara_fuente_y_como_se_llena(self) -> None:
+        # 'columnas' para una lista, 'matriz' para una matriz, y una de las dos
+        # siempre: sin ninguna, la tabla se quedaria con lo que la plantilla
+        # traia y el modulo diria que la lleno.
+        for clave, entrada in self.declaracion.items():
+            self.assertTrue(entrada.get("fuente"), clave)
+            self.assertTrue(entrada.get("columnas") or entrada.get("matriz"),
+                            clave)
 
     def test_se_indexa_por_leyenda_y_no_por_numero(self) -> None:
         # El numero de la instruccion es el del informe del que se copio el
@@ -233,6 +237,148 @@ class PruebaCorrecciones(unittest.TestCase):
 
     def test_una_declaracion_ausente_no_es_error(self) -> None:
         self.assertEqual(m15.leer_correcciones(Path("no_existe.yaml")), {})
+
+
+class PruebaFormatoDeCifras(unittest.TestCase):
+    """
+    El consultor pidio dos decimales en toda cifra del informe. La regla no
+    puede alcanzar a lo que no es una medida.
+    """
+
+    def test_una_medida_queda_con_dos_decimales(self) -> None:
+        self.assertEqual(m15.formatear_numero("45.2", 2), "45.20")
+        self.assertEqual(m15.formatear_numero("117.2345", 2), "117.23")
+
+    def test_un_anio_o_un_codigo_no_se_tocan(self) -> None:
+        # Redondear un entero lo convertiria en '1983.00' y en
+        # '21201230.00', que no son ni un anio ni un codigo de estacion.
+        for texto in ("1983", "21201230", "20011115", "12"):
+            self.assertEqual(m15.formatear_numero(texto, 2), texto)
+
+    def test_lo_que_no_es_numero_pasa_intacto(self) -> None:
+        for texto in ("lognormal2", "CO", "", "Q. NN", "2.33 anios"):
+            self.assertEqual(m15.formatear_numero(texto, 2), texto)
+
+    def test_una_cifra_pequena_no_se_convierte_en_cero(self) -> None:
+        # Un caudal de 0.0004 m3/s es un dato; '0.00' es una perdida muda.
+        self.assertEqual(m15.formatear_numero("0.0004", 2), "0.0004")
+        self.assertEqual(m15.formatear_numero("0.0", 2), "0.00")
+
+
+class PruebaSustitucionDeNombres(unittest.TestCase):
+    """El catalogo entrega la razon social; el informe usa la sigla."""
+
+    def setUp(self) -> None:
+        self.reglas = m15.leer_sustituciones(
+            _RAIZ_REPO / "config" / "informe_correcciones.yaml")
+
+    def test_la_declaracion_del_repositorio_se_lee(self) -> None:
+        self.assertTrue(self.reglas)
+
+    def test_toda_regla_declara_que_busca_y_por_que(self) -> None:
+        for regla in self.reglas:
+            self.assertTrue(regla.get("busca"))
+            self.assertTrue(regla.get("pone"))
+            self.assertTrue(regla.get("motivo"))
+
+    def test_el_nombre_largo_del_ideam_queda_en_sigla(self) -> None:
+        largo = "INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES"
+        self.assertEqual(m15.aplicar_sustituciones(largo, self.reglas), "IDEAM")
+
+    def test_lo_que_no_coincide_pasa_intacto(self) -> None:
+        self.assertEqual(
+            m15.aplicar_sustituciones("EAAB", self.reglas), "EAAB")
+
+    def test_sin_reglas_no_cambia_nada(self) -> None:
+        self.assertEqual(m15.aplicar_sustituciones("IDEAM", []), "IDEAM")
+
+
+class PruebaAnchoDeclarado(unittest.TestCase):
+    """
+    EL ANCHO DECLARADO TIENE QUE SER EL DE LA TABLA. Si sobran columnas en la
+    tabla, se quedan con lo que la plantilla traia y el informe mezcla dos
+    estudios sin que nada lo advierta.
+    """
+
+    def setUp(self) -> None:
+        plantilla = _RAIZ_REPO / "templates" / "informe_base.docx"
+        if not plantilla.is_file():
+            self.skipTest("la plantilla saneada no esta en el repositorio")
+        import docx_plantilla as dp
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
+        documento = dp.abrir(plantilla)
+        elementos = []
+        for hijo in documento.element.body.iterchildren():
+            if hijo.tag.endswith("}p"):
+                elementos.append(("p", Paragraph(hijo, documento)))
+            elif hijo.tag.endswith("}tbl"):
+                elementos.append(("t", Table(hijo, documento)))
+        self.tablas = {}
+        for i, (clase, obj) in enumerate(elementos):
+            if clase != "p" or m15.clasificar(obj.text)[0] != "tabla":
+                continue
+            leyenda, tabla = "", None
+            for j in range(i + 1, min(len(elementos), i + 8)):
+                if elementos[j][0] == "t":
+                    tabla = elementos[j][1]
+                    break
+                texto = elementos[j][1].text.strip()
+                if texto and not leyenda:
+                    leyenda = texto
+            if tabla is not None:
+                self.tablas[m15._normalizar_leyenda(leyenda)] = tabla
+        self.declaracion = m15.leer_declaracion_tablas(
+            _RAIZ_REPO / "config" / "informe_tablas.yaml")
+
+    def test_cada_declaracion_cuadra_con_su_tabla(self) -> None:
+        for clave, entrada in self.declaracion.items():
+            tabla = self.tablas.get(clave)
+            self.assertIsNotNone(tabla, clave)
+            matriz = entrada.get("matriz")
+            if matriz:
+                ancho = 1 + len(matriz.get("orden") or [])
+            else:
+                ancho = len(entrada.get("columnas") or [])
+            self.assertEqual(ancho, len(tabla.columns), clave)
+
+    def test_los_encabezados_dejan_al_menos_una_fila_de_datos(self) -> None:
+        for clave, entrada in self.declaracion.items():
+            tabla = self.tablas[clave]
+            self.assertGreater(len(tabla.rows),
+                               int(entrada.get("encabezados", 1)), clave)
+
+
+class PruebaDeclaracionDeMatrices(unittest.TestCase):
+    """Doce tablas del informe son matrices y no listas."""
+
+    def setUp(self) -> None:
+        self.declaracion = m15.leer_declaracion_tablas(
+            _RAIZ_REPO / "config" / "informe_tablas.yaml")
+        self.matrices = {c: e for c, e in self.declaracion.items()
+                         if e.get("matriz")}
+
+    def test_hay_matrices_declaradas(self) -> None:
+        self.assertTrue(self.matrices)
+
+    def test_toda_matriz_declara_sus_tres_campos_y_el_orden(self) -> None:
+        for clave, entrada in self.matrices.items():
+            matriz = entrada["matriz"]
+            for campo in ("fila", "columna", "valor"):
+                self.assertTrue(matriz.get(campo), f"{clave}: {campo}")
+            self.assertTrue(matriz.get("orden"), clave)
+
+    def test_el_orden_no_repite_valores(self) -> None:
+        # Una columna repetida escribiria el mismo dato dos veces y dejaria
+        # otra sin escribir.
+        for clave, entrada in self.matrices.items():
+            orden = [str(v) for v in entrada["matriz"]["orden"]]
+            self.assertEqual(len(orden), len(set(orden)), clave)
+
+    def test_una_matriz_no_declara_tambien_columnas(self) -> None:
+        # Declarar las dos cosas deja en duda cual manda.
+        for clave, entrada in self.matrices.items():
+            self.assertFalse(entrada.get("columnas"), clave)
 
 
 class PruebaLecturaDeTabla(unittest.TestCase):

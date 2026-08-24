@@ -25,6 +25,22 @@
 
 version: 1
 
+# -----------------------------------------------------------------------------
+# NOMBRES QUE EL INFORME ESCRIBE DE OTRA FORMA QUE SUS FUENTES
+#
+# Se aplica a lo que el modulo escribe en las tablas. No es un arreglo del dato:
+# el CSV del inventario conserva la razon social tal como la entrega el
+# Catalogo Nacional de Estaciones, que es lo que hay que poder mostrar ante una
+# revision. Lo que cambia es como se nombra en el informe.
+# -----------------------------------------------------------------------------
+texto:
+
+  - busca: "INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES"
+    pone: "IDEAM"
+    motivo: >-
+      El catalogo entrega la entidad operadora con su razon social completa en
+      las 44 estaciones del inventario, y el informe la nombra por su sigla.
+
 figuras:
 
   - leyenda: "Áreas microcuencas"

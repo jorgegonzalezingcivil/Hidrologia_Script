@@ -70,6 +70,80 @@ tablas:
     encabezados: 1
     columnas: [subcuenca, cota_max, cota_min, relieve_m]
 
+  # ---------------------------------------------------------------- capitulo 4
+  - numero: "4-2"
+    leyenda: "Ajuste Distribución de Probabilidad Seleccionada"
+    fuente: "data/02_procesado/frecuencia/cuantiles.csv"
+    encabezados: 1
+    columnas: [codigo, distribucion]
+
+  - numero: "4-3"
+    leyenda: "Precipitación Máxima Periodos de Retorno"
+    fuente: "data/02_procesado/frecuencia/cuantiles.csv"
+    # Dos filas de titulo: 'Periodo de Retorno (años)' va combinada encima de
+    # los siete valores.
+    encabezados: 2
+    # LA TABLA NO TIENE COLUMNA PARA T500 aunque la doctrina calcule ocho
+    # periodos. Se declaran los siete que la plantilla trae; ampliarla es una
+    # decision del consultor sobre su documento.
+    columnas: [codigo, "T2.33", T5, T10, T15, T25, T50, T100]
+
+  - numero: "4-6"
+    leyenda: "Curva IDF Método INVIAS"
+    fuente: "data/02_procesado/tormenta/idf.csv"
+    # Tres filas de titulo: la unidad, el rotulo del periodo y sus valores.
+    encabezados: 3
+    matriz:
+      fila: duracion_min
+      columna: periodo_retorno
+      valor: i_invias_mm_h
+      # Los valores TAL COMO EL CSV LOS ESCRIBE. La tabla no trae columna para
+      # 15 ni para 500 anios, que si se calculan.
+      orden: ["2.33", "5.0", "10.0", "25.0", "50.0", "100.0"]
+
+  # ---------------------------------------------------------------- capitulo 5
+  - numero: "5-1"
+    leyenda: "Series de Precipitación Mensual Zona de Proyecto"
+    fuente: "data/02_procesado/balance/balance_mensual_serie.csv"
+    encabezados: 1
+    matriz:
+      fila: anio
+      columna: mes
+      valor: precipitacion_mm
+      # El CSV numera los meses y la tabla los abrevia: el orden es lo que
+      # empareja una cosa con la otra, y por eso se declara.
+      orden: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+  - numero: "5-6a"
+    leyenda: "Serie de Temperatura Media"
+    fuente: "data/02_procesado/temperatura/temperatura_etp_serie_anual.csv"
+    encabezados: 1
+    matriz:
+      fila: anio
+      columna: mes
+      valor: t_media_cuenca_c
+      orden: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+  - numero: "5-6b"
+    leyenda: "Series EVTR Calculadas Sitio de Proyecto"
+    fuente: "data/02_procesado/balance/balance_mensual_serie.csv"
+    encabezados: 1
+    matriz:
+      fila: anio
+      columna: mes
+      valor: etr_budyko_mm
+      orden: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+  - numero: "5-7"
+    leyenda: "Serie de caudales medios Qda. NN"
+    fuente: "data/02_procesado/balance/balance_mensual_serie.csv"
+    encabezados: 1
+    matriz:
+      fila: anio
+      columna: mes
+      valor: caudal_budyko_m3s
+      orden: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
 # =============================================================================
 # LO QUE AUN NO SE PUEDE DECLARAR, Y POR QUE
 # -----------------------------------------------------------------------------
