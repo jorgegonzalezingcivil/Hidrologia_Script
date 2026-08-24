@@ -218,6 +218,88 @@ def extraer_plantilla(origen: Path, destino: Path) -> dict[str, Any]:
     }
 
 
+def sanear_paquete(origen: Path, destino: Path) -> dict[str, Any]:
+    """
+    Copia un .docx quitando las relaciones cuyo destino no existe en el paquete.
+
+    POR QUE HACE FALTA. Word tolera una relacion colgada y python-docx no: se
+    detiene con "There is no item named 'word/NULL' in the archive" y no hay
+    forma de abrir el documento. La plantilla de este consultor trae una,
+    'rId29', de tipo hdphoto: es la capa de efecto de nitidez que Word 2007
+    adjunta a una imagen, y su destino se perdio en alguna edicion.
+
+    SE QUITA LA RELACION Y NO LA REFERENCIA. Es la unica de las dos cosas que se
+    puede hacer, y esta comprobado abriendo el resultado en Word: quitar
+    ademas el <a14:imgLayer> que la usa deja a su padre <a14:imgProps> SIN
+    HIJOS, y esa extension de DrawingML exige uno. Word valida la extension y
+    rechaza el archivo entero con un error de apertura que no dice nada del
+    motivo. La referencia colgada dentro de document.xml, en cambio, no molesta
+    ni a Word ni a python-docx.
+
+    CADA ENTRADA CONSERVA SU ZipInfo. El paquete mezcla entradas comprimidas y
+    almacenadas sin comprimir, dieciocho de estas ultimas en esta plantilla, y
+    reescribirlo con el nombre a secas en lugar de con su ZipInfo pierde el
+    metodo de compresion, la fecha y los atributos de todas.
+
+    Devuelve el detalle de lo que se quito.
+
+    Excepciones
+    -----------
+    ErrorPlantilla
+        Si el origen no existe o no es un paquete legible.
+    """
+    origen, destino = Path(origen), Path(destino)
+    if not origen.is_file():
+        raise ErrorPlantilla(f"no se encuentra la plantilla en {origen}.")
+
+    try:
+        with zipfile.ZipFile(origen) as paquete:
+            entradas = paquete.infolist()
+            partes = {i.filename: paquete.read(i.filename) for i in entradas}
+    except Exception as error:  # noqa: BLE001 - zipfile no tipa sus fallos
+        raise ErrorPlantilla(
+            f"no se pudo leer {origen.name}: {error}") from error
+
+    presentes = set(partes)
+    quitadas: list[dict[str, str]] = []
+    for nombre in [n for n in partes if n.endswith(".rels")]:
+        texto = partes[nombre].decode("utf-8", errors="replace")
+        carpeta = nombre.rsplit("/_rels/", 1)[0] if "/_rels/" in nombre else ""
+
+        def sobrevive(elemento: str) -> bool:
+            destino_rel = re.search(r'Target="([^"]*)"', elemento)
+            modo = re.search(r'TargetMode="([^"]*)"', elemento)
+            if destino_rel is None or (modo and modo.group(1) == "External"):
+                return True
+            ruta = destino_rel.group(1)
+            if ruta.startswith(("http://", "https://", "mailto:", "file:")):
+                return True
+            resuelta = f"{carpeta}/{ruta}" if carpeta else ruta
+            while "/../" in resuelta:
+                resuelta = re.sub(r"[^/]+/\.\./", "", resuelta, count=1)
+            resuelta = resuelta.replace("/./", "/").lstrip("/")
+            if resuelta in presentes:
+                return True
+            quitadas.append({"parte": nombre, "id": (
+                re.search(r'Id="([^"]*)"', elemento) or
+                re.search(r"(x)", "x")).group(1), "destino": ruta})
+            return False
+
+        nuevo = "".join(
+            trozo for trozo in re.split(r"(<Relationship\b[^>]*/>)", texto)
+            if not trozo.startswith("<Relationship") or sobrevive(trozo))
+        if nuevo != texto:
+            partes[nombre] = nuevo.encode("utf-8")
+
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(destino, "w") as salida:
+        for entrada in entradas:
+            salida.writestr(entrada, partes[entrada.filename])
+
+    return {"origen": str(origen), "destino": str(destino),
+            "relaciones_quitadas": quitadas}
+
+
 def abrir(ruta: Path):
     """
     Abre una plantilla y devuelve el documento de python-docx.
