@@ -171,49 +171,70 @@ tablas:
                q_T50_m3s, q_T100_m3s]
 
 # =============================================================================
-# LO QUE AUN NO SE PUEDE DECLARAR, Y POR QUE
+# LAS TRECE QUE FALTAN, Y POR QUE
 # -----------------------------------------------------------------------------
-# No es que se hayan olvidado: la cadena todavia no produce la columna que la
-# plantilla pide, o la tabla no tiene la forma que este modulo sabe llenar.
+# Van 14 de 27. Ninguna de las trece esta pendiente de este modulo: a todas les
+# falta un dato que la cadena no produce todavia. No se declaran a medias
+# porque una tabla con columnas vacias se ve terminada y no lo esta.
 #
-# FALTA UN DATO EN LA CADENA
+# FALTA UNA COLUMNA EN UN CSV QUE YA EXISTE
 #
-#   Identificación Estaciones IDEAM ....... el M03 no escribe Este ni Norte.
-#                                           Quedan en blanco hasta que los
-#                                           escriba.
+#   Identificación Estaciones IDEAM ....... el M03 no escribe Este ni Norte, y
+#                                           la fecha de instalacion sale como
+#                                           '20011115' en crudo. La tabla se
+#                                           llena, pero esas celdas van vacias.
 #   Área microcuencas ..................... pide area_ha y el M10 solo escribe
 #                                           area_km2.
-#   Coeficiente de forma microcuencas ..... piden una columna 'Clasificación'
-#   Coeficiente de compacidad microcuencas  que el M10 no calcula. Clasificar
-#   Índice de Sinuosidad microcuencas ..... exige la tabla de rangos, que es
-#   Pendiente media cauce principal ....... doctrina y va en data/referencia/,
-#   Pendiente media microcuencas .......... no en el codigo.
 #   Número de Curva microcuencas .......... pide el grupo hidrologico de suelo
-#                                           por subcuenca; el M10 escribe la
-#                                           cobertura dominante, que es otra
-#                                           cosa.
+#                                           por subcuenca. Existe en
+#                                           infiltracion/coeficientes_por_
+#                                           subcuenca.csv pero no en
+#                                           morfometria/subcuencas.csv, que es
+#                                           donde esta el CN: hoy haria falta
+#                                           cruzar dos fuentes.
+#   Longitud Teórica de Series IDEAM ...... la categoria de la estacion esta en
+#                                           el inventario y no en
+#                                           sensibilidad_series.csv. Ademas la
+#                                           plantilla titula la ventana
+#                                           1980-2023 y la cadena calcula
+#                                           1980-2026.
 #
-# LA TABLA ES UNA MATRIZ Y ESTE MODULO LLENA LISTAS
+# FALTA LA DOCTRINA DE CLASIFICACION
 #
-#   Cálculo Tiempo de Concentración ....... Autor x subcuenca      (11x5)
-#   Tiempo de Rezago modelo SCS ........... Autor x subcuenca      (13x5)
-#   Precipitación Máxima Periodos Retorno . estacion x Tr          (10x8)
-#   Precipitaciones Máximas Sitio Proyecto  cuenca x Tr             (6x8)
-#   Curva IDF Método INVIAS ............... duracion x Tr          (21x7)
-#   Cálculo IDF Metodología Silva ......... anio x calculo         (28x9)
-#   Series de Precipitación Mensual ....... anio x mes            (28x13)
-#   Serie de Temperatura Media ............ anio x mes            (28x13)
-#   Series EVTR Calculadas ................ anio x mes            (28x13)
-#   Serie de caudales medios .............. anio x mes            (29x13)
-#   Qmax Vs. Periodo de Retorno ........... fila unica x Tr        (3x7)
-#   Datos tránsito crecientes microcuencas  tramo x parametro      (3x9)
+#   Coeficiente de forma microcuencas ..... las cinco piden una columna
+#   Coeficiente de compacidad microcuencas  'Clasificación' que el M10 no
+#   Índice de Sinuosidad microcuencas ..... calcula. Clasificar exige la tabla
+#   Pendiente media cauce principal ....... de rangos, que es doctrina y va en
+#   Pendiente media microcuencas .......... data/referencia/, no en el codigo.
 #
-# Son doce de veintisiete, casi la mitad. Llenarlas pide un segundo modo de
-# declaracion (fila, columna, valor) y no una entrada mas en esta lista.
+# FALTA UN CALCULO INTERMEDIO QUE NINGUN MODULO GUARDA
+#
+#   Cálculo Tiempo de Concentración ....... piden el valor de CADA formula por
+#   Tiempo de Rezago modelo SCS ........... subcuenca. El M10 escribe la
+#                                           mediana adoptada y el desglose por
+#                                           formula solo para la cuenca entera.
+#                                           Ademas su forma es autor x cuenca,
+#                                           con cuatro columnas: sobre 125
+#                                           subcuencas habria que trasponerlas
+#                                           en el documento.
+#   Cálculo IDF Metodología Silva ......... la hoja de calculo anio por anio
+#                                           (m, Weibull, probabilidad de
+#                                           excedencia, Tr, Pmax 1h, Imax, K).
+#                                           El M12a guarda la IDF resultante,
+#                                           no el intermedio.
+#   Parámetros Infiltración Seleccionados . pide la infiltracion basica en
+#                                           cm/hr y Kfc calculado frente a
+#                                           asumido; el M18b guarda fc en mm/d
+#                                           y un solo Kfc.
+#   Datos tránsito crecientes microcuencas  la celeridad asumida y la K de
+#                                           Muskingum por tramo. El M13 las
+#                                           escribe en el proyecto de HEC-HMS
+#                                           y no en un CSV.
 #
 # DEFECTOS DE LA PLANTILLA, para corregir en el documento y no aqui
 #
 #   'Índice de Sinuosidad microcuencas' y 'Coeficiente de compacidad
 #   microcuencas' tienen ambas por encabezado 'Coeficiente de forma'.
-#   Hay dos ilustraciones distintas con la misma leyenda 'Áreas microcuencas'.
+#   Tres instrucciones de figura distintas llevan la leyenda 'Áreas
+#   microcuencas'; se desempatan en informe_correcciones.yaml.
 # =============================================================================
