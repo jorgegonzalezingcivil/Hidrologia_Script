@@ -866,5 +866,111 @@ class PruebaGrupoDominante(unittest.TestCase):
         for _ in range(5):
             self.assertEqual(m10.dominante_de({"D": 10, "C": 10})[0], "C")
 
+
+class PruebaTablaDeClasificacion(unittest.TestCase):
+    """
+    ES DOCTRINA Y VIVE EN data/referencia. Los rangos estan transcritos de las
+    tablas de interpretacion de la plantilla del consultor, que son las que el
+    informe cita.
+    """
+
+    def setUp(self) -> None:
+        self.ruta = (Path(__file__).resolve().parents[1] / "data" /
+                     "referencia" / "clasificacion_morfometrica.csv")
+        if not self.ruta.is_file():
+            self.skipTest("no esta la tabla de clasificacion")
+        self.tabla = m10.leer_clasificacion(self.ruta, ";")
+
+    def test_estan_los_cinco_parametros_que_el_informe_tabula(self) -> None:
+        # Un parametro declarado en CLASIFICABLES que la tabla no traiga
+        # dejaria esa columna del informe vacia en las 125 subcuencas.
+        esperados = {p for _c, p, _d in m10.CLASIFICABLES}
+        self.assertEqual(set(self.tabla), esperados)
+
+    def test_toda_clase_trae_nombre(self) -> None:
+        for parametro, clases in self.tabla.items():
+            for entrada in clases:
+                self.assertTrue(str(entrada["clase"]).strip(), parametro)
+
+    def test_los_rangos_no_se_solapan_ni_dejan_hueco(self) -> None:
+        # Encadenados: el 'hasta' de uno es el 'desde' del siguiente. Con un
+        # hueco, un valor real del estudio quedaria sin nombre sin motivo.
+        for parametro, clases in self.tabla.items():
+            for anterior, siguiente in zip(clases, clases[1:]):
+                self.assertEqual(anterior["hasta"], siguiente["desde"],
+                                 parametro)
+
+    def test_una_tabla_ausente_es_error(self) -> None:
+        # Se detiene en lugar de dejar todas las subcuencas sin clase, que se
+        # veria como un dato que falta y no como una tabla que no esta.
+        with self.assertRaises(ErrorRutas):
+            m10.leer_clasificacion(Path("no_existe.csv"), ";")
+
+
+class PruebaClasificarValor(unittest.TestCase):
+    """'desde' inclusive y 'hasta' exclusivo, o el borde caeria en dos clases."""
+
+    def setUp(self) -> None:
+        self.clases = [
+            {"desde": None, "hasta": 0.22, "clase": "Muy alargada"},
+            {"desde": 0.22, "hasta": 0.30, "clase": "Alargada"},
+            {"desde": 0.30, "hasta": 0.37, "clase": "Ligeramente alargada"},
+        ]
+
+    def test_el_borde_pertenece_a_la_clase_que_empieza(self) -> None:
+        self.assertEqual(m10.clasificar_valor(0.30, self.clases),
+                         "Ligeramente alargada")
+        self.assertEqual(m10.clasificar_valor(0.2999, self.clases), "Alargada")
+
+    def test_el_rango_abierto_por_abajo_no_tiene_limite(self) -> None:
+        self.assertEqual(m10.clasificar_valor(0.01, self.clases),
+                         "Muy alargada")
+
+    def test_lo_que_no_cae_en_ningun_rango_no_recibe_la_clase_mas_cercana(self):
+        # La tabla de sinuosidad del consultor se cierra en 1.50 y 19 de las
+        # 125 subcuencas la superan: adjudicarles 'Meandriforme' seria extender
+        # su doctrina sin decirlo.
+        self.assertEqual(m10.clasificar_valor(0.9, self.clases), "")
+
+    def test_sin_valor_no_hay_clase(self) -> None:
+        for valor in (None, "", "no es un numero"):
+            self.assertEqual(m10.clasificar_valor(valor, self.clases), "")
+
+
+class PruebaClasificarSubcuencas(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tabla = {
+            "coef_forma": [{"desde": None, "hasta": 0.30, "clase": "Alargada"}],
+            "pendiente_cauce_pct": [
+                {"desde": None, "hasta": 10, "clase": "Suave"},
+                {"desde": 10, "hasta": None, "clase": "Fuerte"}],
+        }
+
+    def test_la_pendiente_se_guarda_tambien_en_por_ciento(self) -> None:
+        # La cadena la calcula en m/m porque es lo que piden las formulas de
+        # tiempo de concentracion, y la tabla del informe dice 'Pendiente (%)':
+        # un 0.16 bajo ese titulo se leeria como dieciseis centesimas.
+        subcuencas = [{"pendiente_flujo": 0.1631, "pendiente_cuenca": 0.2579}]
+        m10.clasificar_subcuencas(subcuencas, self.tabla)
+        self.assertAlmostEqual(subcuencas[0]["pendiente_flujo_pct"], 16.31)
+        self.assertAlmostEqual(subcuencas[0]["pendiente_cuenca_pct"], 25.79)
+
+    def test_clasifica_por_el_valor_en_por_ciento(self) -> None:
+        subcuencas = [{"pendiente_flujo": 0.1631, "pendiente_cuenca": None}]
+        m10.clasificar_subcuencas(subcuencas, self.tabla)
+        self.assertEqual(subcuencas[0]["clase_pendiente_cauce"], "Fuerte")
+
+    def test_cuenta_las_que_quedan_sin_nombre(self) -> None:
+        # Es lo que el reporte necesita para decir que la tabla del consultor
+        # no cubre todo el rango medido.
+        subcuencas = [{"coef_forma": 0.10}, {"coef_forma": 0.90}]
+        sin_clase = m10.clasificar_subcuencas(subcuencas, self.tabla)
+        self.assertEqual(sin_clase.get("coef_forma"), 1)
+
+    def test_un_valor_ausente_no_cuenta_como_sin_clase(self) -> None:
+        # No es que la tabla no lo cubra: es que no hay valor que clasificar.
+        subcuencas = [{"coef_forma": None}]
+        self.assertEqual(m10.clasificar_subcuencas(subcuencas, self.tabla), {})
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

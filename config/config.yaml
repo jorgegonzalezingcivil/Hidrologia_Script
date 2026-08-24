@@ -1020,6 +1020,11 @@ analisis:
 # M10 - CARACTERIZACIÓN
 # -----------------------------------------------------------------------------
 morfometria:
+  # Rangos con que se nombra cada parametro morfometrico. Doctrina:
+  # estan transcritos de las tablas de interpretacion de la
+  # plantilla del consultor, que son las que el informe cita.
+  tabla_clasificacion: "data/referencia/clasificacion_morfometrica.csv"
+
   parametros:
     geometria: [area, perimetro, longitud_axial, ancho_medio,
                 coef_forma, coef_compacidad]

@@ -86,6 +86,49 @@ tablas:
     encabezados: 1
     columnas: [subcuenca, longitud_axial_km]
 
+  # LAS CINCO TABLAS CON COLUMNA 'Clasificación'. El nombre sale de los rangos
+  # de data/referencia/clasificacion_morfometrica.csv, transcritos de las
+  # tablas de interpretacion de la propia plantilla: no se inventan aqui ni se
+  # toman de un manual distinto del del consultor.
+  - numero: "3-6"
+    leyenda: "Coeficiente de forma microcuencas"
+    fuente: "data/02_procesado/morfometria/subcuencas.csv"
+    encabezados: 1
+    columnas: [subcuenca, coef_forma, clase_forma]
+
+  - numero: "3-8"
+    leyenda: "Coeficiente de compacidad microcuencas"
+    fuente: "data/02_procesado/morfometria/subcuencas.csv"
+    encabezados: 1
+    # La tabla titula su segunda columna 'Coeficiente de forma'. Es un error de
+    # la plantilla, anotado abajo: lo que va aqui es la compacidad.
+    columnas: [subcuenca, coef_compacidad, clase_compacidad]
+
+  - numero: "3-10"
+    leyenda: "Índice de Sinuosidad microcuencas"
+    fuente: "data/02_procesado/morfometria/subcuencas.csv"
+    encabezados: 1
+    # 19 de las 125 subcuencas quedan SIN NOMBRE porque la tabla del consultor
+    # se cierra en 1.50 y no dice "o mayor". La celda va vacia y no con la
+    # clase mas cercana: adjudicarsela seria extender su doctrina sin decirlo.
+    columnas: [subcuenca, indice_sinuosidad, clase_sinuosidad]
+
+  - numero: "3-13"
+    leyenda: "Pendiente media cauce principal microcuencas"
+    fuente: "data/02_procesado/morfometria/subcuencas.csv"
+    encabezados: 1
+    # EN POR CIENTO, no en m/m. La cadena calcula la pendiente en m/m porque es
+    # lo que piden las formulas de tiempo de concentracion; el encabezado de la
+    # tabla dice 'Pendiente (%)' y un 0.16 bajo ese titulo se leeria como
+    # dieciseis centesimas de por ciento en lugar de dieciseis.
+    columnas: [subcuenca, pendiente_flujo_pct, clase_pendiente_cauce]
+
+  - numero: "3-15"
+    leyenda: "Pendiente media microcuencas"
+    fuente: "data/02_procesado/morfometria/subcuencas.csv"
+    encabezados: 1
+    columnas: [subcuenca, pendiente_cuenca_pct, clase_pendiente_cuenca]
+
   - numero: "3-11"
     leyenda: "Desnivel altitudinal microcuencas"
     fuente: "data/02_procesado/morfometria/subcuencas.csv"
@@ -202,19 +245,11 @@ tablas:
                q_T50_m3s, q_T100_m3s]
 
 # =============================================================================
-# LAS DIEZ QUE FALTAN, Y POR QUE
+# LAS CINCO QUE FALTAN, Y POR QUE
 # -----------------------------------------------------------------------------
-# Van 17 de 27. Ninguna de las diez esta pendiente de este modulo: a todas les
+# Van 22 de 27. Ninguna de las cinco esta pendiente de este modulo: a todas les
 # falta un dato que la cadena no produce todavia. No se declaran a medias
 # porque una tabla con columnas vacias se ve terminada y no lo esta.
-#
-# FALTA LA DOCTRINA DE CLASIFICACION
-#
-#   Coeficiente de forma microcuencas ..... las cinco piden una columna
-#   Coeficiente de compacidad microcuencas  'Clasificación' que el M10 no
-#   Índice de Sinuosidad microcuencas ..... calcula. Clasificar exige la tabla
-#   Pendiente media cauce principal ....... de rangos, que es doctrina y va en
-#   Pendiente media microcuencas .......... data/referencia/, no en el codigo.
 #
 # FALTA UN CALCULO INTERMEDIO QUE NINGUN MODULO GUARDA
 #

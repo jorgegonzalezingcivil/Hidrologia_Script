@@ -1,0 +1,25 @@
+parametro;desde;hasta;clase;origen
+coef_forma;;0.22;Muy alargada;Factor de forma de Horton. Transcrita de la tabla "Interpretacion Coeficiente de forma microcuencas" de la plantilla del consultor.
+coef_forma;0.22;0.30;Alargada;idem
+coef_forma;0.30;0.37;Ligeramente alargada;idem
+coef_forma;0.37;0.45;Ni alargada ni ensanchada;idem
+coef_forma;0.45;0.60;Ligeramente ensanchada;idem
+coef_forma;0.60;0.80;Ensanchada;idem
+coef_forma;0.80;1.20;Muy ensanchada;idem
+coef_forma;1.20;;Rodeando el desague;idem
+coef_compacidad;1.00;1.25;Redonda a oval;Coeficiente de Gravelius. Transcrita de la tabla "Clasificacion coeficiente de compacidad cuencas" de la plantilla del consultor.
+coef_compacidad;1.25;1.50;De oval redonda a oval oblonga;idem
+coef_compacidad;1.50;;De oval oblonga a rectangular oblonga;idem. La plantilla escribe "1.50 o mayor a 2"; se lee "o mayor" y la clase queda abierta. Sin esa lectura, 30 de las 125 subcuencas de este estudio quedarian sin clase.
+indice_sinuosidad;;1.08;Recto;Transcrita de la tabla "Clasificacion sinuosidad cuencas" de la plantilla del consultor.
+indice_sinuosidad;1.08;1.30;Ligeramente Sinuoso;idem
+indice_sinuosidad;1.30;1.50;Meandriforme;idem. LA TABLA SE CIERRA EN 1.50 y no dice "o mayor": 19 de las 125 subcuencas de este estudio superan ese valor y quedan SIN CLASE, que es lo correcto hasta que el consultor decida si la clase se abre.
+pendiente_cauce_pct;;10;Suave;Transcrita de la tabla "Clasificacion pendiente cauce principal cuencas" de la plantilla del consultor. En por ciento.
+pendiente_cauce_pct;10;30;Moderada;idem
+pendiente_cauce_pct;30;;Fuerte;idem
+pendiente_cuenca_pct;0;4;Nula o casi nivel;Transcrita de la tabla "Clasificacion pendiente cuencas" de la plantilla del consultor. En por ciento.
+pendiente_cuenca_pct;4;8;Ligeramente inclinada;idem
+pendiente_cuenca_pct;8;15;Ligeramente inclinada a moderadamente empinada;idem
+pendiente_cuenca_pct;15;25;Moderadamente empinada;idem
+pendiente_cuenca_pct;25;50;Empinada;idem
+pendiente_cuenca_pct;50;75;Muy empinada;idem
+pendiente_cuenca_pct;75;;Extremadamente empinada;idem

@@ -1905,6 +1905,135 @@ def _resolver_numero_curva(configuracion, base, resultado, poligonos,
         ))
 
 
+def leer_clasificacion(ruta: Path,
+                       delimitador: str) -> dict[str, list[dict[str, Any]]]:
+    """
+    Rangos con que se nombra cada parámetro morfométrico.
+
+    ES DOCTRINA Y VIVE EN data/referencia. Están transcritos de las tablas de
+    interpretación de la plantilla del consultor, que son las que el informe
+    cita: no se inventan aquí ni se toman de un manual distinto del suyo.
+
+    'desde' vacío significa sin límite inferior y 'hasta' vacío sin límite
+    superior. Devuelve las clases de cada parámetro ordenadas por 'desde'.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si el archivo no está.
+    ErrorFormato
+        Si una clase no trae nombre o sus límites no son números.
+    """
+    if not ruta.is_file():
+        raise ErrorRutas(
+            f"no se encuentra la tabla de clasificacion en {ruta}.")
+
+    def limite(texto: Any) -> float | None:
+        texto = str(texto or "").strip()
+        return float(texto) if texto else None
+
+    tabla: dict[str, list[dict[str, Any]]] = {}
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        for numero, fila in enumerate(
+                csv.DictReader(manejador, delimiter=delimitador), start=2):
+            parametro = str(fila.get("parametro", "")).strip()
+            if not parametro or parametro.startswith("#"):
+                continue
+            clase = str(fila.get("clase", "")).strip()
+            if not clase:
+                raise ErrorFormato(
+                    f"la fila {numero} de {ruta.name} no trae nombre de clase.")
+            try:
+                entrada = {"desde": limite(fila.get("desde")),
+                           "hasta": limite(fila.get("hasta")),
+                           "clase": clase,
+                           "origen": str(fila.get("origen", "")).strip()}
+            except ValueError as exc:
+                raise ErrorFormato(
+                    f"la fila {numero} de {ruta.name} tiene un limite que no "
+                    f"es un numero: {exc}.") from exc
+            tabla.setdefault(parametro, []).append(entrada)
+    if not tabla:
+        raise ErrorFormato(f"{ruta.name} no contiene ninguna clase.")
+    for clases in tabla.values():
+        clases.sort(key=lambda c: (c["desde"] is not None, c["desde"] or 0.0))
+    return tabla
+
+
+CLASIFICABLES: tuple[tuple[str, str, str], ...] = (
+    # (columna del valor, parametro de la tabla, columna de la clase)
+    ("coef_forma", "coef_forma", "clase_forma"),
+    ("coef_compacidad", "coef_compacidad", "clase_compacidad"),
+    ("indice_sinuosidad", "indice_sinuosidad", "clase_sinuosidad"),
+    ("pendiente_flujo_pct", "pendiente_cauce_pct", "clase_pendiente_cauce"),
+    ("pendiente_cuenca_pct", "pendiente_cuenca_pct", "clase_pendiente_cuenca"),
+)
+
+
+def clasificar_subcuencas(subcuencas: Sequence[dict[str, Any]],
+                          tabla: dict[str, list[dict[str, Any]]],
+                          ) -> dict[str, int]:
+    """
+    Escribe la pendiente en por ciento y el nombre de cada parámetro.
+
+    LA PENDIENTE SE GUARDA EN LAS DOS UNIDADES. La cadena la calcula en m/m,
+    que es lo que piden las fórmulas de tiempo de concentración, y las tablas
+    de clasificación y del informe están en por ciento. Sin la columna en por
+    ciento, la tabla del informe mostraría 0.43 bajo un encabezado que dice
+    'Pendiente (%)', y una pendiente del 43% se leería como del 0,43%.
+
+    Devuelve cuántas subcuencas quedaron sin clase en cada parámetro, que es lo
+    que el reporte necesita para decir que la tabla del consultor no cubre todo
+    el rango del estudio.
+    """
+    for subcuenca in subcuencas:
+        for origen, destino in (("pendiente_flujo", "pendiente_flujo_pct"),
+                                ("pendiente_cuenca", "pendiente_cuenca_pct")):
+            valor = subcuenca.get(origen)
+            subcuenca[destino] = (round(float(valor) * 100.0, 2)
+                                  if valor not in (None, "") else None)
+
+    sin_clase: dict[str, int] = {}
+    for columna, parametro, destino in CLASIFICABLES:
+        clases = tabla.get(parametro) or []
+        for subcuenca in subcuencas:
+            nombre = clasificar_valor(subcuenca.get(columna), clases)
+            subcuenca[destino] = nombre
+            if not nombre and subcuenca.get(columna) not in (None, ""):
+                sin_clase[parametro] = sin_clase.get(parametro, 0) + 1
+    return sin_clase
+
+
+def clasificar_valor(valor: Any, clases: Sequence[dict[str, Any]]) -> str:
+    """
+    Cómo se llama un valor según los rangos declarados.
+
+    'desde' INCLUSIVE Y 'hasta' EXCLUSIVO. Las tablas del consultor encadenan
+    los límites ('0.22 - 0.30' y luego '0.30 - 0.37'), de modo que sin una
+    convención un valor que cae justo en el borde pertenecería a dos clases y
+    el resultado dependería del orden en que se recorren.
+
+    LO QUE NO CAE EN NINGUN RANGO DEVUELVE CADENA VACIA, no la clase más
+    cercana. La tabla de sinuosidad del consultor se cierra en 1.50 y 19 de las
+    125 subcuencas de este estudio la superan: adjudicarles 'Meandriforme'
+    sería extender su doctrina sin decirlo.
+    """
+    if valor is None or valor == "":
+        return ""
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError):
+        return ""
+    for entrada in clases:
+        desde, hasta = entrada["desde"], entrada["hasta"]
+        if desde is not None and numero < desde:
+            continue
+        if hasta is not None and numero >= hasta:
+            continue
+        return str(entrada["clase"])
+    return ""
+
+
 def leer_tabla_cn(ruta: Path, delimitador: str) -> dict[str, dict[str, float]]:
     """
     Tabla del SCS: número de curva de cada clase de cobertura por grupo de suelo.
@@ -2382,6 +2511,28 @@ def _resolver_subcuencas(configuracion, base, ruta_cuenca, ruta_dem, matriz,
             subcuenca, matriz, minimo, cv_maximo, criterio_rezago, intervalo,
             formula_adoptada, respaldo)
         subcuenca.update({c: v for c, v in tiempos.items() if c != "evaluadas"})
+
+    # LA CLASIFICACION VA AQUI, con las subcuencas ya completas: nombra
+    # parametros que se calculan en pasos distintos y no habria un solo sitio
+    # anterior donde esten todos.
+    ruta_clases = rutas.resolver(configuracion.obtener(
+        "morfometria.tabla_clasificacion",
+        "data/referencia/clasificacion_morfometrica.csv"), base)
+    sin_clase = clasificar_subcuencas(
+        subcuencas, leer_clasificacion(
+            ruta_clases,
+            str(configuracion.obtener("insumos_usuario.delimitador_csv"))))
+    if sin_clase:
+        detalle = ", ".join(f"{p}: {n}" for p, n in sorted(sin_clase.items()))
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "subcuencas.sin_clase",
+            f"la tabla de clasificacion no cubre todo el rango medido en este "
+            f"estudio y quedan subcuencas SIN NOMBRE ({detalle}). La celda va "
+            f"vacia y no con la clase mas cercana: adjudicarsela seria "
+            f"extender la doctrina del consultor sin decirlo. Se corrige "
+            f"abriendo el ultimo rango en "
+            f"{rutas.relativa(ruta_clases, base)}.",
+        ))
     resultado.subcuencas = subcuencas
 
     con_tc = [s for s in subcuencas if s.get("tc_horas")]
