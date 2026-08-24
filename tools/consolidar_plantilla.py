@@ -534,6 +534,183 @@ def consolidar_tabla_viabilidad(documento, escribir: bool) -> list[str]:
     return [f"tabla de viabilidad insertada con {len(filas)} autor(es), "
            f"leida de tc_aplicabilidad.csv"]
 
+
+# -----------------------------------------------------------------------------
+# LAS OCHO INSTRUCCIONES DE REDACCION NUEVA ("escribir", "incluir",
+# "describir", "explicar", "agregar introduccion")
+#
+# Cada texto se verifico contra la funcion que produce el resultado
+# (docstrings de M10, M05, M11/M12a/M12b, M18a) y queda en teoria neutra, sin
+# cifras de este estudio: es reutilizable para el siguiente.
+#
+# La instruccion se BORRA y el contenido se inserta como parrafo NUEVO (no se
+# reescribe el parrafo de la instruccion), para que el texto final no herede
+# el resaltado rosa de su run.
+# -----------------------------------------------------------------------------
+REDACCION_NUEVA = (
+    ("Describir de manera general de donde se ha tomado la información del "
+     "tipo de suelo hidrológico.",
+     ("El grupo hidrológico del suelo, que el método del número de curva "
+      "exige, se obtiene del producto HYSOGs250m (Ross et al., 2018, Global "
+      "Hydrologic Soil Groups, ORNL DAAC), un ráster global a escala "
+      "1:250.000 que asigna directamente el grupo del Servicio de "
+      "Conservación de Suelos (A, B, C o D) a cada celda, incluidas las "
+      "combinaciones duales que dependen de si el suelo está drenado. Es un "
+      "producto de origen global y no un levantamiento de campo, de modo que "
+      "su resolución condiciona la escala a la que puede leerse el resultado "
+      "dentro de la cuenca.",),
+     "fuente y escala del rater de suelos (config.yaml, referencia_nacional)"),
+
+    ("Escribir la teoría de la curva hipsométrica y para qué sirve.",
+     ("La curva hipsométrica representa la fracción del área de la cuenca "
+      "que se encuentra por encima de cada cota, normalizada entre 0 y 1 en "
+      "ambos ejes, en la forma que la definió Strahler. Su forma describe la "
+      "etapa erosiva de la cuenca: una curva convexa, con la mayor parte del "
+      "área en las cotas altas, corresponde a una cuenca joven en "
+      "desequilibrio; una curva cóncava, con la mayor parte del área en las "
+      "cotas bajas, corresponde a una cuenca erosionada; y una forma "
+      "intermedia, en S, corresponde a una cuenca madura. La integral de la "
+      "curva resume esa lectura en un solo número: valores por encima de "
+      "0,60 se asocian a cuencas jóvenes, entre 0,35 y 0,60 a cuencas "
+      "maduras, y por debajo de 0,35 a cuencas erosionadas.",),
+     "docstring de curva_hipsometrica() en M10_morfometria.py"),
+
+    ("Incluir texto teórico del análisis de dobles masas.",
+     ("El análisis de dobles masas compara la serie acumulada de cada "
+      "estación contra la serie acumulada de un patrón construido con las "
+      "estaciones vecinas, en el mismo periodo. Mientras la relación entre "
+      "las dos series se mantenga estable, la curva de dobles masas es una "
+      "línea recta; un cambio de pendiente indica que la estación empezó a "
+      "registrar en una escala distinta de la del patrón, por un cambio de "
+      "instrumento, de ubicación o de operador. El tramo anterior al quiebre "
+      "se corrige multiplicándolo por la razón entre las dos pendientes, de "
+      "modo que quede en la misma escala que el tramo reciente, que es el "
+      "que refleja las condiciones actuales de la estación.",),
+     "docstring de corregir_por_doble_masa() en M05_precipitacion_mensual.py"),
+
+    ("Incluir texto teórico del análisis de datos anómalos.",
+     ("La detección de datos anómalos se hace mes a mes y no sobre la serie "
+      "completa: en un régimen de lluvias bimodal, un solo rango de "
+      "referencia para los doce meses marcaría como anómala toda una "
+      "temporada húmeda, porque la comparación tiene que hacerse contra el "
+      "mismo mes calendario en los demás años. El método adoptado es el "
+      "rango intercuartílico (IQR): se calculan el primer y el tercer "
+      "cuartil de los valores históricos de cada mes y se marcan como "
+      "anómalos los que caen fuera de los límites que resultan de extender "
+      "ese rango un múltiplo declarado. Un dato marcado no se descarta "
+      "automáticamente: queda señalado para que el consultor decida su "
+      "tratamiento.",),
+     "detectar_anomalos_por_mes() y config.anomalos en M05_precipitacion_mensual.py"),
+
+    ("Incluir texto teórico del análisis de validación estadística realizado "
+     "en el complemento de datos.",
+     ("El complemento de los datos faltantes se hace por regresión lineal "
+      "simple contra la estación vecina mejor correlacionada que tenga dato "
+      "disponible en ese periodo, de modo que cada valor completado se "
+      "apoye en la mejor información disponible y no en un promedio que "
+      "diluya la relación entre estaciones. La validez del método se "
+      "comprueba por validación cruzada: se retira de la serie una muestra "
+      "de datos conocidos, se estiman con el mismo procedimiento de "
+      "complemento y se compara el valor estimado contra el valor real "
+      "retirado, lo que permite cuantificar el error del complemento sobre "
+      "datos cuyo valor verdadero sí se conoce.",),
+     "_regresion_vecinas() y validacion_cruzada() en M05_precipitacion_mensual.py"),
+
+    ("Explicar por qué se hizo la zonificación de pluviómetros para HEC HMS "
+     "y cuál es el procedimiento y paso de la precipitación de 24 horas a 3 "
+     "horas.",
+     ("La zonificación agrupa las subcuencas en un número reducido de zonas "
+      "pluviométricas, cada una representada por un único hietograma. Es "
+      "necesaria porque en HEC-HMS cada hietograma distinto exige su propio "
+      "pluviómetro: asignar una serie de diseño distinta a cada subcuenca y "
+      "cada periodo de retorno multiplicaría el número de series hasta un "
+      "punto que ningún consultor puede mantener ni revisar, mientras que "
+      "agrupar subcuencas cuya lámina de diseño no difiere más de un umbral "
+      "declarado reduce esa cantidad a un número manejable sin perder la "
+      "variación espacial de la lluvia dentro de la cuenca. La lámina de "
+      "cada zona se calcula como el promedio ponderado por área de las "
+      "subcuencas que la componen, para que una subcuenca grande no pese lo "
+      "mismo que una pequeña.",
+      "El paso de la precipitación máxima en 24 horas a la duración de "
+      "diseño de 3 horas se resuelve con tres hipótesis, calculadas en "
+      "paralelo y sin que ninguna se adopte por defecto: la primera asigna "
+      "la lámina completa de 24 horas a la duración de diseño, y es la más "
+      "conservadora; la segunda integra la curva IDF adoptada sobre esa "
+      "duración; y la tercera aplica un factor de escala declarado sobre la "
+      "lámina de 24 horas. Las tres se calculan porque la diferencia entre "
+      "ellas es la que permite decidir con criterio cuál adoptar, y esa "
+      "decisión debe quedar registrada."),
+     "agrupar_por_zona() en M12b_hietogramas.py y desagregar() en M12a_idf.py"),
+
+    ("Escribir procedimiento para procesar la información de temperatura de "
+     "las estaciones.",
+     ("El procesamiento de la información de temperatura parte de las "
+      "estaciones con registros de temperatura máxima y mínima diaria "
+      "dentro del área de influencia. Con esos datos se calcula la "
+      "temperatura media mensual de cada estación y se ajusta, por mínimos "
+      "cuadrados, un gradiente altitudinal propio del estudio, en la forma "
+      "T = a + b·h, con h la elevación de la estación. El ajuste se reporta "
+      "con el intervalo de confianza de su pendiente y no solo con el "
+      "coeficiente de determinación, porque con pocas estaciones y un rango "
+      "de elevación estrecho el R² puede salir alto sin que la pendiente "
+      "esté bien determinada, y es la pendiente la que se extrapola sobre "
+      "las partes altas de la cuenca donde no hay estación. El gradiente se "
+      "contrasta contra valores de referencia de la región antes de "
+      "adoptarse.",),
+     "ajustar_gradiente() en M18a_temperatura.py"),
+
+    ("Escribir la teoría de cómo se hace la calibración, variando los "
+     "números de curva, tránsito de Muskingum-cunge y tiempo de rezago.",
+     ("La calibración de un modelo lluvia-escorrentía consiste en ajustar, "
+      "dentro de su rango físicamente justificado, los parámetros que el "
+      "modelo no puede medir directamente (el número de curva, los "
+      "parámetros del tránsito de Muskingum-Cunge y el tiempo de rezago) "
+      "hasta que el hidrograma simulado reproduzca el hidrograma observado "
+      "en un punto de control. La comparación se hace con métricas "
+      "objetivas, como el coeficiente de Nash-Sutcliffe, el error "
+      "cuadrático medio y el sesgo porcentual (PBIAS), y no solo por "
+      "inspección visual. La calibración exige series de caudal observadas "
+      "en el punto de control o cerca de él; sin series limnigráficas o "
+      "limnimétricas utilizables, el modelo se deja sin calibrar y los "
+      "parámetros quedan en los valores que la caracterización morfométrica "
+      "y la doctrina adoptada determinan, lo que debe declararse "
+      "explícitamente en el informe.",),
+     "config.calibracion (metricas) y CLAUDE.md seccion 6"),
+
+    ("Agregar Introducción al numeral.",
+     ("Se presentan a continuación los resultados del balance hídrico a "
+      "largo plazo, obtenidos de aplicar el método adoptado a la "
+      "información hidroclimatológica caracterizada en los numerales "
+      "anteriores.",),
+     "introduccion generica del numeral Resultados del balance"),
+)
+
+
+def consolidar_redaccion_nueva(documento, escribir: bool) -> list[str]:
+    """Redacta las ocho secciones y borra su instruccion, en una sola pasada."""
+    hechos: list[str] = []
+    textos_actuales = {p.text.strip() for p in _parrafos(documento)
+                       if p.text.strip()}
+
+    for ancla_texto, parrafos_nuevos, motivo in REDACCION_NUEVA:
+        if parrafos_nuevos[0] in textos_actuales:
+            hechos.append(f"YA REDACTADO: {ancla_texto[:50]}...")
+            continue
+        ancla = next((p for p in _parrafos(documento)
+                     if p.text.strip() == ancla_texto), None)
+        if ancla is None:
+            hechos.append(f"NO SE ENCONTRO el ancla: {ancla_texto[:50]}...")
+            continue
+        if escribir:
+            punto = ancla._element
+            for texto in parrafos_nuevos:
+                nuevo = documento.add_paragraph(texto, style="Normal")
+                punto.addnext(nuevo._element)
+                punto = nuevo._element
+            ancla._element.getparent().remove(ancla._element)
+        hechos.append(f"redactada ({motivo})")
+    return hechos
+
 def consolidar(ruta: Path, escribir: bool) -> list[str]:
     """Aplica los cambios y devuelve lo que hizo, o lo que haría."""
     documento = plantilla_docx.abrir(ruta)
@@ -594,6 +771,9 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
 
     # --- 6. Tabla de viabilidad de autores de Tc -----------------------------
     hechos.extend(consolidar_tabla_viabilidad(documento, escribir))
+
+    # --- 6b. Las ocho instrucciones de redaccion nueva -----------------------
+    hechos.extend(consolidar_redaccion_nueva(documento, escribir))
 
     # --- 7. Instrucciones rosa ya resueltas: se borran -----------------------
     # VA AL FINAL: tiene que ver escritas las secciones 1 a 6 antes de borrar
