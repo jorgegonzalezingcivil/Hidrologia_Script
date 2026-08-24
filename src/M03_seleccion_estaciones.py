@@ -91,6 +91,10 @@ CAMPOS_ESTACION: tuple[CampoSalida, ...] = (
     CampoSalida("altitud", "Altitud", "decimal", 12, 2, "m"),
     CampoSalida("latitud", "Latitud", "decimal", 14, 8, "grados"),
     CampoSalida("longitud", "Longitud", "decimal", 14, 8, "grados"),
+    # EL CATALOGO SOLO PUBLICA GRADOS y el informe tabula la estación en el CRS
+    # de cálculo, que es donde el consultor la ubica sobre la cartografía.
+    CampoSalida("este", "Este", "decimal", 14, 2, "m"),
+    CampoSalida("norte", "Norte", "decimal", 14, 2, "m"),
     CampoSalida("corriente", "Corriente asociada", "texto", 80),
     CampoSalida("depto", "Departamento", "texto", 60),
     CampoSalida("municipio", "Municipio", "texto", 60),
@@ -106,6 +110,37 @@ CAMPOS_ESTACION: tuple[CampoSalida, ...] = (
     CampoSalida("apta_cal", "Aptitud para calibrar", "texto", 24),
     CampoSalida("detalle_c", "Detalle de la aptitud", "texto", 80),
 )
+
+
+def proyectar_estaciones(estaciones: list, crs_origen: str,
+                         crs_destino: str) -> int:
+    """
+    Escribe el Este y el Norte de cada estación en el CRS de cálculo.
+
+    EL CATALOGO SOLO PUBLICA GRADOS. El informe tabula la estación en
+    MAGNA-SIRGAS / Origen Nacional CTM12, que es donde el consultor la ubica
+    sobre la cartografía del estudio y donde se mide cualquier distancia.
+
+    LA QUE NO TIENE COORDENADAS QUEDA VACIA y no en cero: el origen de CTM12
+    cae en un punto real de Colombia, y un cero se leería como una estación
+    ubicada allí en lugar de como un dato que falta.
+
+    Devuelve cuántas se pudieron proyectar.
+    """
+    from pyproj import Transformer
+
+    conversor = Transformer.from_crs(crs_origen, crs_destino, always_xy=True)
+    proyectadas = 0
+    for estacion in estaciones:
+        if estacion.longitud is None or estacion.latitud is None:
+            estacion.valores["este"] = None
+            estacion.valores["norte"] = None
+            continue
+        este, norte = conversor.transform(estacion.longitud, estacion.latitud)
+        estacion.valores["este"] = round(float(este), 2)
+        estacion.valores["norte"] = round(float(norte), 2)
+        proyectadas += 1
+    return proyectadas
 
 
 @dataclass
@@ -910,6 +945,15 @@ def ejecutar(
             estacion.valores.setdefault("dif_cota", None)
             estacion.valores.setdefault("dist_km", None)
             estacion.valores.setdefault("apta_cal", "")
+
+        # SE PROYECTAN TODAS, no solo las seleccionadas: la estación descartada
+        # también se ubica en el mapa para justificar por qué se descartó.
+        proyectadas = proyectar_estaciones(
+            list(resultado.seleccionadas) + list(resultado.descartadas),
+            str(configuracion.obtener("crs.geografico")),
+            str(configuracion.obtener("crs.calculo")))
+        logger.info("%d estacion(es) proyectadas a %s", proyectadas,
+                    configuracion.obtener("crs.calculo"))
         if punto["cota"] is None:
             resultado.hallazgos.append(Hallazgo(
                 ADVERTENCIA, "calibracion.cota",

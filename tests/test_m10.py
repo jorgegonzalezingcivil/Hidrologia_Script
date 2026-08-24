@@ -832,5 +832,39 @@ class PruebaModoDeAnalisis(unittest.TestCase):
         self.assertGreater(len(motivo.strip()), 40)
 
 
+
+class PruebaGrupoDominante(unittest.TestCase):
+    """
+    La tabla del informe muestra un solo grupo hidrologico por subcuenca. Cual
+    es, y cuanto simplifica.
+    """
+
+    def test_el_dominante_es_el_mas_muestreado(self) -> None:
+        clase, fraccion = m10.dominante_de({"C": 107, "D": 18})
+        self.assertEqual(clase, "C")
+        self.assertAlmostEqual(fraccion, 0.856, places=3)
+
+    def test_una_subcuenca_homogenea_da_la_unidad(self) -> None:
+        self.assertEqual(m10.dominante_de({"C": 40}), ("C", 1.0))
+
+    def test_la_fraccion_dice_cuanto_simplifica(self) -> None:
+        # 34 de 100 repartido entre cuatro grupos no es lo mismo que 95 de 100,
+        # y la tabla muestra el mismo nombre en los dos casos.
+        _clase, fraccion = m10.dominante_de(
+            {"A": 34, "B": 33, "C": 22, "D": 11})
+        self.assertAlmostEqual(fraccion, 0.34, places=3)
+
+    def test_sin_muestras_no_hay_dominante(self) -> None:
+        # Una subcuenca sin suelo clasificado no puede declarar un grupo: el
+        # que saliera seria inventado.
+        self.assertEqual(m10.dominante_de({}), ("", None))
+        self.assertEqual(m10.dominante_de({"C": 0}), ("", None))
+
+    def test_el_empate_se_resuelve_igual_en_cada_corrida(self) -> None:
+        # Sin un desempate estable, dos corridas de los mismos datos darian
+        # subcuencas con grupos distintos.
+        for _ in range(5):
+            self.assertEqual(m10.dominante_de({"D": 10, "C": 10})[0], "C")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

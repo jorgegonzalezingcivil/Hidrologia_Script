@@ -658,5 +658,45 @@ class PruebaVerificacionContraLaRed(unittest.TestCase):
                            latitud=None, longitud=None, variables=("caudal",))
         self.assertEqual(self._verificar([sin], {0}), {})
 
+
+class PruebaProyeccionDeEstaciones(unittest.TestCase):
+    """
+    EL CATALOGO SOLO PUBLICA GRADOS y el informe tabula la estacion en el CRS
+    de calculo, que es donde se ubica sobre la cartografia del estudio.
+    """
+
+    def _estacion(self, latitud, longitud):
+        return m03.Estacion(valores={}, latitud=latitud, longitud=longitud)
+
+    def test_una_estacion_de_la_sabana_cae_donde_debe(self) -> None:
+        # CTM12 pone el origen en 4N, 73W con falso este 5.000.000 y falso
+        # norte 2.000.000. Un grado al oeste son unos 111 km menos de este.
+        estacion = self._estacion(4.81316667, -74.03111111)
+        m03.proyectar_estaciones([estacion], "EPSG:4326", "EPSG:9377")
+        self.assertAlmostEqual(estacion.valores["este"], 4885704.69, places=1)
+        self.assertAlmostEqual(estacion.valores["norte"], 2089935.03, places=1)
+
+    def test_la_que_no_tiene_coordenadas_queda_vacia_y_no_en_cero(self) -> None:
+        # El origen de CTM12 es un punto real de Colombia: un cero se leeria
+        # como una estacion ubicada alli y no como un dato que falta.
+        estacion = self._estacion(None, None)
+        m03.proyectar_estaciones([estacion], "EPSG:4326", "EPSG:9377")
+        self.assertIsNone(estacion.valores["este"])
+        self.assertIsNone(estacion.valores["norte"])
+
+    def test_devuelve_cuantas_pudo_proyectar(self) -> None:
+        estaciones = [self._estacion(4.8, -74.0), self._estacion(None, None),
+                      self._estacion(4.6, -74.1)]
+        self.assertEqual(
+            m03.proyectar_estaciones(estaciones, "EPSG:4326", "EPSG:9377"), 2)
+
+    def test_el_inventario_declara_este_y_norte(self) -> None:
+        cortos = [c.corto for c in m03.CAMPOS_ESTACION]
+        self.assertIn("este", cortos)
+        self.assertIn("norte", cortos)
+        # El nombre corto no puede pasar de diez caracteres: es un shapefile.
+        for campo in m03.CAMPOS_ESTACION:
+            self.assertLessEqual(len(campo.corto), 10, campo.corto)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

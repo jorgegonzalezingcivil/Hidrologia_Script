@@ -45,7 +45,29 @@ tablas:
       - "Este"
       - "Norte"
 
+  - numero: "2-2"
+    leyenda: "Longitud Teórica de Series IDEAM"
+    fuente: "data/02_procesado/estaciones/sensibilidad_series.csv"
+    encabezados: 1
+    # LA SERIE MENSUAL DEL IDEAM, que es la fuente primaria de la cadena
+    # (CLAUDE.md, seccion 6). El CSV trae una fila por estacion Y POR SERIE, y
+    # sin acotarlo la tabla mezclaria la longitud de la precipitacion mensual
+    # con la de temperatura, evaporacion y caudal. Las 36 filas que deja estan
+    # todas seleccionadas por el M03.
+    filtro:
+      etiqueta: "PTPM_TT_M"
+    # 'amplitud' es el ultimo ano menos el primero mas uno, que es la longitud
+    # teorica: lo que la serie abarca, no lo que tiene. La diferencia con
+    # 'anios_con_dato' es justamente el diagnostico.
+    columnas: [nombre, categoria, amplitud, "utiles_1980-2026"]
+
   # ---------------------------------------------------------------- capitulo 3
+  - numero: "3-1"
+    leyenda: "Área microcuencas"
+    fuente: "data/02_procesado/morfometria/subcuencas.csv"
+    encabezados: 1
+    columnas: [subcuenca, area_ha, area_km2]
+
   - numero: "3-2"
     leyenda: "Perímetro microcuencas"
     fuente: "data/02_procesado/morfometria/subcuencas.csv"
@@ -69,6 +91,15 @@ tablas:
     fuente: "data/02_procesado/morfometria/subcuencas.csv"
     encabezados: 1
     columnas: [subcuenca, cota_max, cota_min, relieve_m]
+
+  - numero: "3-17"
+    leyenda: "Número de Curva microcuencas"
+    fuente: "data/02_procesado/morfometria/subcuencas.csv"
+    encabezados: 1
+    # 'grupo_hidrologico' es el grupo DOMINANTE de la subcuenca, contado sobre
+    # las mismas muestras con que se promedia el CN. La tabla muestra solo el
+    # nombre; cuanto domina esta en 'grupo_fraccion' del CSV.
+    columnas: [subcuenca, grupo_hidrologico, cn]
 
   # ---------------------------------------------------------------- capitulo 4
   - numero: "4-2"
@@ -171,33 +202,11 @@ tablas:
                q_T50_m3s, q_T100_m3s]
 
 # =============================================================================
-# LAS TRECE QUE FALTAN, Y POR QUE
+# LAS DIEZ QUE FALTAN, Y POR QUE
 # -----------------------------------------------------------------------------
-# Van 14 de 27. Ninguna de las trece esta pendiente de este modulo: a todas les
+# Van 17 de 27. Ninguna de las diez esta pendiente de este modulo: a todas les
 # falta un dato que la cadena no produce todavia. No se declaran a medias
 # porque una tabla con columnas vacias se ve terminada y no lo esta.
-#
-# FALTA UNA COLUMNA EN UN CSV QUE YA EXISTE
-#
-#   Identificación Estaciones IDEAM ....... el M03 no escribe Este ni Norte, y
-#                                           la fecha de instalacion sale como
-#                                           '20011115' en crudo. La tabla se
-#                                           llena, pero esas celdas van vacias.
-#   Área microcuencas ..................... pide area_ha y el M10 solo escribe
-#                                           area_km2.
-#   Número de Curva microcuencas .......... pide el grupo hidrologico de suelo
-#                                           por subcuenca. Existe en
-#                                           infiltracion/coeficientes_por_
-#                                           subcuenca.csv pero no en
-#                                           morfometria/subcuencas.csv, que es
-#                                           donde esta el CN: hoy haria falta
-#                                           cruzar dos fuentes.
-#   Longitud Teórica de Series IDEAM ...... la categoria de la estacion esta en
-#                                           el inventario y no en
-#                                           sensibilidad_series.csv. Ademas la
-#                                           plantilla titula la ventana
-#                                           1980-2023 y la cadena calcula
-#                                           1980-2026.
 #
 # FALTA LA DOCTRINA DE CLASIFICACION
 #
@@ -235,6 +244,19 @@ tablas:
 #
 #   'Índice de Sinuosidad microcuencas' y 'Coeficiente de compacidad
 #   microcuencas' tienen ambas por encabezado 'Coeficiente de forma'.
+#
+#   'Longitud Teórica de Series IDEAM' titula su cuarta columna 'Longitud
+#   Ventana de Tiempo 1980-2023'. El texto que la introduce dice "desde el ano
+#   1980 hasta la fecha", que es lo correcto, y la cadena calcula 1980-2026
+#   segun 'anio_estudio'. El literal quedo del informe de referencia y hay que
+#   actualizarlo en el documento: el modulo llena las celdas, no los titulos.
+#
 #   Tres instrucciones de figura distintas llevan la leyenda 'Áreas
 #   microcuencas'; se desempatan en informe_correcciones.yaml.
+#
+# LO QUE VIENE EN CRUDO Y NO ES DEFECTO DE NADIE
+#
+#   La fecha de instalacion sale como '20011115' porque asi la entrega el
+#   Catalogo Nacional de Estaciones. Darle formato es una normalizacion del
+#   M03, no del informe, y afecta a todo el que lea el inventario.
 # =============================================================================

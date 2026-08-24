@@ -158,6 +158,7 @@ def parametros_geometricos(ruta: Path) -> dict[str, float]:
     axial_km = axial_m / 1000.0
     return {
         "area_km2": round(area_km2, 3),
+        "area_ha": round(area_km2 * 100.0, 2),
         "perimetro_km": round(perimetro_km, 3),
         "perimetro_metodo": metodo,
         "aristas_frontera": contorno["aristas_frontera"],
@@ -1158,6 +1159,11 @@ def parametros_por_subcuenca(ruta: Path) -> list[dict[str, Any]]:
         subcuencas.append({
             "subcuenca": nombre,
             "area_km2": round(area_km2, 4),
+            # LA HECTAREA NO ES UNA UNIDAD DE ADORNO. El informe tabula el área
+            # en las dos, y es la unidad en que se contrata y se compara con
+            # los usos del suelo. Se deriva aquí y no en el informe: convertir
+            # al escribir dejaría el factor repartido por la cadena.
+            "area_ha": round(area_km2 * 100.0, 2),
             "perimetro_km": round(perimetro_m / 1000.0, 3),
             "long_flujo_km": round(longitud_m / 1000.0, 4)
             if longitud_m else None,
@@ -2033,6 +2039,7 @@ def numero_curva_por_subcuenca(
         valores: list[float] = []
         sin_clase = sin_grupo = 0
         reparto: dict[str, int] = {}
+        reparto_grupo: dict[str, int] = {}
         for posicion in range(desde, hasta):
             x, y = puntos[posicion]
             cual = indice.indice_en(x, y)
@@ -2049,17 +2056,50 @@ def numero_curva_por_subcuenca(
                 continue
             valores.append(float(tabla_cn[clase][grupo]))
             reparto[clase] = reparto.get(clase, 0) + 1
+            reparto_grupo[grupo] = reparto_grupo.get(grupo, 0) + 1
 
         dominante = max(reparto, key=reparto.get) if reparto else ""
+        # EL GRUPO DOMINANTE SE CUENTA AQUI PORQUE AQUI SE CONOCE. Ya se
+        # muestrea para el CN, y el informe tabula el tipo de suelo hidrológico
+        # junto al número de curva. Recuperarlo después obligaría a volver a
+        # muestrear el ráster de suelos.
+        grupo_dominante, grupo_fraccion = dominante_de(reparto_grupo)
         salida.append({
             "cn": round(sum(valores) / len(valores), 1) if valores else None,
             "muestras_cn": len(valores),
             "muestras_sin_clase": sin_clase,
             "muestras_sin_grupo": sin_grupo,
             "cobertura_dominante": dominante,
+            "grupo_hidrologico": grupo_dominante,
+            "grupo_fraccion": grupo_fraccion,
             "paso_muestreo_cn_m": paso_m,
         })
     return salida
+
+
+def dominante_de(reparto: dict[str, int]) -> tuple[str, float | None]:
+    """
+    Cuál es la clase dominante de un reparto de muestras, y cuánto domina.
+
+    SIN LA FRACCION EL NOMBRE ENGAÑA. La tabla del informe muestra un solo
+    grupo hidrológico por subcuenca, y no es lo mismo un 95% que un 34% repartido
+    entre cuatro grupos: en el segundo caso el valor tabulado simplifica una
+    subcuenca heterogénea y el consultor tiene que saberlo.
+
+    SIN MUESTRAS NO HAY DOMINANTE. Devuelve cadena vacía y None, no la primera
+    clase de la tabla: una subcuenca sin suelo clasificado no puede declarar un
+    grupo, y el que saliera sería inventado.
+
+    Con empate se devuelve la clase menor en orden alfabético, para que dos
+    corridas de los mismos datos den el mismo resultado.
+    """
+    if not reparto:
+        return "", None
+    total = sum(reparto.values())
+    if total <= 0:
+        return "", None
+    clave = min(sorted(reparto), key=lambda c: -reparto[c])
+    return clave, round(reparto[clave] / total, 3)
 
 
 def muestreador_de_grupo(ruta_suelos: Path, crs_calculo: str, duales: str):
