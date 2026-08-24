@@ -1240,6 +1240,219 @@ def _punto_medio(linea, largo: float) -> tuple[float, float]:
     return linea[-1]
 
 
+# Codificacion de r.watershed de GRASS. Los ocho vecinos, en sentido
+# antihorario desde el noreste, tal como los numera el algoritmo:
+#
+#     3 2 1
+#     4   8
+#     5 6 7
+#
+# El signo negativo marca una celda que desagua fuera del borde de la region, y
+# la direccion es la misma: se toma el valor absoluto.
+_VECINO_DE_DIRECCION = {
+    1: (-1, 1), 2: (-1, 0), 3: (-1, -1), 4: (0, -1),
+    5: (1, -1), 6: (1, 0), 7: (1, 1), 8: (0, 1),
+}
+
+
+def _celdas_de_poligono(anillos, info) -> set[tuple[int, int]]:
+    """Celdas del ráster cuyo centro cae dentro del polígono."""
+    aristas = geometria.aristas_de([anillos])
+    if not aristas:
+        return set()
+    x_min, y_min, x_max, y_max = geometria.envolvente([anillos])
+    fila_inicial = max(0, info.fila_de(y_max))
+    fila_final = min(info.alto - 1, info.fila_de(y_min))
+    celdas: set[tuple[int, int]] = set()
+    for fila in range(fila_inicial, fila_final + 1):
+        y = info.y_de_fila(fila)
+        for desde, hasta in geometria.columnas_de_fila(
+                aristas, y, info.origen_x, info.tamano_x, info.ancho):
+            for columna in range(desde, hasta + 1):
+                celdas.add((fila, columna))
+    return celdas
+
+
+def recorrido_de_flujo(direcciones, info, celdas) -> dict[str, Any] | None:
+    """
+    Recorrido más largo del agua dentro de un conjunto de celdas.
+
+    Devuelve longitud del recorrido, distancia recta entre sus extremos y la
+    sinuosidad, o None si no hay recorrido medible.
+
+    ES LA LONGITUD QUE RECORRE EL AGUA, no la del cauce cartografiado. Se sigue
+    la dirección de flujo celda a celda desde el punto más remoto hasta la
+    salida de la unidad, que es la definición de 'longest flow path' y la misma
+    magnitud que HEC-HMS calcula como 'long_len': las dos son contrastables.
+
+    LA DIAGONAL MIDE MAS QUE EL LADO. Contar celdas y multiplicar por el tamaño
+    subestima el recorrido en un 41 por ciento en los tramos diagonales, que en
+    terreno de montaña son la mayoría.
+
+    El recorrido se calcula hacia AGUAS ABAJO con memoria, no hacia aguas
+    arriba: cada celda tiene una sola salida y muchas entradas, de modo que el
+    grafo se recorre una vez y no una por cada cabecera.
+    """
+    if not celdas:
+        return None
+    lado_x = abs(info.tamano_x)
+    lado_y = abs(info.tamano_y)
+    diagonal = math.hypot(lado_x, lado_y)
+
+    def aguas_abajo(fila, columna):
+        """Celda a la que drena esta, y la distancia recorrida al hacerlo."""
+        if not (0 <= fila < info.alto and 0 <= columna < info.ancho):
+            return None, 0.0
+        valor = int(direcciones[fila][columna])
+        salto = _VECINO_DE_DIRECCION.get(abs(valor))
+        if salto is None:
+            return None, 0.0
+        siguiente = (fila + salto[0], columna + salto[1])
+        if siguiente not in celdas:
+            return None, 0.0
+        distancia = (diagonal if salto[0] and salto[1]
+                     else (lado_y if salto[0] else lado_x))
+        return siguiente, distancia
+
+    # Distancia de cada celda hasta la salida de la unidad, sin recursión: una
+    # cuenca alargada encadena miles de celdas y el límite de pila de Python se
+    # alcanza mucho antes.
+    recorrido: dict[tuple[int, int], float] = {}
+    for celda in celdas:
+        if celda in recorrido:
+            continue
+        pila = []
+        actual = celda
+        visitadas = set()
+        while actual is not None and actual not in recorrido:
+            if actual in visitadas:      # ciclo: se corta y se declara final
+                recorrido[actual] = 0.0
+                break
+            visitadas.add(actual)
+            siguiente, distancia = aguas_abajo(*actual)
+            if siguiente is None:
+                recorrido[actual] = 0.0
+                break
+            pila.append((actual, distancia))
+            actual = siguiente
+        acumulado = recorrido.get(actual, 0.0) if actual is not None else 0.0
+        for celda_previa, distancia in reversed(pila):
+            acumulado += distancia
+            recorrido[celda_previa] = acumulado
+
+    if not recorrido:
+        return None
+    origen = max(recorrido, key=recorrido.get)
+    largo = recorrido[origen]
+    if largo <= 0:
+        return None
+
+    # Se sigue el recorrido para saber DONDE termina: la distancia recta va
+    # entre sus dos extremos, no entre el origen y un punto cualquiera.
+    actual = origen
+    for _ in range(len(recorrido) + 1):
+        siguiente, _distancia = aguas_abajo(*actual)
+        if siguiente is None:
+            break
+        actual = siguiente
+    x_origen = info.x_de_columna(origen[1])
+    y_origen = info.y_de_fila(origen[0])
+    x_final = info.x_de_columna(actual[1])
+    y_final = info.y_de_fila(actual[0])
+    recta = math.hypot(x_final - x_origen, y_final - y_origen)
+
+    return {
+        "long_recorrido_km": round(largo / 1000.0, 4),
+        "distancia_recta_km": round(recta / 1000.0, 4),
+        "indice_sinuosidad": round(largo / recta, 3) if recta > 0 else None,
+        "celdas": len(celdas),
+    }
+
+
+def _contrastar_recorrido(subcuencas, resultado) -> None:
+    """
+    Contrasta el recorrido trazado contra el que declara HEC-HMS.
+
+    SON DOS IMPLEMENTACIONES INDEPENDIENTES de la misma magnitud: HEC-HMS traza
+    sobre su propio modelo relleno y con su propio umbral, y este modulo sobre
+    la direccion de flujo del M02. Que coincidan es la comprobacion de que el
+    trazado esta bien; que discrepen en una subcuenca concreta senala que su
+    salida se resolvio en celdas distintas, y eso hay que verlo antes de usar la
+    longitud en una formula de tiempo de concentracion.
+    """
+    pares = [(s["subcuenca"], s["long_flujo_km"], s["long_cauce_principal_km"])
+             for s in subcuencas
+             if s.get("long_flujo_km") and s.get("long_cauce_principal_km")]
+    if not pares:
+        return
+    razones = sorted((trazado / declarado, nombre)
+                     for nombre, declarado, trazado in pares if declarado > 0)
+    if not razones:
+        return
+    mediana = razones[len(razones) // 2][0]
+    dispares = [n for r, n in razones if r < 0.8 or r > 1.2]
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO if len(dispares) <= len(pares) // 4 else ADVERTENCIA,
+        "morfometria.recorrido_contrastado",
+        f"el recorrido trazado sobre la direccion de flujo coincide con el que "
+        f"declara HEC-HMS en {len(pares) - len(dispares)} de {len(pares)} "
+        f"subcuenca(s) dentro del 20 por ciento, con una razon mediana de "
+        f"{mediana:.3f}. Son dos implementaciones independientes de la misma "
+        "magnitud, de modo que la coincidencia es la comprobacion del trazado. "
+        + (f"Discrepan {len(dispares)}: {dispares[:8]}. En ellas la salida se "
+           "resolvio en celdas distintas y conviene mirarlas antes de usar la "
+           "longitud en una formula de tiempo de concentracion."
+           if dispares else ""),
+    ))
+
+
+def recorridos_por_subcuenca(ruta_direccion: Path, entidades,
+                             nombres: Sequence[str],
+                             logger=None) -> dict[str, dict[str, Any]]:
+    """
+    Longitud de recorrido, distancia recta y sinuosidad de cada subcuenca.
+
+    El ráster se lee ENTERO una vez. Son 2.170 por 2.925 celdas de dos bytes,
+    doce megabytes: leerlo por subcuenca supondría recorrerlo ciento veinticinco
+    veces para acabar tocando las mismas celdas.
+    """
+    import struct
+
+    ruta_direccion = Path(ruta_direccion)
+    if not ruta_direccion.is_file():
+        return {}
+    try:
+        info = raster.leer_info(ruta_direccion)
+    except (ErrorFormato, ErrorRutas):
+        return {}
+    formato = {"<i2": "h", "<i4": "i", "<u1": "B", "<i1": "b",
+               "<f4": "f"}.get(info.descriptor)
+    if formato is None:
+        return {}
+
+    direcciones: list[Any] = []
+    with raster.LectorRaster(ruta_direccion) as lector:
+        for fila in range(info.alto):
+            try:
+                contenido = lector.fila(fila)
+            except (ErrorFormato, ErrorRutas, IndexError):
+                direcciones.append([0] * info.ancho)
+                continue
+            direcciones.append(list(struct.unpack_from(
+                "<" + formato * info.ancho, contenido, 0)))
+
+    salida: dict[str, dict[str, Any]] = {}
+    for anillos, nombre in zip(entidades, nombres):
+        celdas = _celdas_de_poligono(anillos, info)
+        detalle = recorrido_de_flujo(direcciones, info, celdas)
+        if detalle is not None:
+            salida[str(nombre)] = detalle
+    if logger is not None:
+        logger.info("recorrido de flujo trazado en %d de %d subcuenca(s)",
+                    len(salida), len(nombres))
+    return salida
+
+
 def drenaje_por_subcuenca(ruta_red: Path, entidades,
                           nombres: Sequence[str]) -> dict[str, dict[str, Any]]:
     """
@@ -2076,6 +2289,26 @@ def _resolver_subcuencas(configuracion, base, ruta_cuenca, ruta_dem, matriz,
                 datos_red["corrientes"] / subcuenca["area_km2"], 3),
             "orden_corrientes": datos_red["orden"] or None,
         })
+
+    # RECORRIDO DEL AGUA POR SUBCUENCA. Da la longitud del cauce principal, la
+    # distancia recta entre sus extremos y la sinuosidad, que ninguna otra via
+    # permitia: la red topologica tiene 230 corrientes para 125 subcuencas y no
+    # deja trazar ni una, y la longitud axial es el diametro del poligono, no la
+    # recta del cauce.
+    recorridos = recorridos_por_subcuenca(
+        rutas.resolver(configuracion.obtener("dem.delimitacion.salida_direccion"),
+                       base),
+        entidades_sub, [s["subcuenca"] for s in subcuencas], logger)
+    for subcuenca in subcuencas:
+        traza = recorridos.get(subcuenca["subcuenca"])
+        if not traza:
+            continue
+        subcuenca.update({
+            "long_cauce_principal_km": traza["long_recorrido_km"],
+            "distancia_recta_cauce_km": traza["distancia_recta_km"],
+            "indice_sinuosidad": traza["indice_sinuosidad"],
+        })
+    _contrastar_recorrido(subcuencas, resultado)
 
     con_red = [s for s in subcuencas if s.get("densidad_drenaje_km_km2")]
     if subcuencas and len(con_red) < len(subcuencas):

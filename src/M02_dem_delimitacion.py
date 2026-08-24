@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import time
 import zipfile
@@ -860,6 +861,94 @@ def acotar_por_red(configuracion, base, logger):
 # =============================================================================
 # Orquestación
 # =============================================================================
+def derivar_direccion_flujo(configuracion, base: Path, ruta_dem: Path,
+                            ruta_area: Path, crs_calculo: str,
+                            logger=None) -> Path | None:
+    """
+    Ráster de dirección de flujo sobre el área de influencia.
+
+    POR QUE SE CALCULA APARTE Y NO SE HEREDA DE LA DELIMITACION. La cadena
+    hidrológica de 'delimitar' solo corre cuando el escenario pide delimitar por
+    la red; con el escenario que toma el área de la subzona, ese paso no se
+    ejecuta y la dirección de flujo no existe. Pero la dirección no es un
+    subproducto de la delimitación: es el insumo que permite trazar el recorrido
+    del agua celda a celda, y sin ella no hay longitud de cauce ni sinuosidad
+    por subcuenca, venga la delimitación de donde venga.
+
+    SE RECORTA ANTES DE CALCULAR. El modelo de elevación cubre la subzona
+    entera, 114 millones de celdas; el área de influencia son 6,3 millones.
+    Correr el análisis hidrológico sobre el completo cuesta dieciocho veces más
+    para tirar el 94 por ciento del resultado.
+
+    Devuelve la ruta del ráster, o None si el algoritmo no produjo salida.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si falta el modelo de elevación o el área.
+    """
+    import processing
+
+    ruta_dem, ruta_area = Path(ruta_dem), Path(ruta_area)
+    if not ruta_dem.is_file():
+        raise ErrorRutas(f"no se encuentra el modelo de elevación en {ruta_dem}.")
+    if not ruta_area.is_file():
+        raise ErrorRutas(f"no se encuentra el área de influencia en {ruta_area}.")
+
+    destino = rutas.resolver(
+        configuracion.obtener("dem.delimitacion.salida_direccion"), base)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    temporal = rutas.directorio("sig_temp", base, crear=True)
+
+    recortado = temporal / "dem_para_flujo.tif"
+    processing.run("gdal:cliprasterbymasklayer", {
+        "INPUT": str(ruta_dem),
+        "MASK": str(ruta_area),
+        "SOURCE_CRS": crs_calculo,
+        "TARGET_CRS": crs_calculo,
+        "CROP_TO_CUTLINE": True,
+        "KEEP_RESOLUTION": True,
+        "OPTIONS": "COMPRESS=LZW",
+        "OUTPUT": str(recortado),
+    })
+    if not recortado.is_file():
+        return None
+
+    # LAS DEPRESIONES SE RELLENAN PRIMERO. Sobre un modelo sin rellenar, el
+    # recorrido del agua termina en el primer hoyo del terreno y la longitud del
+    # cauce sale corta sin que nada lo señale.
+    relleno = temporal / "dem_flujo_relleno.tif"
+    processing.run("native:fillsinkswangliu", {
+        "INPUT": str(recortado), "BAND": 1, "MIN_SLOPE": 0.01,
+        "OUTPUT_FILLED_DEM": str(relleno),
+    })
+    if not relleno.is_file():
+        return None
+
+    acumulacion = rutas.resolver(
+        configuracion.obtener("dem.delimitacion.salida_acumulacion"), base)
+    processing.run("grass:r.watershed", {
+        "elevation": str(relleno),
+        "threshold": int(configuracion.obtener(
+            "dem.delimitacion.umbral_celdas_cauce")),
+        "-s": True,
+        "drainage": str(destino),
+        "accumulation": str(acumulacion),
+    })
+    if not destino.is_file():
+        return None
+
+    if logger is not None:
+        from comun import raster as mod_raster
+        try:
+            info = mod_raster.leer_info(destino)
+            logger.info("dirección de flujo: %d x %d celdas de %.1f m",
+                        info.ancho, info.alto, abs(info.tamano_x))
+        except Exception:  # noqa: BLE001
+            logger.info("dirección de flujo escrita en %s", destino.name)
+    return destino
+
+
 def derivar_pendiente(configuracion, base: Path, ruta_dem: Path,
                       ruta_area: Path, crs_calculo: str, logger=None) -> Path:
     """
@@ -1096,6 +1185,20 @@ def ejecutar(
                 configuracion, base, ruta_dem, ruta_area_influencia,
                 crs_calculo, logger)
             resultado.capas.append(rutas.relativa(ruta_pendiente, base))
+
+        with registro.bloque(logger, "Dirección de flujo"):
+            ruta_direccion = derivar_direccion_flujo(
+                configuracion, base, ruta_dem, ruta_area_influencia,
+                crs_calculo, logger)
+            if ruta_direccion is not None:
+                resultado.capas.append(rutas.relativa(ruta_direccion, base))
+            else:
+                resultado.hallazgos.append(Hallazgo(
+                    ADVERTENCIA, "dem.sin_direccion_flujo",
+                    "no se pudo obtener la direccion de flujo. El M10 no podra "
+                    "trazar el recorrido del agua y quedaran sin longitud de "
+                    "cauce ni sinuosidad por subcuenca.",
+                ))
 
     codigo = (SALIDA_BLOQUEANTE if esquema.hay_bloqueantes(resultado.hallazgos)
               else SALIDA_CORRECTA)
