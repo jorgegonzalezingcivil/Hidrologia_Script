@@ -265,7 +265,7 @@ tablas:
       # completo del que sale la mediana, que es lo que el consultor defiende.
       orden:
         - "Kirpich (1940)"
-        - "California Culverts Practice (1942)"
+        - "California Culverts Practice (SCS-Ranser)"
         - "Temez (1978)"
         - "Giandotti (1934)"
         - "Ventura-Heras"
@@ -290,7 +290,7 @@ tablas:
       crecer_columnas: true
       orden:
         - "Kirpich (1940)"
-        - "California Culverts Practice (1942)"
+        - "California Culverts Practice (SCS-Ranser)"
         - "Temez (1978)"
         - "Giandotti (1934)"
         - "Ventura-Heras"

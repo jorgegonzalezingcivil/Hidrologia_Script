@@ -1,6 +1,6 @@
 formula;nombre;area_min_km2;area_max_km2;pendiente_min;pendiente_max;tipo_cuenca;origen;expresion;observacion
 kirpich;Kirpich (1940);0.004;0.45;0.03;0.10;rural;"Tennessee, EEUU";0.0195*(L^0.77)*(S^-0.385) con L en m y S en m/m;"Calibrada en siete cuencas agricolas de 0,4 a 45 ha. Su uso fuera de ese rango es la extrapolacion mas frecuente y menos justificada de la practica."
-california;California Culverts Practice (1942);0.004;45.0;0.05;0.50;montanosa;EEUU;0.0195*(L^3/H)^0.385 con L en m y H en m;"Variante de Kirpich para cauces de montana. Adaptada del Bureau of Public Roads."
+california;California Culverts Practice (SCS-Ranser);0.004;45.0;0.05;0.50;montanosa;EEUU;0.0195*(L^3/H)^0.385 con L en m y H en m;"Variante de Kirpich para cauces de montana. Adaptada del Bureau of Public Roads."
 temez;Temez (1978);1.0;3000.0;0.001;0.30;mixta;Espana;0.3*(L/(S^0.25))^0.76 con L en km y S en m/m;"Adoptada por la Instruccion espanola de drenaje. Es la de rango de area mas amplio de la matriz."
 giandotti;Giandotti (1934);20.0;1000.0;0.01;0.30;mixta;Italia;(4*sqrt(A)+1.5*L)/(0.8*sqrt(Hm)) con A en km2, L en km, Hm en m;"Exige desnivel medio respecto a la cota de salida, no desnivel total."
 ventura;Ventura-Heras;1.0;1000.0;0.005;0.30;rural;Italia;0.05*sqrt(A/S) con A en km2 y S en m/m;"Forma simplificada; sensible a la pendiente adoptada."

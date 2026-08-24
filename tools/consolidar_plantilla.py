@@ -121,6 +121,171 @@ def _tablas_por_leyenda(documento):
     return salida
 
 
+
+# -----------------------------------------------------------------------------
+# SECCION DE TIEMPO DE CONCENTRACION
+#
+# La plantilla documentaba nueve formulas y la cadena calcula trece. Medido
+# contra data/referencia/tc_aplicabilidad.csv:
+#
+#   'SCS Ranser' y 'California Culverts Practice' son LA MISMA expresion,
+#   0,947*(L^3/H)^0,385 con L en km frente a 0,0195*(L^3/H)^0,385 con L en m.
+#   Las variables que la plantilla declara, L en km y H en m, lo confirman.
+#   Decision del consultor: queda el nombre de la fuente con el suyo como alias.
+#
+#   'US Corps' estaba documentada y no se calcula. Decision del consultor:
+#   se retira, porque documentar una formula que no entra en la mediana deja al
+#   informe prometiendo algo que sus tablas no muestran.
+#
+#   Faltaban cinco por documentar. SCS Lag NO es SCS Ranser: es la ecuacion de
+#   retardo del NRCS, la unica que usa el numero de curva.
+# -----------------------------------------------------------------------------
+QUITAR_FORMULAS = ("Fórmula de US Corps",)
+
+RENOMBRAR = (
+    ("Fórmula de SCS Ranser",
+     "Fórmula de California Culverts Practice (SCS-Ranser)",
+     "es la misma expresion que la cadena calcula como 'california'"),
+)
+
+# (titulo, expresion, lineas del 'Donde'). Todas devuelven horas.
+FORMULAS_NUEVAS = (
+    ("Fórmula de Johnstone y Cross",
+     "tc = 0,4623 · L^0,5 · S^-0,25",
+     ("tc = Tiempo de concentración (hr).",
+      "L = Longitud del cauce principal (km).",
+      "S = Pendiente media del cauce principal (m/m).")),
+    ("Fórmula de Clark",
+     "tc = 0,335 · (A / √S)^0,593",
+     ("tc = Tiempo de concentración (hr).",
+      "A = Área de la cuenca (km²).",
+      "S = Pendiente media del cauce principal (m/m).")),
+    ("Fórmula de Pilgrim y McDermott",
+     "tc = 0,76 · A^0,38",
+     ("tc = Tiempo de concentración (hr).",
+      "A = Área de la cuenca (km²).")),
+    ("Fórmula de Valencia y Zuluaga",
+     "tc = 1,7694 · A^0,325 · L^-0,096 · S^-0,290",
+     ("tc = Tiempo de concentración (hr).",
+      "A = Área de la cuenca (km²).",
+      "L = Longitud del cauce principal (km).",
+      "S = Pendiente media del cauce principal (m/m).")),
+    ("Fórmula de retardo del SCS (NRCS Lag)",
+     "tc = tlag / 0,6,  con  tlag = (L^0,8 · (Sr + 1)^0,7) / (1900 · Y^0,5)",
+     ("tc = Tiempo de concentración (hr).",
+      "tlag = Tiempo de retardo (hr).",
+      "L = Longitud del cauce principal (pies).",
+      "Sr = Retención potencial máxima, Sr = 1000/CN - 10 (pulgadas).",
+      "CN = Número de curva de escorrentía, adimensional.",
+      "Y = Pendiente media de la cuenca (%).",
+      "Es la única de la matriz que necesita el número de curva, y por eso es "
+      "la coherente con el método de transformación del SCS adoptado en el "
+      "modelo. Está definida para cuencas menores de 800 ha.")),
+)
+
+
+# LA PLANTILLA USA DOS ESTILOS PARA LO MISMO. Kirpich, Temez, Giandotti,
+# California y Ventura Heras van en 'List Paragraph' y las demas en
+# 'List Bullet'. Mirar uno solo hacia creer que la ultima formula era Passini, y
+# las nuevas quedaban intercaladas en medio de la lista.
+ESTILOS_DE_FORMULA = ("List Bullet", "List Paragraph")
+
+
+def _es_titulo_de_formula(parrafo) -> bool:
+    """Un encabezado de formula de la seccion, en cualquiera de sus estilos."""
+    return (parrafo.style.name in ESTILOS_DE_FORMULA
+            and parrafo.text.strip().lower().startswith("fórmula de"))
+
+
+def _clonar(modelo, texto: str):
+    """Copia un parrafo con su estilo y le pone otro texto."""
+    import copy
+
+    nuevo = copy.deepcopy(modelo._element)
+    from docx.text.paragraph import Paragraph
+
+    parrafo = Paragraph(nuevo, modelo._parent)
+    _fijar_parrafo(parrafo, texto)
+    return nuevo
+
+
+def consolidar_tiempo_concentracion(documento, escribir: bool) -> list[str]:
+    """Retira, renombra y completa las formulas de tiempo de concentracion."""
+    from docx.text.paragraph import Paragraph
+
+    hechos: list[str] = []
+    parrafos = [Paragraph(h, documento)
+                for h in documento.element.body.iterchildren()
+                if h.tag.endswith("}p")]
+    titulos = [i for i, p in enumerate(parrafos) if _es_titulo_de_formula(p)]
+    if not titulos:
+        return ["NO SE ENCONTRO ninguna formula en la plantilla"]
+
+    # --- renombrar ---
+    for viejo, nuevo, motivo in RENOMBRAR:
+        for parrafo in parrafos:
+            if parrafo.text.strip() != viejo:
+                continue
+            if escribir:
+                _fijar_parrafo(parrafo, nuevo)
+            hechos.append(f"'{viejo}' -> '{nuevo}' ({motivo})")
+
+    # --- quitar el bloque entero, del titulo hasta el titulo siguiente ---
+    for objetivo in QUITAR_FORMULAS:
+        for orden, indice in enumerate(titulos):
+            if parrafos[indice].text.strip() != objetivo:
+                continue
+            fin = (titulos[orden + 1] if orden + 1 < len(titulos)
+                   else indice + 1)
+            cuantos = fin - indice
+            if escribir:
+                for parrafo in parrafos[indice:fin]:
+                    parrafo._element.getparent().remove(parrafo._element)
+            hechos.append(f"retirada '{objetivo}' y su bloque "
+                          f"({cuantos} parrafo(s))")
+
+    # --- anadir las que faltan, detras de la ultima ---
+    if escribir:
+        parrafos = [Paragraph(h, documento)
+                    for h in documento.element.body.iterchildren()
+                    if h.tag.endswith("}p")]
+        titulos = [i for i, p in enumerate(parrafos)
+                   if _es_titulo_de_formula(p)]
+    # EL BLOQUE TERMINA EN LA ULTIMA LINEA DE 'Donde', no en el primer parrafo
+    # con otro estilo. Buscar el siguiente no-Normal saltaba por encima de la
+    # nota en rosa y de la instruccion de la Tabla 3-18, y las formulas nuevas
+    # se colaban ENTRE la instruccion y su tabla: el modulo dejaba de encontrarla
+    # y la reportaba como 'sin tabla detras'.
+    ultimo = titulos[-1]
+    siguiente = ultimo + 1
+    for indice in range(ultimo + 1, len(parrafos)):
+        parrafo = parrafos[indice]
+        if parrafo.style.name != "Normal":
+            break
+        if m15.clasificar(parrafo.text)[0]:
+            break
+        if any(r.font.highlight_color for r in parrafo.runs if r.text.strip()):
+            break
+        siguiente = indice + 1
+    modelo_titulo = parrafos[ultimo]
+    modelo_texto = parrafos[ultimo + 1] if ultimo + 1 < len(parrafos) else None
+
+    presentes = {parrafos[i].text.strip() for i in titulos}
+    ancla = parrafos[siguiente - 1]._element
+    for titulo, expresion, donde in FORMULAS_NUEVAS:
+        if titulo in presentes:
+            continue
+        if escribir and modelo_texto is not None:
+            bloque = [_clonar(modelo_titulo, titulo),
+                      _clonar(modelo_texto, expresion)]
+            bloque += [_clonar(modelo_texto, "Donde:\t\t" + donde[0])]
+            bloque += [_clonar(modelo_texto, linea) for linea in donde[1:]]
+            for elemento in bloque:
+                ancla.addnext(elemento)
+                ancla = elemento
+        hechos.append(f"anadida '{titulo}' con su expresion y sus variables")
+    return hechos
+
 def consolidar(ruta: Path, escribir: bool) -> list[str]:
     """Aplica los cambios y devuelve lo que hizo, o lo que haría."""
     documento = plantilla_docx.abrir(ruta)
@@ -172,6 +337,9 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
                 m15._fijar_texto(celda, nuevo)
             hechos.append(f"'{leyenda}': encabezado '{viejo}' -> '{nuevo}' "
                           f"({motivo})")
+
+    # --- 4. Seccion de tiempo de concentracion -------------------------------
+    hechos.extend(consolidar_tiempo_concentracion(documento, escribir))
 
     if escribir and hechos:
         documento.save(str(ruta))
