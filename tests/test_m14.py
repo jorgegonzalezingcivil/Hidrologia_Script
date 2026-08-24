@@ -350,5 +350,86 @@ class PruebaConfiguracion(unittest.TestCase):
             float(_CFG.obtener("hec_hms.resultados.tolerancia_balance_pct")), 5.0)
 
 
+
+class PruebaProfundidadNormal(unittest.TestCase):
+    """Manning en seccion trapezoidal, resuelto por biseccion."""
+
+    def test_el_calado_devuelve_el_caudal_que_se_le_pidio(self) -> None:
+        # La comprobacion que importa: metido de vuelta en Manning, tiene que
+        # dar el mismo caudal.
+        import math
+        n, b, z, s = 0.04, 10.0, 2.0, 0.01
+        y = m14.profundidad_normal(8.0, n, b, z, s)
+        area = (b + z * y) * y
+        perimetro = b + 2.0 * y * math.sqrt(1.0 + z ** 2)
+        caudal = area * (area / perimetro) ** (2 / 3) * math.sqrt(s) / n
+        self.assertAlmostEqual(caudal, 8.0, places=2)
+
+    def test_mas_caudal_pide_mas_calado(self) -> None:
+        uno = m14.profundidad_normal(5.0, 0.04, 10.0, 2.0, 0.01)
+        otro = m14.profundidad_normal(50.0, 0.04, 10.0, 2.0, 0.01)
+        self.assertGreater(otro, uno)
+
+    def test_un_caudal_grande_no_se_queda_sin_cota_superior(self) -> None:
+        # El limite se duplica hasta pasarse: fijarlo a ojo dejaria sin
+        # solucion los tramos de cierre, que son los de mas caudal.
+        self.assertGreater(
+            m14.profundidad_normal(5000.0, 0.04, 2.0, 1.0, 0.001), 0.0)
+
+    def test_lo_que_no_es_positivo_es_error(self) -> None:
+        for caudal, n, s in ((0.0, 0.04, 0.01), (5.0, 0.0, 0.01),
+                             (5.0, 0.04, 0.0)):
+            with self.assertRaises(ErrorHidrologia):
+                m14.profundidad_normal(caudal, n, 10.0, 2.0, s)
+
+
+class PruebaParametrosMuskingum(unittest.TestCase):
+    """
+    MUSKINGUM PIDE K Y X y la tabla del informe solo traia K. Sin X la
+    parametrizacion no esta definida.
+    """
+
+    def _calcular(self, longitud=1000.0, celeridad=None):
+        return m14.parametros_muskingum(
+            8.0, 0.04, 10.0, 2.0, 0.01, longitud, celeridad)
+
+    def test_la_k_es_la_longitud_sobre_la_celeridad(self) -> None:
+        ficha = self._calcular(celeridad=2.0)
+        self.assertAlmostEqual(ficha["k_s"], 500.0)
+        self.assertAlmostEqual(ficha["k_min"], 8.33, places=2)
+
+    def test_sin_celeridad_declarada_se_deriva_de_la_hidraulica(self) -> None:
+        ficha = self._calcular()
+        self.assertAlmostEqual(
+            ficha["celeridad_ms"], 5.0 / 3.0 * ficha["velocidad_ms"], places=2)
+        self.assertIn("velocidad", ficha["celeridad_origen"])
+
+    def test_la_celeridad_declarada_manda(self) -> None:
+        self.assertEqual(self._calcular(celeridad=1.5)["celeridad_ms"], 1.5)
+        self.assertEqual(
+            self._calcular(celeridad=1.5)["celeridad_origen"], "declarada")
+
+    def test_x_queda_dentro_del_rango_fisico(self) -> None:
+        for longitud in (50.0, 500.0, 5000.0):
+            ficha = self._calcular(longitud=longitud)
+            self.assertGreaterEqual(ficha["x"], 0.0)
+            self.assertLessEqual(ficha["x"], 0.5)
+
+    def test_un_tramo_corto_da_x_negativo_y_se_recorta_diciendolo(self) -> None:
+        # No significa un cauce raro: significa que el tramo es demasiado largo
+        # para un solo elemento a ese caudal. HEC-HMS rechazaria el crudo.
+        ficha = self._calcular(longitud=5.0)
+        self.assertEqual(ficha["x"], 0.0)
+        self.assertTrue(ficha["x_recortado"])
+        self.assertLess(ficha["x_crudo"], 0.0)
+
+    def test_el_ancho_superior_es_mayor_que_el_de_fondo(self) -> None:
+        ficha = self._calcular()
+        self.assertGreater(ficha["ancho_superior_m"], 10.0)
+
+    def test_una_longitud_nula_es_error(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            self._calcular(longitud=0.0)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1189,7 +1189,15 @@ hec_hms:
     metodos: [muskingum, muskingum_cunge]
     metodo_adoptado: "muskingum_cunge"
     muskingum:
+      # Celeridad de la onda. null = se deriva de la hidraulica del tramo
+      # como 5/3 de la velocidad media, que es la aproximacion de canal
+      # ancho; un numero aqui la fija igual en todos los tramos.
       celeridad_ms: null
+      # EN QUE CAUDAL SE LINEALIZA. Muskingum es de parametros constantes,
+      # de modo que K y X dependen del caudal en que se ajusten. 2.33 anios
+      # es la creciente media anual, proxima a banca llena, que es el
+      # criterio habitual. Cambiarlo cambia K y X de toda la red.
+      caudal_referencia_tr: "2.33"
     muskingum_cunge:
       forma_seccion: "trapezoidal"
       n_manning: 0.04           # cauce natural; lo declara el consultor

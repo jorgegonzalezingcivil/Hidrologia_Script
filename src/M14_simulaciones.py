@@ -57,6 +57,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import re
 import sys
 import time
@@ -756,6 +757,274 @@ def _escribir_tablas(configuracion, base, resultado, logger) -> None:
     resultado.productos.append(rutas.relativa(ruta, base))
     logger.info("%d elemento(s) en la tabla de caudales, %d periodo(s)",
                 len(anchas), len(periodos))
+
+    _completar_transito(configuracion, base, resultado,
+                        delimitador, logger)
+
+
+
+# =============================================================================
+# Parametros de Muskingum, que completan la tabla de transito del M13
+# =============================================================================
+def profundidad_normal(caudal_m3s: float, n_manning: float, ancho_fondo_m: float,
+                       talud_h_por_v: float, pendiente: float,
+                       tolerancia_m: float = 1e-4) -> float:
+    """
+    Calado normal de una seccion trapezoidal para un caudal, por Manning.
+
+    Q = (1/n) * A * R^(2/3) * S^(1/2), con A = (b + z*y)*y y el perimetro
+    mojado P = b + 2*y*sqrt(1 + z^2).
+
+    NO TIENE SOLUCION CERRADA y se resuelve por biseccion, que converge siempre
+    porque el caudal crece de forma monotona con el calado. Se acota primero
+    duplicando el limite superior hasta pasarse: fijar un maximo a ojo dejaria
+    sin solucion los tramos de cierre, que son los de mas caudal.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si alguna magnitud impide el calculo.
+    """
+    if caudal_m3s <= 0 or n_manning <= 0 or pendiente <= 0:
+        raise ErrorHidrologia(
+            f"caudal ({caudal_m3s} m3/s), n de Manning ({n_manning}) y "
+            f"pendiente ({pendiente}) deben ser positivos.")
+    if ancho_fondo_m < 0 or talud_h_por_v < 0:
+        raise ErrorHidrologia(
+            f"ancho de fondo ({ancho_fondo_m} m) y talud ({talud_h_por_v}) no "
+            "pueden ser negativos.")
+
+    def caudal_de(y: float) -> float:
+        area = (ancho_fondo_m + talud_h_por_v * y) * y
+        perimetro = ancho_fondo_m + 2.0 * y * math.sqrt(
+            1.0 + talud_h_por_v ** 2)
+        if area <= 0 or perimetro <= 0:
+            return 0.0
+        return (area * (area / perimetro) ** (2.0 / 3.0)
+                * math.sqrt(pendiente) / n_manning)
+
+    alto = 1.0
+    for _ in range(60):
+        if caudal_de(alto) >= caudal_m3s:
+            break
+        alto *= 2.0
+    else:
+        raise ErrorHidrologia(
+            f"no se alcanza {caudal_m3s} m3/s ni con {alto:.0f} m de calado: "
+            "revisar la seccion y la pendiente del tramo.")
+
+    bajo = 0.0
+    while alto - bajo > tolerancia_m:
+        medio = 0.5 * (bajo + alto)
+        if caudal_de(medio) < caudal_m3s:
+            bajo = medio
+        else:
+            alto = medio
+    return 0.5 * (bajo + alto)
+
+
+def parametros_muskingum(
+    caudal_m3s: float, n_manning: float, ancho_fondo_m: float,
+    talud_h_por_v: float, pendiente: float, longitud_m: float,
+    celeridad_declarada: float | None = None,
+) -> dict[str, Any]:
+    """
+    K y X de Muskingum de un tramo, linealizados por Cunge.
+
+    MUSKINGUM PIDE K Y X, y la tabla del informe solo traia K. Sin X la
+    parametrizacion no esta definida: con X = 0 el tramo se comporta como un
+    embalse de nivel horizontal y con X = 0,5 traslada la onda sin atenuarla.
+
+        K = L / c
+        X = 0,5 * (1 - Q / (B * S0 * c * L))
+
+    con B el ancho superficial y c la celeridad de la onda cinematica. Se
+    adopta c = (5/3) * V, la aproximacion de canal ancho: para una seccion
+    trapezoidal el valor exacto de dQ/dA difiere, y la diferencia es menor que
+    la incertidumbre del n de Manning y del ancho de fondo, que aqui vienen de
+    una regionalizacion y no de secciones levantadas.
+
+    SE LINEALIZA EN UN CAUDAL DE REFERENCIA, no en el de cada evento. Muskingum
+    es un metodo de parametros constantes: esa es justamente su limitacion
+    frente a Muskingum-Cunge, que rehace K y X en cada paso.
+
+    X SE RECORTA A [0, 0,5] Y SE DICE. Un X negativo no significa un cauce raro:
+    significa que el tramo es demasiado largo para un solo elemento a ese
+    caudal, y HEC-HMS lo rechazaria. Se recorta a cero, que es el limite fisico,
+    y se marca para que el informe pueda explicarlo.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si alguna magnitud impide el calculo.
+    """
+    if longitud_m <= 0:
+        raise ErrorHidrologia(
+            f"la longitud del tramo ({longitud_m} m) debe ser positiva.")
+
+    calado = profundidad_normal(caudal_m3s, n_manning, ancho_fondo_m,
+                                talud_h_por_v, pendiente)
+    area = (ancho_fondo_m + talud_h_por_v * calado) * calado
+    ancho_superior = ancho_fondo_m + 2.0 * talud_h_por_v * calado
+    velocidad = caudal_m3s / area if area > 0 else 0.0
+    celeridad = (float(celeridad_declarada) if celeridad_declarada
+                 else 5.0 / 3.0 * velocidad)
+    if celeridad <= 0:
+        raise ErrorHidrologia(
+            "la celeridad resulto nula: sin ella no hay K de Muskingum.")
+
+    denominador = ancho_superior * pendiente * celeridad * longitud_m
+    crudo = 0.5 * (1.0 - caudal_m3s / denominador) if denominador > 0 else 0.0
+    x = min(0.5, max(0.0, crudo))
+    return {
+        "caudal_ref_m3s": round(caudal_m3s, 3),
+        "calado_normal_m": round(calado, 3),
+        "area_m2": round(area, 3),
+        "ancho_superior_m": round(ancho_superior, 2),
+        "velocidad_ms": round(velocidad, 3),
+        "celeridad_ms": round(celeridad, 3),
+        "celeridad_origen": ("declarada" if celeridad_declarada
+                             else "5/3 de la velocidad media"),
+        "k_s": round(longitud_m / celeridad, 1),
+        "k_min": round(longitud_m / celeridad / 60.0, 2),
+        "k_h": round(longitud_m / celeridad / 3600.0, 3),
+        "x": round(x, 4),
+        "x_crudo": round(crudo, 4),
+        "x_recortado": abs(crudo - x) > 1e-9,
+    }
+
+
+def _completar_transito(configuracion, base, resultado, delimitador,
+                        logger) -> None:
+    """
+    Anade a la tabla de transito del M13 los parametros de Muskingum.
+
+    SE COMPLETA AQUI Y NO EN EL M13 porque hace falta el caudal de referencia y
+    ese lo produce la simulacion, que corre despues. Cada modulo escribe lo que
+    sabe: el M13 la geometria del tramo y este los parametros que la
+    linealizacion necesita.
+
+    EL MODELO CORRE MUSKINGUM-CUNGE Y LA TABLA ES DE MUSKINGUM. No es lo mismo:
+    Muskingum-Cunge no toma K ni X como entrada, los rehace en cada subtramo y
+    cada paso de tiempo a partir de la hidraulica. Los K y X que aqui se
+    escriben son la PARAMETRIZACION EQUIVALENTE de parametros constantes, que
+    CLAUDE.md pide calcular tambien, y el informe debe presentarlos como la
+    alternativa y no como lo que produjo los caudales.
+    """
+    ruta = rutas.directorio("procesado", base) / "hidrologia" / "transito.csv"
+    if not ruta.is_file():
+        return
+
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        filas = list(csv.DictReader(manejador, delimiter=delimitador))
+    if not filas:
+        return
+
+    tr_referencia = str(configuracion.obtener(
+        "hec_hms.transito.muskingum.caudal_referencia_tr", "2.33"))
+    declarada = configuracion.obtener(
+        "hec_hms.transito.muskingum.celeridad_ms", None)
+    n_manning = float(configuracion.obtener(
+        "hec_hms.transito.muskingum_cunge.n_manning"))
+    talud = float(configuracion.obtener(
+        "hec_hms.transito.muskingum_cunge.talud_h_por_v"))
+
+    picos: dict[str, float] = {}
+    for fila in resultado.resultados:
+        if str(fila.get("periodo_retorno")) == tr_referencia:
+            try:
+                picos[str(fila["elemento"])] = float(fila["qmax_m3s"])
+            except (KeyError, TypeError, ValueError):
+                continue
+    if not picos:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "transito.sin_caudal_referencia",
+            f"no hay resultados para Tr = {tr_referencia} anios: los "
+            "parametros de Muskingum de la tabla de transito quedan sin "
+            "calcular. Se declara en "
+            "hec_hms.transito.muskingum.caudal_referencia_tr.",
+        ))
+        return
+
+    sin_pico, recortados, fallidos = [], [], []
+    for fila in filas:
+        tramo = str(fila.get("tramo", ""))
+        caudal = picos.get(tramo)
+        if caudal is None:
+            sin_pico.append(tramo)
+            continue
+        try:
+            parametros = parametros_muskingum(
+                caudal, n_manning, float(fila["ancho_fondo_m"]), talud,
+                float(fila["pendiente_pct"]) / 100.0,
+                float(fila["longitud_m"]),
+                float(declarada) if declarada else None)
+        except (ErrorHidrologia, KeyError, TypeError, ValueError) as error:
+            fallidos.append(f"{tramo} ({error})")
+            continue
+        if parametros["x_recortado"]:
+            recortados.append(tramo)
+        fila["n_manning"] = n_manning
+        fila["talud_h_por_v"] = talud
+        fila.update(parametros)
+
+    campos: list[str] = []
+    for fila in filas:
+        for clave in fila:
+            if clave not in campos:
+                campos.append(clave)
+    with ruta.open("w", encoding="utf-8-sig", newline="") as manejador:
+        escritor = csv.DictWriter(manejador, fieldnames=campos,
+                                  delimiter=delimitador, restval="")
+        escritor.writeheader()
+        escritor.writerows(filas)
+    logger.info("Parametros de Muskingum en %d de %d tramo(s), Tr = %s",
+                len(filas) - len(sin_pico) - len(fallidos), len(filas),
+                tr_referencia)
+
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "transito.muskingum",
+        f"la tabla de transito lleva K y X de Muskingum linealizados en el "
+        f"pico de Tr = {tr_referencia} anios. EL MODELO NO LOS USA: corre "
+        f"Muskingum-Cunge, que rehace K y X en cada subtramo y cada paso de "
+        f"tiempo a partir de la hidraulica. Son la parametrizacion "
+        f"equivalente de parametros constantes, que CLAUDE.md pide calcular "
+        f"tambien, y el informe debe presentarlos como la alternativa.",
+    ))
+    equis = sorted(f["x"] for f in filas if isinstance(f.get("x"), float))
+    if equis:
+        mediana = equis[len(equis) // 2]
+        altos = sum(1 for v in equis if v >= 0.45)
+        if altos > len(equis) // 2:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "transito.x_sin_atenuacion",
+                f"X mediano {mediana:.3f}, con {altos} de {len(equis)} "
+                f"tramo(s) por encima de 0,45: con estos parametros Muskingum "
+                f"TRASLADARIA la onda casi sin atenuarla, porque X = 0,5 es el "
+                f"limite de traslacion pura. No es un error de calculo sino la "
+                f"consecuencia de la geometria disponible: el ancho de fondo "
+                f"viene de una regionalizacion y da cauces anchos y someros, "
+                f"que almacenan poco. Refuerza que el metodo adoptado sea "
+                f"Muskingum-Cunge, que rehace la atenuacion en cada subtramo. "
+                f"Con secciones levantadas del proyecto, esta tabla cambia.",
+            ))
+
+    if recortados:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "transito.x_recortado",
+            f"{len(recortados)} tramo(s) dan X negativo por Cunge y se "
+            f"recorto a cero: {sorted(recortados)[:8]}. NO significa un cauce "
+            "raro sino que el tramo es demasiado largo para un solo elemento a "
+            "ese caudal, y HEC-HMS rechazaria el valor crudo. Queda en "
+            "'x_crudo' del CSV. Muskingum-Cunge no tiene este problema porque "
+            "subdivide el tramo por su cuenta.",
+        ))
+    if fallidos:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "transito.sin_muskingum",
+            f"{len(fallidos)} tramo(s) sin parametros de Muskingum: "
+            f"{fallidos[:5]}.",
+        ))
 
 
 def _periodos_en_orden(resultado) -> list[str]:

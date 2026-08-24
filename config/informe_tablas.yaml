@@ -317,12 +317,38 @@ tablas:
     leyenda: "Datos tránsito crecientes microcuencas"
     fuente: "data/02_procesado/hidrologia/transito.csv"
     encabezados: 1
-    # La primera columna se titula 'Transito' y lleva el nombre del tramo del
-    # modelo. La celeridad es la que se declara como indice de Muskingum-Cunge
-    # en la configuracion, no una medida del cauce: el informe la presenta como
-    # asumida, que es lo que dice el encabezado.
+    # LA TABLA MEZCLABA DOS METODOS. Traia K de Muskingum y el modelo corre
+    # Muskingum-Cunge, que NO toma K ni X como entrada: los rehace en cada
+    # subtramo y cada paso de tiempo a partir de la hidraulica. Se ensancha
+    # para llevar las dos parametrizaciones, que es lo que CLAUDE.md pide con
+    # "ambos calculados", y el informe debe decir cual produjo los caudales.
+    #
+    # Muskingum va linealizado en el pico de Tr = 2,33 anios (creciente media
+    # anual, proxima a banca llena) por la expresion de Cunge. Es de parametros
+    # constantes: esa es su limitacion frente a Muskingum-Cunge.
+    crecer_columnas: true
+    titulos:
+      - "Tránsito"
+      - "Microcuenca"
+      - "Longitud (m)"
+      - "Longitud (km)"
+      - "Pendiente cauce (%)"
+      - "n de Manning"
+      - "Ancho de fondo (m)"
+      - "Talud (H:V)"
+      - "Caudal de referencia (m³/s)"
+      - "Calado normal (m)"
+      - "Ancho superficial (m)"
+      - "Velocidad media (m/s)"
+      - "Celeridad (m/s)"
+      - "K (s)"
+      - "K (min)"
+      - "K (h)"
+      - "X"
     columnas: [tramo, microcuenca, longitud_m, longitud_km, pendiente_pct,
-               celeridad_ms, k_s, k_min, k_h]
+               n_manning, ancho_fondo_m, talud_h_por_v, caudal_ref_m3s,
+               calado_normal_m, ancho_superior_m, velocidad_ms, celeridad_ms,
+               k_s, k_min, k_h, x]
 
   - numero: "5-12"
     leyenda: "Qmax Vs. Periodo de Retorno"

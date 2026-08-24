@@ -340,12 +340,22 @@ class PruebaAnchoDeclarado(unittest.TestCase):
                 ancho = 1 + len(matriz.get("orden") or [])
             else:
                 ancho = len(entrada.get("columnas") or [])
-            if matriz and matriz.get("crecer_columnas"):
+            if (matriz or entrada).get("crecer_columnas"):
                 # La tabla se ensancha al llenarla: la plantilla viene
                 # dimensionada para cuatro microcuencas. Crecer no es encoger.
                 self.assertGreaterEqual(ancho, len(tabla.columns), clave)
             else:
                 self.assertEqual(ancho, len(tabla.columns), clave)
+
+    def test_la_que_se_ensancha_declara_sus_titulos(self) -> None:
+        # Una columna anadida sale sin titulo, y una tabla con titulos en
+        # blanco no se entiende. En modo matriz los titulos son el 'orden'.
+        for clave, entrada in self.declaracion.items():
+            if not entrada.get("crecer_columnas"):
+                continue
+            titulos = entrada.get("titulos") or []
+            self.assertEqual(len(titulos), len(entrada.get("columnas") or []),
+                             clave)
 
     def test_los_encabezados_dejan_al_menos_una_fila_de_datos(self) -> None:
         for clave, entrada in self.declaracion.items():

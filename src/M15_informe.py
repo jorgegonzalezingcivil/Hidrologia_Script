@@ -591,7 +591,7 @@ def llenar_matriz(tabla, filas: Sequence[dict[str, str]],
 
 def llenar_tabla(tabla, filas: Sequence[dict[str, str]],
                  columnas: Sequence[str], encabezados: int,
-                 decimales: int = 2, sustituciones=()) -> dict[str, Any]:
+                 decimales: int = 2, sustituciones=(), titulos=()) -> dict[str, Any]:
     """
     Reemplaza los datos de la tabla conservando sus filas de encabezado.
 
@@ -609,6 +609,16 @@ def llenar_tabla(tabla, filas: Sequence[dict[str, str]],
         raise ErrorFormato(
             f"la tabla declara {encabezados} fila(s) de encabezado y solo tiene "
             f"{len(tabla.rows)}: no queda ninguna de datos que rellenar.")
+
+    if titulos:
+        # LA TABLA SE ENSANCHA Y LAS COLUMNAS NUEVAS SALEN SIN TITULO. Se
+        # escribe la ULTIMA fila de encabezado, que es la que nombra las
+        # columnas; las de arriba, si las hay, son el rotulo combinado.
+        anadir_columnas(tabla, len(columnas))
+        celdas_titulo = tabla.rows[encabezados - 1].cells
+        for posicion, titulo in enumerate(titulos):
+            if posicion < len(celdas_titulo):
+                _fijar_texto(celdas_titulo[posicion], str(titulo))
 
     modelo = tabla.rows[encabezados]._tr
     while len(tabla.rows) - encabezados < len(filas):
@@ -823,7 +833,7 @@ def _resolver_tabla(cuerpo, posicion, tablas, parrafos, numero, declaracion,
             str(v) for v in matriz.get("orden") or []]
     else:
         columnas = [str(c) for c in entrada.get("columnas") or []]
-    crece = bool(matriz and matriz.get("crecer_columnas"))
+    crece = bool((matriz or entrada).get("crecer_columnas"))
     if len(columnas) != len(tabla.columns) and not crece:
         resultado.tablas_sin_fuente.append(
             f"{leyenda or numero}: se declararon {len(columnas)} columna(s) y "
@@ -860,7 +870,8 @@ def _resolver_tabla(cuerpo, posicion, tablas, parrafos, numero, declaracion,
         else:
             detalle = llenar_tabla(tabla, filas, columnas,
                                    int(entrada.get("encabezados", 1)),
-                                   decimales, sustituciones)
+                                   decimales, sustituciones,
+                                   entrada.get("titulos") or ())
     except (ErrorRutas, ErrorFormato, KeyError, ValueError) as error:
         resultado.tablas_sin_fuente.append(f"{leyenda or numero} ({error})")
         return
