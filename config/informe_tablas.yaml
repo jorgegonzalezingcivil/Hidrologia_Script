@@ -230,6 +230,17 @@ tablas:
       valor: caudal_budyko_m3s
       orden: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
+  - numero: "5-10"
+    leyenda: "Datos tránsito crecientes microcuencas"
+    fuente: "data/02_procesado/hidrologia/transito.csv"
+    encabezados: 1
+    # La primera columna se titula 'Transito' y lleva el nombre del tramo del
+    # modelo. La celeridad es la que se declara como indice de Muskingum-Cunge
+    # en la configuracion, no una medida del cauce: el informe la presenta como
+    # asumida, que es lo que dice el encabezado.
+    columnas: [tramo, microcuenca, longitud_m, longitud_km, pendiente_pct,
+               celeridad_ms, k_s, k_min, k_h]
+
   - numero: "5-12"
     leyenda: "Qmax Vs. Periodo de Retorno"
     fuente: "data/02_procesado/hidrologia/qmax_por_periodo.csv"

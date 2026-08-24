@@ -328,5 +328,58 @@ class PruebaConfiguracion(unittest.TestCase):
         self.assertLess(float(n), 0.2)
 
 
+
+class PruebaParametrosDeTransito(unittest.TestCase):
+    """
+    La K de Muskingum que el informe tabula. HEC-HMS la resuelve dentro de
+    Muskingum-Cunge y hasta ahora solo existia en el archivo del modelo.
+    """
+
+    def setUp(self) -> None:
+        self.tipo = {"SB1": "Subbasin", "SB2": "Subbasin", "J1": "Junction",
+                     "R1": "Reach", "J2": "Junction", "R2": "Reach",
+                     "Sink-1": "Sink"}
+        self.aguas_abajo = {"SB1": "J1", "SB2": "J1", "J1": "R1",
+                            "R1": "J2", "J2": "R2", "R2": "Sink-1"}
+        self.geometrias = {"R1": {"longitud_m": 1800.0, "pendiente": 0.0087},
+                           "R2": {"longitud_m": 600.0, "pendiente": 0.0054}}
+
+    def _filas(self):
+        return {f["tramo"]: f for f in m13.parametros_de_transito(
+            self.geometrias, self.aguas_abajo, self.tipo, {}, 1.0)}
+
+    def test_la_k_es_la_longitud_sobre_la_celeridad(self) -> None:
+        fila = self._filas()["R1"]
+        self.assertAlmostEqual(fila["k_s"], 1800.0)
+        self.assertAlmostEqual(fila["k_min"], 30.0)
+        self.assertAlmostEqual(fila["k_h"], 0.5)
+
+    def test_la_subcuenca_llega_al_tramo_a_traves_de_la_union(self) -> None:
+        # Ninguna subcuenca vierte directamente a un tramo: todas pasan por una
+        # union. Buscando solo los vecinos inmediatos, los 125 tramos del
+        # estudio salian sin microcuenca.
+        self.assertEqual(self._filas()["R1"]["microcuenca"], "SB1+SB2")
+
+    def test_el_tramo_recibe_solo_las_suyas_y_no_las_de_aguas_arriba(self) -> None:
+        # R2 recibe el caudal YA transitado por R1: adjudicarle SB1 y SB2
+        # contaria dos veces las mismas subcuencas.
+        self.assertEqual(self._filas()["R2"]["microcuenca"], "")
+
+    def test_la_pendiente_va_en_por_ciento(self) -> None:
+        # La geometria la trae en m/m, que es lo que Muskingum-Cunge pide, y el
+        # encabezado del informe dice 'Pendiente Cauce (%)'.
+        self.assertAlmostEqual(self._filas()["R1"]["pendiente_pct"], 0.87)
+
+    def test_lo_que_no_es_un_tramo_no_entra(self) -> None:
+        # La geometria se lee del sqlite del proyecto, que trae tambien los
+        # nombres de las subcuencas: 63 de las 125 entradas no son tramos.
+        self.geometrias["SB1"] = {"longitud_m": 100.0, "pendiente": 0.01}
+        self.assertNotIn("SB1", self._filas())
+
+    def test_sin_celeridad_no_se_inventa_una_k(self) -> None:
+        filas = m13.parametros_de_transito(
+            self.geometrias, self.aguas_abajo, self.tipo, {}, 0.0)
+        self.assertIsNone(filas[0]["k_s"])
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

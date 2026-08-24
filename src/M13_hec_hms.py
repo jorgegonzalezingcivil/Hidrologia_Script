@@ -360,21 +360,15 @@ def actualizar_subcuenca(bloque: str, parametros: dict) -> tuple[str, str]:
     return bloque, ""
 
 
-def areas_acumuladas(texto_basin: str) -> dict[str, float]:
+def topologia_del_basin(
+    texto_basin: str,
+) -> tuple[dict[str, str], dict[str, str], dict[str, float]]:
     """
-    Área de drenaje que llega a cada elemento, recorriendo la topología.
+    Tipo, enlace aguas abajo y area propia de cada elemento del modelo.
 
-    Cada subcuenca vierte su área a TODO lo que tiene aguas abajo, siguiendo la
-    cadena de enlaces 'Downstream:' hasta el cierre. Es la misma información que
-    produjo la delimitación asistida, sin volver a tocar el DEM.
-
-    LA SUMA EN EL CIERRE ES LA COMPROBACIÓN. Si el elemento final no acumula el
-    área total de la cuenca, la topología tiene ramas sueltas y el ancho de los
-    tramos saldría de un área que no es la suya. Medido sobre el modelo del
-    estudio: R1 acumula 220,57 km2 y la cuenca tiene 220,57 km2.
-
-    El recorrido lleva control de visitados: un enlace circular, que la
-    delimitación no debería producir pero tampoco impide, colgaría el módulo.
+    SE LEE UNA VEZ Y SIRVE PARA DOS COSAS: el area acumulada con que se
+    dimensiona el ancho de los tramos, y la microcuenca que descarga en cada
+    tramo, que el informe tabula junto a la K de Muskingum.
     """
     tipo: dict[str, str] = {}
     aguas_abajo: dict[str, str] = {}
@@ -400,6 +394,26 @@ def areas_acumuladas(texto_basin: str) -> dict[str, float]:
                 area[nombre] = float(medida.group(1))
             except ValueError:
                 pass
+    return tipo, aguas_abajo, area
+
+
+def areas_acumuladas(texto_basin: str) -> dict[str, float]:
+    """
+    Área de drenaje que llega a cada elemento, recorriendo la topología.
+
+    Cada subcuenca vierte su área a TODO lo que tiene aguas abajo, siguiendo la
+    cadena de enlaces 'Downstream:' hasta el cierre. Es la misma información que
+    produjo la delimitación asistida, sin volver a tocar el DEM.
+
+    LA SUMA EN EL CIERRE ES LA COMPROBACIÓN. Si el elemento final no acumula el
+    área total de la cuenca, la topología tiene ramas sueltas y el ancho de los
+    tramos saldría de un área que no es la suya. Medido sobre el modelo del
+    estudio: R1 acumula 220,57 km2 y la cuenca tiene 220,57 km2.
+
+    El recorrido lleva control de visitados: un enlace circular, que la
+    delimitación no debería producir pero tampoco impide, colgaría el módulo.
+    """
+    tipo, aguas_abajo, area = topologia_del_basin(texto_basin)
 
     acumulada = {n: 0.0 for n in tipo}
     for subcuenca, propia in area.items():
@@ -470,6 +484,74 @@ def leer_geometria_hidraulica(ruta: Path, delimitador: str,
                     f"{ruta.name}: la fila de {variable!r} no es legible "
                     f"({exc}).") from exc
     raise ErrorFormato(f"{ruta.name} no trae la variable {variable!r}.")
+
+
+def parametros_de_transito(geometrias: dict[str, dict],
+                           aguas_abajo: dict[str, str],
+                           tipo: dict[str, str], anchos: dict[str, float],
+                           celeridad: float) -> list[dict[str, Any]]:
+    """
+    K de Muskingum por tramo, con lo que la sostiene.
+
+    SE PERSISTE PORQUE EL INFORME LA TABULA. HEC-HMS calcula el tránsito por
+    Muskingum-Cunge y resuelve K dentro; el consultor tiene que presentar el
+    parámetro y de qué sale, y hasta ahora solo existía dentro del archivo del
+    modelo.
+
+    K ES EL TIEMPO DE VIAJE, longitud sobre celeridad. La celeridad es la que se
+    declara como índice en la configuración y NO una medida del cauce: se
+    reporta como asumida, que es lo que el informe debe decir.
+
+    LA MICROCUENCA ES LA QUE DESCARGA EN EL TRAMO, leída de la topología del
+    propio modelo. NO son los elementos cuyo 'Downstream' es el tramo: en este
+    modelo ninguna subcuenca vierte directamente a un tramo, todas pasan por
+    una unión, y con esa lectura los 125 tramos salían sin microcuenca. Se
+    sigue la cadena desde cada subcuenca y se le adjudica el PRIMER tramo que
+    encuentra: el que transita su caudal sin haberlo mezclado con el de otro
+    tramo. Si son varias se nombran todas; adjudicar una sola sería inventar el
+    reparto.
+    """
+    entrantes: dict[str, list[str]] = {}
+    for elemento in aguas_abajo:
+        if tipo.get(elemento) != "Subbasin":
+            continue
+        actual = aguas_abajo.get(elemento, "")
+        visitados: set[str] = set()
+        while actual and actual not in visitados:
+            visitados.add(actual)
+            if tipo.get(actual) == "Reach":
+                entrantes.setdefault(actual, []).append(elemento)
+                break
+            actual = aguas_abajo.get(actual, "")
+
+    filas: list[dict[str, Any]] = []
+    for tramo in sorted(geometrias):
+        # SOLO LOS TRAMOS DEL MODELO. La geometria se lee del sqlite del
+        # proyecto, que trae 125 entradas incluyendo los nombres de las
+        # subcuencas; los tramos que HEC-HMS transita son 62. Sin este filtro la
+        # tabla del informe listaba 63 filas que no son tramos.
+        if tipo.get(tramo) != "Reach":
+            continue
+        geometria = geometrias[tramo]
+        longitud_m = float(geometria.get("longitud_m") or 0.0)
+        pendiente = float(geometria.get("pendiente") or 0.0)
+        k_s = longitud_m / celeridad if celeridad > 0 else None
+        filas.append({
+            "tramo": tramo,
+            "microcuenca": "+".join(sorted(entrantes.get(tramo, []))),
+            "longitud_m": round(longitud_m, 2),
+            "longitud_km": round(longitud_m / 1000.0, 3),
+            # LA PENDIENTE EN POR CIENTO, que es como la titula el informe. La
+            # geometria la trae en m/m, que es lo que Muskingum-Cunge pide.
+            "pendiente_pct": round(pendiente * 100.0, 3),
+            "ancho_fondo_m": (round(anchos[tramo], 2)
+                              if tramo in anchos else None),
+            "celeridad_ms": round(celeridad, 2),
+            "k_s": round(k_s, 1) if k_s is not None else None,
+            "k_min": round(k_s / 60.0, 2) if k_s is not None else None,
+            "k_h": round(k_s / 3600.0, 3) if k_s is not None else None,
+        })
+    return filas
 
 
 def actualizar_tramo(bloque: str, geometria: dict, n_manning: float,
@@ -881,6 +963,36 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
                         "anchos": {n: round(a, 2) for n, a in sorted(anchos.items())}}
     logger.info("%d subcuenca(s) y %d tramo(s) actualizados",
                 actualizadas, tramos_ok)
+
+    # LA K DE MUSKINGUM SE PERSISTE PORQUE EL INFORME LA TABULA. HEC-HMS la
+    # resuelve dentro de Muskingum-Cunge y hasta ahora solo existia en el
+    # archivo del modelo, de donde no se puede citar.
+    if base is not None and geometrias:
+        tipo, aguas_abajo, _area = topologia_del_basin(texto)
+        filas = parametros_de_transito(
+            geometrias, aguas_abajo, tipo, anchos, celeridad)
+        destino = (rutas.directorio("procesado", base, crear=True)
+                   / "hidrologia")
+        destino.mkdir(parents=True, exist_ok=True)
+        destino = destino / "transito.csv"
+        delimitador = configuracion.obtener(
+            "insumos_usuario.delimitador_csv", ";")
+        with destino.open("w", encoding="utf-8-sig", newline="") as manejador:
+            escritor = csv.DictWriter(manejador, fieldnames=list(filas[0]),
+                                      delimiter=delimitador, restval="")
+            escritor.writeheader()
+            escritor.writerows(filas)
+        resultado.productos.append(rutas.relativa(destino, base))
+        sin_microcuenca = sum(1 for f in filas if not f["microcuenca"])
+        if sin_microcuenca:
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "transito.sin_microcuenca",
+                f"{sin_microcuenca} de {len(filas)} tramo(s) no reciben "
+                "ninguna subcuenca directamente: reciben el caudal ya "
+                "transitado de aguas arriba. Su celda de microcuenca va vacia, "
+                "que es lo que corresponde, y no el nombre de una subcuenca "
+                "lejana.",
+            ))
 
     if relacion is not None and anchos:
         valores = sorted(anchos.values())
