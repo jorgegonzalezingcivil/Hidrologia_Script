@@ -1464,6 +1464,11 @@ informe:
   # LA PLANTILLA ES EL DOCUMENTO DEL CONSULTOR, saneado. Lleva sus estilos, sus
   # 92 referencias cruzadas, sus 152 leyendas numeradas por campo y sus
   # instrucciones marcadas en verde. El M15 la EDITA y no la reconstruye.
+  # LA FUENTE DE VERDAD, y esta versionada. No es una copia derivada del
+  # archivo del consultor: lleva consolidadas las correcciones de nombres de
+  # figura, los encabezados arreglados y la teoria general. Regenerarla con
+  # docx_plantilla.sanear_paquete borraria todo eso; ese saneado es solo para
+  # importar una plantilla NUEVA.
   plantilla_base: "templates/informe_base.docx"
   # Que fuente alimenta cada tabla del informe.
   tablas: "config/informe_tablas.yaml"

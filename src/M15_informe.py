@@ -875,6 +875,15 @@ def _resolver_tabla(cuerpo, posicion, tablas, parrafos, numero, declaracion,
     except (ErrorRutas, ErrorFormato, KeyError, ValueError) as error:
         resultado.tablas_sin_fuente.append(f"{leyenda or numero} ({error})")
         return
+    # LA INSTRUCCION SE BORRA DEL INFORME, NUNCA DE LA PLANTILLA. Va marcada en
+    # verde y el consultor la usa para saber que falta; una vez la tabla lleva
+    # los datos del estudio, dejarla es dejar en el entregable una nota que
+    # dice que la tabla esta sin llenar. Con las figuras ya ocurria, porque la
+    # imagen sustituye al texto; las 27 de tabla sobrevivian.
+    instruccion = parrafos.get(cuerpo[posicion])
+    if instruccion is not None:
+        instruccion._element.getparent().remove(instruccion._element)
+
     detalle["numero"] = numero
     detalle["leyenda"] = leyenda
     detalle["fuente"] = str(entrada["fuente"])

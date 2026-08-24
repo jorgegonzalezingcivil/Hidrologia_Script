@@ -206,8 +206,13 @@ class PruebaCorrecciones(unittest.TestCase):
         self.correcciones = m15.leer_correcciones(
             _RAIZ_REPO / "config" / "informe_correcciones.yaml")
 
-    def test_la_declaracion_del_repositorio_se_lee(self) -> None:
-        self.assertTrue(self.correcciones)
+    def test_estar_vacia_es_lo_esperado(self) -> None:
+        # Las dos correcciones que hubo estan CONSOLIDADAS EN LA PLANTILLA, por
+        # tools/consolidar_plantilla.py: el repositorio es la fuente de verdad y
+        # el defecto se arreglo en su sitio. El mecanismo se conserva para la
+        # proxima, y lo que se comprueba abajo es que si hay alguna declarada
+        # este completa y empareje con una sola instruccion.
+        self.assertIsInstance(self.correcciones, dict)
 
     def test_toda_correccion_declara_archivo_y_motivo(self) -> None:
         for clave, entrada in self.correcciones.items():
@@ -449,6 +454,50 @@ class PruebaEnsancharTabla(unittest.TestCase):
         m15.anadir_columnas(tabla, 14)
         cuadricula = tabla._tbl.find(qn("w:tblGrid"))
         self.assertEqual(len(cuadricula), 14)
+
+
+class PruebaPlantillaConsolidada(unittest.TestCase):
+    """
+    LOS DEFECTOS CORREGIDOS NO PUEDEN VOLVER. Se arreglaron dentro del documento
+    y un descuido al editarlo los devolveria en silencio: la tabla se llenaria
+    igual y solo se veria al leer el informe terminado.
+    """
+
+    def setUp(self) -> None:
+        self.plantilla = _RAIZ_REPO / "templates" / "informe_base.docx"
+        if not self.plantilla.is_file():
+            self.skipTest("la plantilla no esta en el repositorio")
+        import docx_plantilla as dp
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
+        self.documento = dp.abrir(self.plantilla)
+        self.parrafos = []
+        for hijo in self.documento.element.body.iterchildren():
+            if hijo.tag.endswith("}p"):
+                self.parrafos.append(Paragraph(hijo, self.documento))
+            elif hijo.tag.endswith("}tbl"):
+                for fila in Table(hijo, self.documento).rows:
+                    for celda in fila.cells:
+                        self.parrafos.extend(celda.paragraphs)
+
+    def test_ninguna_figura_se_pide_con_un_nombre_que_la_cadena_no_usa(self):
+        # La fase neutral del ENSO se llama 'neutral' en comun.oni; la
+        # plantilla pedia 'neutro.png' y esa figura quedaba sin poner.
+        for parrafo in self.parrafos:
+            self.assertNotIn("neutro.png", parrafo.text)
+
+    def test_cada_tabla_de_forma_titula_lo_que_muestra(self) -> None:
+        # Tres tablas llevaban por encabezado 'Coeficiente de forma'; solo una
+        # es de coeficiente de forma.
+        titulos = [c.text.strip() for t in self.documento.tables
+                   for c in t.rows[0].cells]
+        self.assertEqual(titulos.count("Coeficiente de forma"), 1)
+
+    def test_la_ventana_de_series_no_lleva_un_ano_fijo(self) -> None:
+        # Decia 1980-2023, del informe de referencia, y la cadena calcula hasta
+        # el ano del estudio.
+        for parrafo in self.parrafos:
+            self.assertNotIn("1980-2023", parrafo.text)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

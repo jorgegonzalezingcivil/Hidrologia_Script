@@ -41,23 +41,18 @@ texto:
       El catalogo entrega la entidad operadora con su razon social completa en
       las 44 estaciones del inventario, y el informe la nombra por su sigla.
 
-figuras:
-
-  - leyenda: "Áreas microcuencas"
-    pedia: "M10_areas_subcuencas.png"
-    archivo: "M10_mapa_areas.png"
-    motivo: >-
-      La instruccion pedia M10_areas_subcuencas.png, que es el grafico de
-      barras ya colocado en la ilustracion anterior, bajo la leyenda
-      "Distribucion Areas microcuencas". Esta corresponde al mapa de areas por
-      subcuenca.
-      Lleva 'pedia' porque la plantilla repite la leyenda "Areas microcuencas"
-      en tres instrucciones: esta y dos figuras de pendiente cuya leyenda
-      quedo mal copiada. Sin desempatar, la correccion sustituia las tres.
-
-  - leyenda: "Curva Hipsométrica"
-    pedia: "M10_areas_subcuencas.png"
-    archivo: "M10_curva_hipsometrica.png"
-    motivo: >-
-      La instruccion pedia M10_areas_subcuencas.png, el mismo grafico de barras
-      de areas, que no tiene relacion con la curva hipsometrica.
+# -----------------------------------------------------------------------------
+# CORRECCIONES DE FIGURA: NINGUNA PENDIENTE
+#
+# Las dos que hubo ("Areas microcuencas" pedia el grafico de barras en lugar
+# del mapa, y "Curva Hipsometrica" pedia ese mismo grafico) ESTAN APLICADAS EN
+# LA PLANTILLA, por tools/consolidar_plantilla.py. Ya no hacen falta aqui: el
+# repositorio es la fuente de verdad de templates/informe_base.docx y el
+# defecto se arreglo en su sitio.
+#
+# Esta seccion se conserva vacia porque el mecanismo sigue sirviendo: si
+# aparece otra instruccion equivocada y conviene corregirla sin tocar el
+# documento, se declara aqui. Recordar que la leyenda sola no identifica una
+# instruccion cuando la plantilla la repite; entonces hace falta 'pedia'.
+# -----------------------------------------------------------------------------
+figuras: []

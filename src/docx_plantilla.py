@@ -222,6 +222,12 @@ def sanear_paquete(origen: Path, destino: Path) -> dict[str, Any]:
     """
     Copia un .docx quitando las relaciones cuyo destino no existe en el paquete.
 
+    SOLO PARA IMPORTAR UNA PLANTILLA NUEVA. Desde que el repositorio es la
+    fuente de verdad de templates/informe_base.docx, ejecutar esto sobre la
+    plantilla en uso BORRARIA las correcciones consolidadas en ella: los
+    nombres de figura arreglados, los encabezados y la teoria escrita. Esos
+    cambios viven en el historial de git y no en el archivo de origen.
+
     POR QUE HACE FALTA. Word tolera una relacion colgada y python-docx no: se
     detiene con "There is no item named 'word/NULL' in the archive" y no hay
     forma de abrir el documento. La plantilla de este consultor trae una,
