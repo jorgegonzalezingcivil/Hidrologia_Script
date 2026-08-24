@@ -298,6 +298,7 @@ def ejecutar(
     ruta_config: Path | None = None,
     ruta_json: Path | None = None,
     ruta_plantilla: Path | None = None,
+    ruta_salida: Path | None = None,
     consola: bool = True,
 ) -> tuple[int, list[Hallazgo]]:
     """Resuelve figuras y tablas sobre la plantilla y escribe el informe."""
@@ -379,10 +380,24 @@ def ejecutar(
                     len(resultado.tablas_llenadas),
                     resultado.analisis_pendientes)
 
-    salida = rutas.directorio("resultados", base, crear=True) / str(
-        configuracion.obtener("informe.archivo"))
+    salida = (Path(ruta_salida) if ruta_salida is not None
+              else rutas.directorio("resultados", base, crear=True) / str(
+                  configuracion.obtener("informe.archivo")))
     salida.parent.mkdir(parents=True, exist_ok=True)
-    documento.save(str(salida))
+    try:
+        documento.save(str(salida))
+    except PermissionError:
+        # WORD BLOQUEA EL ARCHIVO MIENTRAS LO TIENE ABIERTO. Sin este aviso, el
+        # modulo muere con una traza de la libreria que no dice que hay que
+        # cerrar el documento.
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "informe.archivo_bloqueado",
+            f"no se pudo escribir {salida.name}: el sistema lo tiene abierto, "
+            "casi siempre porque el documento esta abierto en Word. Cerrarlo y "
+            "repetir, o escribir en otro nombre con --salida.",
+        ))
+        return _cerrar(logger, resultado, base, ruta_json, inicio,
+                       SALIDA_BLOQUEANTE)
     resultado.documento = rutas.relativa(salida, base)
     resultado.productos.append(resultado.documento)
 
@@ -570,6 +585,9 @@ def main(argv=None) -> int:
     analizador.add_argument("--raiz", type=Path, default=None)
     analizador.add_argument("--config", type=Path, default=None)
     analizador.add_argument("--plantilla", type=Path, default=None)
+    analizador.add_argument("--salida", type=Path, default=None,
+                            help="escribe en otro archivo, util si Word tiene "
+                                 "abierto el habitual")
     analizador.add_argument("--json", type=Path, default=None,
                             dest="json_salida")
     analizador.add_argument("--silencioso", action="store_true")
@@ -579,6 +597,7 @@ def main(argv=None) -> int:
             raiz=argumentos.raiz, ruta_config=argumentos.config,
             ruta_json=argumentos.json_salida,
             ruta_plantilla=argumentos.plantilla,
+            ruta_salida=argumentos.salida,
             consola=not argumentos.silencioso,
         )
         return codigo
