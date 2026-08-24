@@ -286,6 +286,162 @@ def consolidar_tiempo_concentracion(documento, escribir: bool) -> list[str]:
         hechos.append(f"anadida '{titulo}' con su expresion y sus variables")
     return hechos
 
+
+# -----------------------------------------------------------------------------
+# LAS CUATRO SECCIONES "REVISAR LA TEORIA... SEGUN LA METODOLOGIA ADOPTADA"
+#
+# Se contrasto cada parrafo contra el codigo que produce el resultado. Se
+# encontraron tres desajustes reales, del mismo tipo que el de transito que
+# senalo el consultor: la teoria describia un metodo que la cadena ya no usa
+# asi, o callaba un metodo que si usa.
+# -----------------------------------------------------------------------------
+PARRAFOS_TEORIA = (
+    # --- Infiltracion (Schosinsky y Losilla) --------------------------------
+    # La plantilla decia que fc se tomaba de una tabla de Bradbury et al. 2000
+    # (mm/hr, por textura). La cadena usa su propia tabla de doctrina
+    # (data/referencia/infiltracion_schosinsky.csv), en mm/dia y por grupo
+    # hidrologico SCS, declarada y sin validar. No es la misma fuente ni la
+    # misma unidad.
+    ("Se requiere de los valores de infiltración básica o capacidad de "
+     "infiltración en el suelo, que al ser un parámetro especifico generado a "
+     "partir de ensayos de laboratorio en diferentes puntos de la cuenca a "
+     "través de estudios especializados es difícil de obtener, por lo cual se "
+     "tomaron valores de referencia en la literatura y estudios en la región "
+     "para suelos hidrológicos Tipo C.",
+     "Se requiere el valor de infiltración básica del suelo (fc), que por ser "
+     "un parámetro específico obtenido mediante ensayos de campo en distintos "
+     "puntos de la cuenca resulta difícil de determinar de manera puntual. Se "
+     "adopta un valor declarado por grupo hidrológico del suelo, según la "
+     "clasificación del Servicio de Conservación de Suelos (SCS), expresado en "
+     "milímetros por día. El grupo hidrológico de cada unidad de análisis se "
+     "obtiene por muestreo del ráster de suelos sobre su área, y el valor de fc "
+     "que le corresponde queda registrado en la tabla de doctrina del estudio, "
+     "con su fuente y su condición de validación.",
+     "la fuente y la unidad que la cadena usa (mm/dia, por grupo SCS) no son "
+     "las de la tabla de Bradbury que sigue"),
+
+    ("Teniendo en cuenta la ausencia de datos puntuales se asume como valor de "
+     "infiltración básica el valor límite máximo de 38 mm/hr como condición "
+     "crítica para los cálculos.",
+     "La tabla anterior ilustra la relación general entre textura del suelo y "
+     "capacidad de infiltración; los valores que este estudio adopta no "
+     "provienen de ella, sino de la tabla de doctrina declarada por grupo "
+     "hidrológico del suelo, expresada en milímetros por día. El grupo "
+     "hidrológico dominante del área de estudio determina el valor de fc "
+     "adoptado; cuando la cuenca presenta más de un grupo, la condición actual "
+     "del cálculo toma uno solo para toda el área, y extenderlo por subcuenca "
+     "es una decisión pendiente del consultor.",
+     "la cadena no asume un valor fijo de 38 mm/hr: usa fc por grupo "
+     "hidrologico, y hoy con UN grupo para toda la cuenca (ya anotado en "
+     "informe_tablas.yaml). Sustituye la afirmacion sin dejar la tabla de "
+     "Bradbury sin explicacion"),
+
+    # --- Transito de crecientes ---------------------------------------------
+    # Igual que en la tabla: el texto decia que el metodo usado era Muskingum,
+    # y el que produce los caudales del modelo es Muskingum-Cunge. Y ataba
+    # X = 0,2 "como el caso de estudio", cuando X se calcula por tramo.
+    ("Existen varios métodos para propagación de crecientes en ríos y canales, "
+     "pero el utilizado aquí es el método desarrollado por McCarthy en "
+     "conexión con estudios de propagación del río Muskingum, en Ohio, Estados "
+     "Unidos, este método hace uso de las ecuaciones de conservación de la "
+     "masa.",
+     "Existen varios métodos para propagación de crecientes en ríos y "
+     "canales. Se calculan aquí dos: el método de Muskingum, desarrollado por "
+     "McCarthy en conexión con estudios de propagación del río Muskingum, en "
+     "Ohio, Estados Unidos, que hace uso de la ecuación de continuidad con "
+     "parámetros K y X constantes; y el método de Muskingum-Cunge, que "
+     "resuelve la misma ecuación pero deriva K y X de la hidráulica del tramo "
+     "en cada subtramo y cada paso de tiempo, sin necesidad de calibrarlos "
+     "contra hidrogramas observados. El método adoptado para los resultados "
+     "del modelo es Muskingum-Cunge; Muskingum se presenta como "
+     "parametrización alterna, de parámetros constantes.",
+     "el modelo corre Muskingum-Cunge y el texto decia que el metodo usado "
+     "aqui era Muskingum. Es la misma confusion que motivo la pregunta sobre "
+     "la Tabla 5-10"),
+
+    ("El parámetro k puede tomarse como el tiempo que le toma a la onda "
+     "recorrer el total de la longitud de la sección en estudio. X es una "
+     "constante que está entre 0 y 0.5, tomando como valor típico 0.2 para "
+     "quebradas en zona relativamente planas como el caso de estudio.",
+     "El parámetro K puede tomarse como el tiempo que le toma a la onda "
+     "recorrer la longitud total del tramo en estudio. X es una constante "
+     "entre 0 y 0,5 que refleja cuánto atenúa el tramo la onda de creciente: "
+     "valores cercanos a 0,5 la trasladan casi sin atenuarla y valores "
+     "cercanos a 0 la asimilan al comportamiento de un embalse de nivel "
+     "horizontal. En ausencia de hidrogramas observados con que calibrarlos, K "
+     "y X se obtienen aquí por linealización de Cunge en un caudal de "
+     "referencia, a partir de la geometría, la pendiente y la resistencia "
+     "hidráulica del tramo.",
+     "ataba X = 0,2 'como el caso de estudio'; X se calcula por tramo y en "
+     "este estudio la mediana da 0,4976, no 0,2"),
+)
+
+# Frases que se insertan despues de un parrafo ancla, porque describen algo
+# que la cadena hace y la plantilla no menciona en absoluto.
+INSERCIONES_TEORIA = (
+    # ETP: Thornthwaite da el reparto mensual y Cenicafe, que solo depende de
+    # la elevacion, da el nivel anual; la serie se ajusta a ese nivel. La
+    # plantilla solo menciona Thornthwaite.
+    ("Para la estación que cuenta con datos de temperatura mensual completados "
+     "en la totalidad de meses del año se realizó el cálculo de este "
+     "parámetro a nivel mensual el cual se presenta en el Anexo 4.",
+     "Adicionalmente se calcula la evapotranspiración potencial anual "
+     "mediante la ecuación de Cenicafé, que depende únicamente de la "
+     "elevación y no requiere series de temperatura, y se emplea como "
+     "estimador regional de contraste. La serie mensual obtenida por "
+     "Thornthwaite se ajusta a ese nivel anual, de modo que conserva el "
+     "reparto mensual que solo la temperatura puede aportar y corrige el "
+     "nivel general, que Thornthwaite tiende a subestimar en climas fríos de "
+     "montaña.",
+     "la cadena ajusta Thornthwaite contra Cenicafe y la plantilla no lo "
+     "menciona"),
+
+    # ETR: se calcula tambien por Dekop, y la plantilla solo habla de Budyko.
+    ("Ep = Evaporación potencial mensual (mm/mes).",
+     "Se calcula también por el método de Dekop, versión simplificada de la "
+     "misma familia de Budyko, que sirve de contraste: donde ambas "
+     "formulaciones se separan, esa diferencia mide cuánto depende el "
+     "resultado de la variante elegida. Budyko es el método adoptado para los "
+     "resultados del balance; Dekop se presenta como verificación.",
+     "la cadena calcula Budyko y Dekop y la plantilla solo describe Budyko"),
+)
+
+
+def consolidar_revision_teorica(documento, escribir: bool) -> list[str]:
+    """Corrige y completa las cuatro secciones 'Revisar la teoría...'."""
+    hechos: list[str] = []
+    textos = {p.text.strip() for p in _parrafos(documento) if p.text.strip()}
+
+    for viejo, nuevo, motivo in PARRAFOS_TEORIA:
+        if nuevo in textos:
+            hechos.append(f"YA APLICADO: {nuevo[:55]}...")
+            continue
+        parrafo = next((p for p in _parrafos(documento)
+                        if p.text.strip() == viejo), None)
+        if parrafo is None:
+            hechos.append(f"NO SE ENCONTRO NI EL VIEJO NI EL NUEVO texto: "
+                          f"{viejo[:55]}...")
+            continue
+        if escribir:
+            _fijar_parrafo(parrafo, nuevo)
+        hechos.append(f"parrafo corregido ({motivo})")
+
+    for ancla, nuevo, motivo in INSERCIONES_TEORIA:
+        if nuevo in textos:
+            hechos.append(f"YA APLICADO: {nuevo[:55]}...")
+            continue
+        parrafo = next((p for p in _parrafos(documento)
+                        if p.text.strip() == ancla), None)
+        if parrafo is None:
+            hechos.append(f"NO SE ENCONTRO el ancla: {ancla[:60]}...")
+            continue
+        if escribir:
+            elemento = _clonar(parrafo, nuevo)
+            parrafo._element.addnext(elemento)
+        hechos.append(f"parrafo anadido tras '{ancla[:40]}...' ({motivo})")
+
+    return hechos
+
 def consolidar(ruta: Path, escribir: bool) -> list[str]:
     """Aplica los cambios y devuelve lo que hizo, o lo que haría."""
     documento = plantilla_docx.abrir(ruta)
@@ -340,6 +496,9 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
 
     # --- 4. Seccion de tiempo de concentracion -------------------------------
     hechos.extend(consolidar_tiempo_concentracion(documento, escribir))
+
+    # --- 5. Las cuatro secciones de revision teorica -------------------------
+    hechos.extend(consolidar_revision_teorica(documento, escribir))
 
     if escribir and hechos:
         documento.save(str(ruta))
