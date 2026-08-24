@@ -116,6 +116,11 @@ def kfc_por_infiltracion_basica(fc_mm_dia: float) -> dict[str, Any]:
     lo reporte: un suelo en esa zona está descrito por la extensión del modelo y
     no por su ajuste.
 
+    SE DEVUELVEN EL CALCULADO Y EL ADOPTADO. La tabla del informe los pide en
+    dos columnas, y con razón: son iguales salvo cuando la fórmula se sale de
+    [0, 1] o cuando el tramo saturado impone 1, y es justo ahí donde el
+    consultor tiene que poder decir que el valor se recortó y por qué.
+
     Excepciones
     -----------
     ErrorHidrologia
@@ -126,12 +131,16 @@ def kfc_por_infiltracion_basica(fc_mm_dia: float) -> dict[str, Any]:
             f"la infiltracion basica vale {fc_mm_dia} mm/dia y debe ser "
             "positiva: un suelo que no infiltra nada no tiene Kfc.")
     if fc_mm_dia < FC_MINIMO:
-        return {"kfc": round(0.0148 * fc_mm_dia / FC_MINIMO, 5),
+        calculado = 0.0148 * fc_mm_dia / FC_MINIMO
+        return {"kfc": round(calculado, 5), "kfc_calculado": round(calculado, 5),
                 "fuera_de_rango": True, "tramo": "bajo"}
     if fc_mm_dia > FC_MAXIMO:
-        return {"kfc": 1.0, "fuera_de_rango": True, "tramo": "alto"}
-    valor = 0.267 * math.log(fc_mm_dia) - 0.000154 * fc_mm_dia - 0.723
-    return {"kfc": round(max(0.0, min(1.0, valor)), 5),
+        calculado = 0.267 * math.log(fc_mm_dia) - 0.000154 * fc_mm_dia - 0.723
+        return {"kfc": 1.0, "kfc_calculado": round(calculado, 5),
+                "fuera_de_rango": True, "tramo": "alto"}
+    calculado = 0.267 * math.log(fc_mm_dia) - 0.000154 * fc_mm_dia - 0.723
+    return {"kfc": round(max(0.0, min(1.0, calculado)), 5),
+            "kfc_calculado": round(calculado, 5),
             "fuera_de_rango": False, "tramo": "ajustado"}
 
 
@@ -418,7 +427,16 @@ def _resolver_coeficientes(configuracion, base, delimitador, doctrina,
             "area_km2": round(area, 4),
             "grupo_hidrologico": grupo,
             "fc_mm_dia": fc,
+            # EN CM/HORA, que es como la tabla del informe titula la primera
+            # columna. La doctrina de Schosinsky la tabula en mm/dia y ambas
+            # son el mismo dato: 10 mm por cm y 24 horas por dia.
+            "fc_cm_hr": round(fc / 10.0 / 24.0, 4),
             "kfc": kfc["kfc"],
+            # EL CALCULADO Y EL ADOPTADO EN DOS COLUMNAS, que es lo que el
+            # informe pide. Solo difieren cuando la formula se sale de [0, 1] o
+            # cuando el tramo saturado impone 1, y es ahi donde hay que poder
+            # decir que el valor se recorto.
+            "kfc_calculado": kfc.get("kfc_calculado", kfc["kfc"]),
             "pendiente": round(pendiente, 4),
             "clase_pendiente": kp["clase"],
             "kp": kp["kp"],

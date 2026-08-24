@@ -230,6 +230,16 @@ tablas:
       valor: caudal_budyko_m3s
       orden: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
+  - numero: "5-4"
+    leyenda: "Parámetros Infiltración Seleccionados"
+    fuente: "data/02_procesado/infiltracion/coeficientes_por_subcuenca.csv"
+    encabezados: 1
+    # 'Kfccalculado' es el valor que da la formula de Schosinsky y 'Kfcasumido'
+    # el que se adopta. Solo difieren cuando la formula se sale de [0, 1] o
+    # cuando el tramo saturado impone 1, y es ahi donde el consultor tiene que
+    # poder decir que el valor se recorto.
+    columnas: [subcuenca, fc_cm_hr, fc_mm_dia, kfc_calculado, kfc, kv, kp, c]
+
   - numero: "5-10"
     leyenda: "Datos tránsito crecientes microcuencas"
     fuente: "data/02_procesado/hidrologia/transito.csv"

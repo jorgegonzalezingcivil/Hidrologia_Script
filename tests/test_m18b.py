@@ -215,5 +215,34 @@ class PruebaTablasDeDoctrina(unittest.TestCase):
                                  "no")
 
 
+
+class PruebaKfcCalculadoYAdoptado(unittest.TestCase):
+    """
+    La tabla del informe los pide en dos columnas. Solo difieren cuando la
+    formula se sale de [0, 1] o cuando el tramo saturado impone 1, y es ahi
+    donde hay que poder decir que el valor se recorto.
+    """
+
+    def test_en_el_tramo_ajustado_son_el_mismo(self) -> None:
+        ficha = m18b.kfc_por_infiltracion_basica(40.0)
+        self.assertEqual(ficha["kfc"], ficha["kfc_calculado"])
+
+    def test_por_encima_del_ajuste_el_adoptado_satura_y_el_calculado_no(self):
+        # Un suelo no puede infiltrar mas de lo que le llega, pero la formula
+        # sigue dando un numero y el informe lo muestra.
+        ficha = m18b.kfc_por_infiltracion_basica(m18b.FC_MAXIMO + 500.0)
+        self.assertEqual(ficha["kfc"], 1.0)
+        self.assertNotEqual(ficha["kfc_calculado"], 1.0)
+        self.assertTrue(ficha["fuera_de_rango"])
+
+    def test_por_debajo_del_ajuste_se_usa_la_recta_por_el_origen(self) -> None:
+        ficha = m18b.kfc_por_infiltracion_basica(8.0)
+        self.assertEqual(ficha["tramo"], "bajo")
+        self.assertEqual(ficha["kfc"], ficha["kfc_calculado"])
+
+    def test_una_infiltracion_nula_no_tiene_kfc(self) -> None:
+        with self.assertRaises(ErrorHidrologia):
+            m18b.kfc_por_infiltracion_basica(0.0)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
