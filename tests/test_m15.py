@@ -340,7 +340,12 @@ class PruebaAnchoDeclarado(unittest.TestCase):
                 ancho = 1 + len(matriz.get("orden") or [])
             else:
                 ancho = len(entrada.get("columnas") or [])
-            self.assertEqual(ancho, len(tabla.columns), clave)
+            if matriz and matriz.get("crecer_columnas"):
+                # La tabla se ensancha al llenarla: la plantilla viene
+                # dimensionada para cuatro microcuencas. Crecer no es encoger.
+                self.assertGreaterEqual(ancho, len(tabla.columns), clave)
+            else:
+                self.assertEqual(ancho, len(tabla.columns), clave)
 
     def test_los_encabezados_dejan_al_menos_una_fila_de_datos(self) -> None:
         for clave, entrada in self.declaracion.items():
@@ -397,6 +402,43 @@ class PruebaLecturaDeTabla(unittest.TestCase):
         with self.assertRaises(ErrorRutas):
             m15.leer_tabla_csv(self.tmp / "no_existe.csv", ";")
 
+
+
+class PruebaEnsancharTabla(unittest.TestCase):
+    """
+    La plantilla viene dimensionada para cuatro microcuencas y el estudio tiene
+    125. Crecer en filas y no en columnas dejaba media matriz fuera.
+    """
+
+    def _tabla(self, filas, columnas):
+        import docx
+        return docx.Document().add_table(rows=filas, cols=columnas)
+
+    def test_ensancha_hasta_las_que_se_piden(self) -> None:
+        tabla = self._tabla(3, 5)
+        self.assertEqual(m15.anadir_columnas(tabla, 14), 9)
+        self.assertEqual(len(tabla.columns), 14)
+
+    def test_toda_fila_queda_con_el_mismo_ancho(self) -> None:
+        # Una fila mas corta que las demas produce un documento que Word abre
+        # con la tabla descuadrada.
+        tabla = self._tabla(4, 5)
+        m15.anadir_columnas(tabla, 14)
+        for fila in tabla.rows:
+            self.assertEqual(len(fila.cells), 14)
+
+    def test_no_encoge_ni_toca_lo_que_ya_cabe(self) -> None:
+        tabla = self._tabla(3, 9)
+        self.assertEqual(m15.anadir_columnas(tabla, 5), 0)
+        self.assertEqual(len(tabla.columns), 9)
+
+    def test_la_cuadricula_crece_con_las_celdas(self) -> None:
+        # Sin gridCol, Word reparte mal el ancho y la tabla se sale de la caja.
+        from docx.oxml.ns import qn
+        tabla = self._tabla(2, 5)
+        m15.anadir_columnas(tabla, 14)
+        cuadricula = tabla._tbl.find(qn("w:tblGrid"))
+        self.assertEqual(len(cuadricula), 14)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

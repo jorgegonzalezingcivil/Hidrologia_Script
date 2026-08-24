@@ -110,6 +110,8 @@ class ResultadoM10:
     rezago: dict[str, Any] = field(default_factory=dict)
     suelos: dict[str, Any] = field(default_factory=dict)
     subcuencas: list[dict[str, Any]] = field(default_factory=list)
+    tiempos_por_subcuenca: list[dict[str, Any]] = field(
+        default_factory=list)
     tiempos: list[dict[str, Any]] = field(default_factory=list)
     adoptados: dict[str, Any] = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
@@ -2506,11 +2508,32 @@ def _resolver_subcuencas(configuracion, base, ruta_cuenca, ruta_dem, matriz,
         "tiempo_concentracion.fuera_de_rango",
         "omitir")).strip().lower() == "calcular_y_declarar"
 
+    por_formula: list[dict[str, Any]] = []
     for subcuenca in subcuencas:
         tiempos = tiempos_de_subcuenca(
             subcuenca, matriz, minimo, cv_maximo, criterio_rezago, intervalo,
             formula_adoptada, respaldo)
+        # EL DESGLOSE POR FORMULA SE GUARDA, no solo la mediana adoptada. Es la
+        # memoria de calculo del parametro que gobierna el pico del hidrograma:
+        # sin ella el estudio no puede mostrar de que trece formulas salio, ni
+        # cuales se descartaron y por que. Se calculaba y se tiraba.
+        for evaluada in tiempos.get("evaluadas") or ():
+            tc_horas = evaluada.get("tc_horas")
+            rezago = (tiempo_de_rezago(tc_horas, criterio_rezago, intervalo)
+                      if tc_horas else {})
+            por_formula.append({
+                "subcuenca": subcuenca.get("subcuenca", ""),
+                "formula": evaluada.get("formula", ""),
+                "nombre": evaluada.get("nombre", ""),
+                "aplicable": evaluada.get("aplicable"),
+                "motivo": evaluada.get("motivo", ""),
+                "tc_horas": tc_horas,
+                "tc_minutos": evaluada.get("tc_minutos"),
+                "tlag_horas": rezago.get("tlag_horas"),
+                "tlag_minutos": rezago.get("tlag_minutos"),
+            })
         subcuenca.update({c: v for c, v in tiempos.items() if c != "evaluadas"})
+    resultado.tiempos_por_subcuenca = por_formula
 
     # LA CLASIFICACION VA AQUI, con las subcuencas ya completas: nombra
     # parametros que se calculan en pasos distintos y no habria un solo sitio
@@ -3404,6 +3427,9 @@ def _escribir_productos(configuracion, base, resultado, delimitador,
         # La tabla que el M13 necesita: una fila por subcuenca, que es la
         # unidad con la que HEC-HMS transforma la lluvia.
         contenidos.append(("subcuencas.csv", resultado.subcuencas))
+    if resultado.tiempos_por_subcuenca:
+        contenidos.append(("tiempo_concentracion_por_subcuenca.csv",
+                           resultado.tiempos_por_subcuenca))
     if resultado.relieve:
         contenidos += [
             ("curva_hipsometrica.csv", resultado.relieve["curva_hipsometrica"]),

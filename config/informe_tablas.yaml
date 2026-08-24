@@ -242,6 +242,67 @@ tablas:
       valor: caudal_budyko_m3s
       orden: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
+  # LAS DOS MATRICES DE AUTOR POR UNIDAD, TRASPUESTAS. La plantilla las trae
+  # como autor en filas y cuatro microcuencas en columnas; este estudio tiene
+  # 125 subcuencas y esa orientacion pediria 126 columnas, que no caben en una
+  # pagina. Traspuestas son 126 filas y 14 columnas, que es la forma del resto
+  # de las tablas del capitulo. 'crecer_columnas' ensancha la tabla y escribe
+  # la fila de titulos con los nombres de las formulas: una columna anadida
+  # sale sin titulo y una tabla con titulos en blanco no se entiende.
+  - numero: "5-9"
+    leyenda: "Cálculo Tiempo de Concentración"
+    fuente: "data/02_procesado/morfometria/tiempo_concentracion_por_subcuenca.csv"
+    encabezados: 1
+    matriz:
+      fila: subcuenca
+      columna: nombre
+      valor: tc_minutos
+      etiqueta_fila: "Microcuenca"
+      crecer_columnas: true
+      # LAS TRECE, aplicables o no. La celda de una formula que no aplica a esa
+      # subcuenca trae igualmente su valor calculado, y el descarte esta en
+      # 'aplicable' y 'motivo' del CSV: la tabla del informe muestra el abanico
+      # completo del que sale la mediana, que es lo que el consultor defiende.
+      orden:
+        - "Kirpich (1940)"
+        - "California Culverts Practice (1942)"
+        - "Temez (1978)"
+        - "Giandotti (1934)"
+        - "Ventura-Heras"
+        - "Passini"
+        - "Bransby Williams"
+        - "Johnstone y Cross (1949)"
+        - "SCS Lag (NRCS)"
+        - "Clark"
+        - "Pilgrim y McDermott"
+        - "Valencia y Zuluaga"
+        - "V. T. Chow"
+
+  - numero: "5-9b"
+    leyenda: "Tiempo de Rezago modelo SCS"
+    fuente: "data/02_procesado/morfometria/tiempo_concentracion_por_subcuenca.csv"
+    encabezados: 1
+    matriz:
+      fila: subcuenca
+      columna: nombre
+      valor: tlag_minutos
+      etiqueta_fila: "Microcuenca"
+      crecer_columnas: true
+      orden:
+        - "Kirpich (1940)"
+        - "California Culverts Practice (1942)"
+        - "Temez (1978)"
+        - "Giandotti (1934)"
+        - "Ventura-Heras"
+        - "Passini"
+        - "Bransby Williams"
+        - "Johnstone y Cross (1949)"
+        - "SCS Lag (NRCS)"
+        - "Clark"
+        - "Pilgrim y McDermott"
+        - "Valencia y Zuluaga"
+        - "V. T. Chow"
+
   - numero: "5-4"
     leyenda: "Parámetros Infiltración Seleccionados"
     fuente: "data/02_procesado/infiltracion/coeficientes_por_subcuenca.csv"
@@ -278,53 +339,44 @@ tablas:
                q_T50_m3s, q_T100_m3s]
 
 # =============================================================================
-# LAS CINCO QUE FALTAN, Y POR QUE
+# LAS VEINTISIETE ESTAN DECLARADAS
 # -----------------------------------------------------------------------------
-# Van 22 de 27. Ninguna de las cinco esta pendiente de este modulo: a todas les
-# falta un dato que la cadena no produce todavia. No se declaran a medias
-# porque una tabla con columnas vacias se ve terminada y no lo esta.
-#
-# FALTA UN CALCULO INTERMEDIO QUE NINGUN MODULO GUARDA
-#
-#   Cálculo Tiempo de Concentración ....... piden el valor de CADA formula por
-#   Tiempo de Rezago modelo SCS ........... subcuenca. El M10 escribe la
-#                                           mediana adoptada y el desglose por
-#                                           formula solo para la cuenca entera.
-#                                           Ademas su forma es autor x cuenca,
-#                                           con cuatro columnas: sobre 125
-#                                           subcuencas habria que trasponerlas
-#                                           en el documento.
-#   Cálculo IDF Metodología Silva ......... la hoja de calculo anio por anio
-#                                           (m, Weibull, probabilidad de
-#                                           excedencia, Tr, Pmax 1h, Imax, K).
-#                                           El M12a guarda la IDF resultante,
-#                                           no el intermedio.
-#   Parámetros Infiltración Seleccionados . pide la infiltracion basica en
-#                                           cm/hr y Kfc calculado frente a
-#                                           asumido; el M18b guarda fc en mm/d
-#                                           y un solo Kfc.
-#   Datos tránsito crecientes microcuencas  la celeridad asumida y la K de
-#                                           Muskingum por tramo. El M13 las
-#                                           escribe en el proyecto de HEC-HMS
-#                                           y no en un CSV.
+# Lo que queda no es programacion sino decisiones del consultor sobre su propio
+# documento, anotadas aqui para que no se pierdan.
 #
 # DEFECTOS DE LA PLANTILLA, para corregir en el documento y no aqui
 #
-#   'Índice de Sinuosidad microcuencas' y 'Coeficiente de compacidad
+#   'Indice de Sinuosidad microcuencas' y 'Coeficiente de compacidad
 #   microcuencas' tienen ambas por encabezado 'Coeficiente de forma'.
 #
-#   'Longitud Teórica de Series IDEAM' titula su cuarta columna 'Longitud
+#   'Longitud Teorica de Series IDEAM' titula su cuarta columna 'Longitud
 #   Ventana de Tiempo 1980-2023'. El texto que la introduce dice "desde el ano
 #   1980 hasta la fecha", que es lo correcto, y la cadena calcula 1980-2026
-#   segun 'anio_estudio'. El literal quedo del informe de referencia y hay que
-#   actualizarlo en el documento: el modulo llena las celdas, no los titulos.
+#   segun 'anio_estudio'. El literal quedo del informe de referencia.
 #
-#   Tres instrucciones de figura distintas llevan la leyenda 'Áreas
+#   Tres instrucciones de figura distintas llevan la leyenda 'Areas
 #   microcuencas'; se desempatan en informe_correcciones.yaml.
 #
-# LO QUE VIENE EN CRUDO Y NO ES DEFECTO DE NADIE
+# DECISIONES ABIERTAS
+#
+#   La tabla de sinuosidad de data/referencia/ se cierra en 1.50 y no dice "o
+#   mayor": 19 de las 125 subcuencas quedan SIN NOMBRE. Se corrige abriendo el
+#   ultimo rango, y es doctrina del consultor.
+#
+#   'Precipitacion Maxima Periodos de Retorno' no tiene columna para T500
+#   aunque la doctrina calcule ocho periodos, y la 'Curva IDF Metodo INVIAS' no
+#   la tiene para 15 ni para 500. Ampliarlas es una decision sobre el
+#   documento.
+#
+#   La hoja de Silva se arma sobre UNA estacion y el estudio tiene doce. Sin
+#   declarar idf.silva.estacion_hoja se toma la mas larga y el M12a lo
+#   advierte.
+#
+#   El M18b toma UN grupo hidrologico para toda la cuenca y el M10 ya escribe
+#   el grupo dominante de CADA subcuenca: las 125 filas de coeficientes de
+#   infiltracion comparten hoy el mismo fc y el mismo Kfc.
 #
 #   La fecha de instalacion sale como '20011115' porque asi la entrega el
 #   Catalogo Nacional de Estaciones. Darle formato es una normalizacion del
-#   M03, no del informe, y afecta a todo el que lea el inventario.
+#   M03, no del informe.
 # =============================================================================

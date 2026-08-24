@@ -471,6 +471,40 @@ def _valor(texto: Any, decimales: int, sustituciones) -> str:
         aplicar_sustituciones(str(texto).strip(), sustituciones), decimales)
 
 
+def anadir_columnas(tabla, cuantas: int) -> int:
+    """
+    Ensancha la tabla hasta 'cuantas' columnas, copiando la última.
+
+    LA PLANTILLA VIENE DIMENSIONADA PARA CUATRO MICROCUENCAS y este estudio
+    tiene 125. Las tablas de tiempo de concentración y de rezago son matrices de
+    autor por unidad; con 125 unidades la única orientación que cabe en una
+    página es la traspuesta, unidad por autor, y entonces hacen falta tantas
+    columnas como fórmulas. Crecer en filas y no en columnas dejaba la mitad de
+    la matriz fuera sin que nada lo dijera.
+
+    SE COPIA LA ULTIMA CELDA DE CADA FILA y no se crea una vacía: así la columna
+    nueva hereda bordes, sombreado y tipografía de la que ya estaba, igual que
+    se hace con las filas. Devuelve cuántas se añadieron.
+    """
+    import copy
+
+    from docx.oxml.ns import qn
+
+    faltan = cuantas - len(tabla.columns)
+    if faltan <= 0:
+        return 0
+
+    cuadricula = tabla._tbl.find(qn("w:tblGrid"))
+    for _ in range(faltan):
+        if cuadricula is not None and len(cuadricula):
+            cuadricula.append(copy.deepcopy(cuadricula[-1]))
+        for fila in tabla.rows:
+            celdas = fila._tr.findall(qn("w:tc"))
+            if celdas:
+                fila._tr.append(copy.deepcopy(celdas[-1]))
+    return faltan
+
+
 def llenar_matriz(tabla, filas: Sequence[dict[str, str]],
                   matriz: dict[str, Any], encabezados: int,
                   decimales: int = 2, sustituciones=()) -> dict[str, Any]:
@@ -517,6 +551,20 @@ def llenar_matriz(tabla, filas: Sequence[dict[str, str]],
         raise ErrorFormato(
             f"la tabla declara {encabezados} fila(s) de encabezado y solo "
             f"tiene {len(tabla.rows)}: no queda ninguna de datos.")
+
+    if matriz.get("crecer_columnas"):
+        anadir_columnas(tabla, 1 + len(orden))
+        # EL ENCABEZADO SE ESCRIBE PORQUE LAS COLUMNAS SON NUEVAS. Una columna
+        # anadida sale sin titulo, y una tabla con titulos en blanco no se
+        # entiende. Se escribe la ULTIMA fila de encabezado, que es la que
+        # nombra las columnas; las de arriba, si las hay, son el rotulo
+        # combinado y no se tocan.
+        titulos = [str(matriz.get("etiqueta_fila", ""))] + [
+            str(v) for v in orden]
+        celdas_titulo = tabla.rows[encabezados - 1].cells
+        for posicion, titulo in enumerate(titulos):
+            if posicion < len(celdas_titulo):
+                _fijar_texto(celdas_titulo[posicion], titulo)
 
     modelo = tabla.rows[encabezados]._tr
     while len(tabla.rows) - encabezados < len(etiquetas):
@@ -775,10 +823,19 @@ def _resolver_tabla(cuerpo, posicion, tablas, parrafos, numero, declaracion,
             str(v) for v in matriz.get("orden") or []]
     else:
         columnas = [str(c) for c in entrada.get("columnas") or []]
-    if len(columnas) != len(tabla.columns):
+    crece = bool(matriz and matriz.get("crecer_columnas"))
+    if len(columnas) != len(tabla.columns) and not crece:
         resultado.tablas_sin_fuente.append(
             f"{leyenda or numero}: se declararon {len(columnas)} columna(s) y "
             f"la tabla tiene {len(tabla.columns)}")
+        return
+    if crece and len(columnas) < len(tabla.columns):
+        # Crecer no es encoger. Si la tabla tiene MAS columnas de las
+        # declaradas, las sobrantes se quedarian con lo que la plantilla traia.
+        resultado.tablas_sin_fuente.append(
+            f"{leyenda or numero}: se declararon {len(columnas)} columna(s) y "
+            f"la tabla ya tiene {len(tabla.columns)}; 'crecer_columnas' "
+            "ensancha, no estrecha")
         return
 
     try:
