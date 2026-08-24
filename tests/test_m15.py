@@ -187,6 +187,54 @@ class PruebaNormalizacionDeLeyenda(unittest.TestCase):
             m15._normalizar_leyenda("Tabla -. Coeficiente de forma microcuencas"),
             m15._normalizar_leyenda("Tabla -. Coeficiente de compacidad microcuencas"))
 
+class PruebaCorrecciones(unittest.TestCase):
+    """
+    La plantilla pide figuras equivocadas y el original no se toca: la
+    correccion se declara, y tiene que emparejar con UNA instruccion.
+    """
+
+    def setUp(self) -> None:
+        self.plantilla = _RAIZ_REPO / "templates" / "informe_base.docx"
+        if not self.plantilla.is_file():
+            self.skipTest("la plantilla saneada no esta en el repositorio")
+        import docx_plantilla as dp
+        self.documento = dp.abrir(self.plantilla)
+        self.correcciones = m15.leer_correcciones(
+            _RAIZ_REPO / "config" / "informe_correcciones.yaml")
+
+    def test_la_declaracion_del_repositorio_se_lee(self) -> None:
+        self.assertTrue(self.correcciones)
+
+    def test_toda_correccion_declara_archivo_y_motivo(self) -> None:
+        for clave, entrada in self.correcciones.items():
+            self.assertTrue(entrada.get("archivo"), clave)
+            self.assertTrue(entrada.get("motivo"), clave)
+
+    def test_ninguna_correccion_queda_ambigua_ni_sin_uso(self) -> None:
+        # Una que empareja con varias sustituiria figuras que estaban bien; una
+        # que no empareja con ninguna no hace nada y nadie lo nota.
+        _plan, ambiguas, sin_uso = m15.planear_correcciones(
+            self.documento, self.correcciones)
+        self.assertEqual(ambiguas, [])
+        self.assertEqual(sin_uso, [])
+
+    def test_cada_correccion_apunta_a_una_sola_instruccion(self) -> None:
+        plan, _a, _s = m15.planear_correcciones(
+            self.documento, self.correcciones)
+        self.assertEqual(len(plan), len(self.correcciones))
+
+    def test_sin_desempate_la_leyenda_repetida_es_ambigua(self) -> None:
+        # 'Areas microcuencas' encabeza tres instrucciones de esta plantilla.
+        suelta = {m15._normalizar_leyenda("Áreas microcuencas"): {
+            "leyenda": "Áreas microcuencas", "archivo": "x.png"}}
+        plan, ambiguas, _s = m15.planear_correcciones(self.documento, suelta)
+        self.assertEqual(plan, {})
+        self.assertEqual(len(ambiguas), 1)
+
+    def test_una_declaracion_ausente_no_es_error(self) -> None:
+        self.assertEqual(m15.leer_correcciones(Path("no_existe.yaml")), {})
+
+
 class PruebaLecturaDeTabla(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())

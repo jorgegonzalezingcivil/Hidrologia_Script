@@ -1449,6 +1449,11 @@ informe:
   plantilla_base: "templates/informe_base.docx"
   # Que fuente alimenta cada tabla del informe.
   tablas: "config/informe_tablas.yaml"
+
+  # Instrucciones de la plantilla que piden lo que no corresponde. La
+  # plantilla del consultor no se toca y la copia saneada se regenera:
+  # una correccion escrita en ella se perderia sin aviso.
+  correcciones: "config/informe_correcciones.yaml"
   plantilla: "templates/informe.dotx"
   estructura: "config/informe.yaml"
   texto: "templates/informe/texto.yaml"

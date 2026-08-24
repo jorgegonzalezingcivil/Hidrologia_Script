@@ -83,6 +83,12 @@ PATRON_TABLA = re.compile(r"^\s*Completar\s+la\s+Tabla\s+([0-9]+[-‐-―]?[0-9]
                           re.I)
 PATRON_ANALISIS = re.compile(r"^\s*Analizar\b", re.I)
 
+# Las leyendas con que la plantilla nombra sus figuras y sus tablas. Dicen
+# "Ilustracion -." mientras Word no actualice los campos SEQ, de modo que lo
+# que identifica no es el numero sino el texto que sigue.
+PATRON_LEYENDA = re.compile(r"^\s*(Ilustraci[oó]n|Gr[aá]fico|Figura|Tabla)\b",
+                            re.I)
+
 # Un nombre de archivo dentro de la instrucción, con su carpeta si la lleva.
 PATRON_ARCHIVO = re.compile(r"([A-Za-z0-9_\-\.]+\.(?:png|jpg|jpeg|svg))", re.I)
 
@@ -95,6 +101,9 @@ class ResultadoM15:
     documento: str = ""
     figuras_puestas: list[str] = field(default_factory=list)
     figuras_ausentes: list[dict[str, Any]] = field(default_factory=list)
+    figuras_corregidas: list[dict[str, Any]] = field(default_factory=list)
+    correcciones_ambiguas: list[str] = field(default_factory=list)
+    correcciones_sin_uso: list[str] = field(default_factory=list)
     tablas_llenadas: list[dict[str, Any]] = field(default_factory=list)
     tablas_sin_fuente: list[str] = field(default_factory=list)
     analisis_pendientes: int = 0
@@ -191,16 +200,132 @@ def leer_declaracion_tablas(ruta: Path) -> dict[str, dict[str, Any]]:
     return salida
 
 
+def leer_correcciones(ruta: Path) -> dict[str, dict[str, Any]]:
+    """
+    Qué instrucciones de la plantilla piden lo que no corresponde.
+
+    LA PLANTILLA DEL CONSULTOR NO SE TOCA, y la copia saneada es derivada: se
+    regenera desde ella y una corrección escrita allí se perdería sin aviso. Se
+    declara aquí, se aplica al vuelo y se registra, de modo que el estudio
+    puede explicar por qué una figura no es la que la instrucción nombraba.
+
+    Se indexa por la leyenda por la misma razón que las tablas (ver
+    'leer_declaracion_tablas'): el número no identifica nada.
+    """
+    ruta = Path(ruta)
+    if not ruta.is_file():
+        return {}
+    declaracion = leer_yaml(ruta) or {}
+    salida: dict[str, dict[str, Any]] = {}
+    for entrada in declaracion.get("figuras") or []:
+        clave = _normalizar_leyenda(str(entrada.get("leyenda", "")))
+        if clave:
+            salida[clave] = entrada
+    return salida
+
+
+def leyendas_de_instruccion(documento) -> dict[Any, str]:
+    """
+    La leyenda que precede a cada instrucción de figura.
+
+    EN LAS FIGURAS LA LEYENDA VA ANTES Y EN LAS TABLAS DESPUES. No es un
+    descuido de la plantilla sino su composición, y buscar en la dirección
+    equivocada empareja cada figura con la leyenda de la siguiente.
+
+    Se recorre el documento en orden, párrafos del cuerpo y de las celdas,
+    porque dieciséis de las figuras se componen dentro de tablas para ponerlas
+    de a dos y esos párrafos no están en 'documento.paragraphs'.
+    """
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    salida: dict[Any, str] = {}
+    ultima = ""
+
+    def mirar(parrafo) -> None:
+        nonlocal ultima
+        texto = parrafo.text.strip()
+        if not texto:
+            return
+        if clasificar(texto)[0] == "figura":
+            salida[parrafo._element] = ultima
+        elif PATRON_LEYENDA.match(texto):
+            ultima = texto
+        else:
+            # LA LEYENDA TIENE QUE IR PEGADA A SU INSTRUCCION. Cualquier otro
+            # párrafo la cancela, empezando por el 'Fuente:' que sigue a cada
+            # figura. Sin esto, una instrucción sin leyenda propia heredaba la
+            # de la figura anterior y una corrección declarada se aplicaba
+            # también a figuras que no eran la suya.
+            ultima = ""
+
+    for hijo in documento.element.body.iterchildren():
+        if hijo.tag.endswith("}p"):
+            mirar(Paragraph(hijo, documento))
+        elif hijo.tag.endswith("}tbl"):
+            for fila in Table(hijo, documento).rows:
+                for celda in fila.cells:
+                    for parrafo in celda.paragraphs:
+                        mirar(parrafo)
+    return salida
+
+
+def planear_correcciones(documento, correcciones):
+    """
+    A qué instrucción concreta se aplica cada corrección declarada.
+
+    UNA CORRECCION QUE EMPAREJA CON VARIAS NO SE APLICA A NINGUNA. En esta
+    plantilla hay tres instrucciones bajo la leyenda 'Áreas microcuencas': la
+    del mapa de áreas y dos figuras de pendiente cuya leyenda quedó mal
+    copiada. Aplicar la corrección a las tres sustituía dos figuras correctas
+    por el mapa de áreas, y el informe salía con la misma imagen repetida sin
+    que nada lo dijera. Para desempatar se declara 'pedia', el archivo que la
+    instrucción nombra hoy.
+
+    Devuelve (plan, ambiguas, sin_uso): el plan por párrafo, las correcciones
+    que emparejan con más de una instrucción y las que no emparejan con
+    ninguna.
+    """
+    leyendas = leyendas_de_instruccion(documento)
+    instrucciones: list[tuple[Any, str, str]] = []
+    for elemento, leyenda in leyendas.items():
+        texto = "".join(elemento.itertext())
+        instrucciones.append((elemento, leyenda, clasificar(texto)[1]))
+
+    plan: dict[Any, dict[str, Any]] = {}
+    ambiguas: list[str] = []
+    sin_uso: list[str] = []
+    for clave, entrada in correcciones.items():
+        pedia = str(entrada.get("pedia", "")).strip()
+        candidatos = [e for e, ley, nom in instrucciones
+                      if _normalizar_leyenda(ley) == clave
+                      and (not pedia or nom == pedia)]
+        etiqueta = str(entrada.get("leyenda", clave))
+        if not candidatos:
+            sin_uso.append(etiqueta + (f" (pedia {pedia})" if pedia else ""))
+        elif len(candidatos) > 1:
+            ambiguas.append(f"{etiqueta}: {len(candidatos)} instrucciones")
+        else:
+            plan[candidatos[0]] = entrada
+    return plan, ambiguas, sin_uso
+
+
 def _normalizar_leyenda(texto: str) -> str:
     """
-    Deja la leyenda en lo que identifica a la tabla y nada más.
+    Deja la leyenda en lo que identifica al objeto y nada más.
 
     Se quita el prefijo numerado, que es justamente lo que no se puede
-    comparar ('Tabla 2-1.', 'Tabla -.', 'Tabla 5-10.'), y se igualan tildes,
+    comparar ('Tabla 2-1.', 'Tabla -.', 'Ilustración -.'), y se igualan tildes,
     mayúsculas y espacios: la declaración la escribe el consultor a mano y no
     tiene por qué reproducir la acentuación de la plantilla.
+
+    SIRVE PARA LAS CUATRO PALABRAS con que la plantilla encabeza sus leyendas.
+    Quitar solo 'Tabla' dejaba las de figura como 'ilustracion -. areas
+    microcuencas', que no emparejaba con nada y hacía que la corrección
+    declarada no se aplicara.
     """
-    limpio = re.sub(r"^\s*tabla\s*[0-9\-‐-―.\s]*", "", texto.strip(), flags=re.I)
+    limpio = re.sub(r"^\s*(?:tabla|ilustraci[oó]n|gr[aá]fico|figura)"
+                    r"\s*[0-9\-‐-―.\s]*", "", texto.strip(), flags=re.I)
     limpio = unicodedata.normalize("NFKD", limpio)
     limpio = "".join(c for c in limpio if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", limpio).strip().lower()
@@ -350,6 +475,9 @@ def ejecutar(
         configuracion.obtener("graficos.directorio_individuales"), base)
     declaracion = leer_declaracion_tablas(
         rutas.resolver(configuracion.obtener("informe.tablas"), base))
+    correcciones = leer_correcciones(rutas.resolver(
+        configuracion.obtener("informe.correcciones",
+                              "config/informe_correcciones.yaml"), base))
 
     resultado = ResultadoM15(plantilla=str(origen))
 
@@ -373,6 +501,9 @@ def ejecutar(
     cuerpo = list(documento.element.body)
     parrafos = {p._element: p for p in documento.paragraphs}
     tablas = {t._tbl: t for t in documento.tables}
+    plan, ambiguas, sin_uso = planear_correcciones(documento, correcciones)
+    resultado.correcciones_ambiguas = ambiguas
+    resultado.correcciones_sin_uso = sin_uso
 
     with registro.bloque(logger, "Instrucciones de la plantilla"):
         for posicion, elemento in enumerate(cuerpo):
@@ -384,7 +515,7 @@ def ejecutar(
                 resultado.analisis_pendientes += 1
             elif tipo == "figura":
                 _resolver_figura(parrafo, argumento, [graficos, individuales],
-                                 ancho, resultado, base)
+                                 ancho, resultado, base, plan)
             elif tipo == "tabla":
                 _resolver_tabla(cuerpo, posicion, tablas, parrafos,
                                 argumento, declaracion, delimitador, base,
@@ -404,7 +535,8 @@ def ejecutar(
                         elif tipo == "figura":
                             _resolver_figura(
                                 parrafo, argumento, [graficos, individuales],
-                                _ancho_de_celda(celda, ancho), resultado, base)
+                                _ancho_de_celda(celda, ancho), resultado, base,
+                                plan)
 
         logger.info("%d figura(s) puestas, %d tabla(s) llenadas, %d analisis "
                     "sin tocar", len(resultado.figuras_puestas),
@@ -439,8 +571,19 @@ def ejecutar(
     return _cerrar(logger, resultado, base, ruta_json, inicio, codigo)
 
 
-def _resolver_figura(parrafo, nombre, raices, ancho, resultado, base) -> None:
+def _resolver_figura(parrafo, nombre, raices, ancho, resultado, base,
+                     plan=None) -> None:
     """Pone la figura si existe; si no, deja la instrucción y lo reporta."""
+    entrada = (plan or {}).get(parrafo._element)
+    if entrada is not None and str(entrada.get("archivo", "")).strip():
+        # LA CORRECCION SE REGISTRA Y NO SE APLICA EN SILENCIO. Cambiar la
+        # figura que la plantilla pide es una decision con margen, y un estudio
+        # que no puede explicar sus cambios no es defendible.
+        resultado.figuras_corregidas.append({
+            "leyenda": str(entrada.get("leyenda", "")), "pedia": nombre,
+            "archivo": str(entrada["archivo"]),
+            "motivo": str(entrada.get("motivo", "")).strip()})
+        nombre = str(entrada["archivo"])
     ruta = buscar_figura(nombre, raices)
     if ruta is None:
         # LA INSTRUCCION SE DEJA INTACTA. Borrarla dejaria un hueco mudo en el
@@ -524,6 +667,41 @@ def _resumir(resultado: ResultadoM15) -> list[Hallazgo]:
             "siguen en verde y sin resolver, que es lo previsto: exigen mirar "
             "el resultado y decir qué significa, y eso no se programa. El "
             "informe NO está terminado hasta que se redacten y se borren.",
+        ))
+
+    if resultado.figuras_corregidas:
+        detalle = "; ".join(
+            f"bajo '{c['leyenda']}' se puso {c['archivo']} y no {c['pedia']}"
+            for c in resultado.figuras_corregidas)
+        hallazgos.append(Hallazgo(
+            INFORMATIVO, "informe.figuras_corregidas",
+            f"{len(resultado.figuras_corregidas)} instruccion(es) de la "
+            f"plantilla pedían la figura equivocada y se corrigieron según "
+            f"informe.correcciones: {detalle}. La plantilla original conserva "
+            "el error; el motivo de cada cambio está declarado ahí.",
+        ))
+
+    if resultado.correcciones_ambiguas:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "informe.correcciones_ambiguas",
+            f"{len(resultado.correcciones_ambiguas)} corrección(es) declaradas "
+            f"emparejan con más de una instruccion y NO se aplicaron a ninguna: "
+            f"{resultado.correcciones_ambiguas}. La plantilla repite esa "
+            "leyenda en figuras distintas. Añada 'pedia' con el archivo que la "
+            "instruccion nombra hoy para desempatar.",
+        ))
+
+    if resultado.correcciones_sin_uso:
+        # UNA CORRECCION QUE NO EMPAREJA NO HACE NADA Y NADIE LO NOTA. O la
+        # leyenda esta mal escrita, o el consultor ya corrigio su plantilla y
+        # la entrada sobra.
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "informe.correcciones_sin_uso",
+            f"{len(resultado.correcciones_sin_uso)} corrección(es) declaradas "
+            f"no emparejaron con ninguna leyenda de la plantilla: "
+            f"{resultado.correcciones_sin_uso}. O la leyenda está mal escrita "
+            "y la corrección no se aplicó, o la plantilla ya se corrigió y la "
+            "entrada sobra.",
         ))
 
     if resultado.figuras_ausentes:

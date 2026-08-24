@@ -1,0 +1,47 @@
+# =============================================================================
+# CORRECCIONES A LAS INSTRUCCIONES DE LA PLANTILLA  (insumo del M15)
+# -----------------------------------------------------------------------------
+# Que hacer cuando una instruccion de la plantilla pide lo que no corresponde.
+#
+# POR QUE NO SE CORRIGE EN EL DOCUMENTO. La plantilla del consultor es la fuente
+# y no se toca; templates/informe_base.docx es una copia derivada que se
+# regenera a partir de ella, de modo que una correccion escrita alli se
+# perderia sin aviso la proxima vez. Aqui sobrevive, y ademas queda dicha: el
+# modulo la aplica y la registra en el log, con lo que el informe puede explicar
+# por que una figura no es la que la instruccion nombraba.
+#
+# SE IDENTIFICA POR LA LEYENDA, por la misma razon que las tablas: las leyendas
+# se componen con campos SEQ sin resultado en cache y dicen "Ilustracion -."
+# hasta que Word actualice los campos, asi que el numero no sirve para
+# emparejar. La leyenda se compara sin prefijo, sin tildes y sin distinguir
+# mayusculas.
+#
+# EN LAS FIGURAS LA LEYENDA VA ANTES de la instruccion, y en las tablas
+# despues. No es un descuido de la plantilla: es su composicion.
+#
+# Cuando el consultor corrija su plantilla, la entrada correspondiente se
+# retira de aqui. Si una leyenda declarada deja de existir, el modulo lo avisa.
+# =============================================================================
+
+version: 1
+
+figuras:
+
+  - leyenda: "Áreas microcuencas"
+    pedia: "M10_areas_subcuencas.png"
+    archivo: "M10_mapa_areas.png"
+    motivo: >-
+      La instruccion pedia M10_areas_subcuencas.png, que es el grafico de
+      barras ya colocado en la ilustracion anterior, bajo la leyenda
+      "Distribucion Areas microcuencas". Esta corresponde al mapa de areas por
+      subcuenca.
+      Lleva 'pedia' porque la plantilla repite la leyenda "Areas microcuencas"
+      en tres instrucciones: esta y dos figuras de pendiente cuya leyenda
+      quedo mal copiada. Sin desempatar, la correccion sustituia las tres.
+
+  - leyenda: "Curva Hipsométrica"
+    pedia: "M10_areas_subcuencas.png"
+    archivo: "M10_curva_hipsometrica.png"
+    motivo: >-
+      La instruccion pedia M10_areas_subcuencas.png, el mismo grafico de barras
+      de areas, que no tiene relacion con la curva hipsometrica.
