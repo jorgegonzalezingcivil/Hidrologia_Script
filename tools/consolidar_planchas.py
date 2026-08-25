@@ -337,6 +337,177 @@ def corregir_capas_de_planchas(raiz, escribir: bool) -> list[str]:
     return hechos
 
 
+
+def sincronizar_marcos_y_leyendas(raiz, escribir: bool) -> list[str]:
+    """
+    Hace que cada marco respete su lista de capas y cada leyenda siga a su mapa.
+
+    DOS AJUSTES QUE NO SE VEN EN EL XML PERO LO GOBIERNAN TODO:
+
+    'keepLayerSet' en falso hace que el marco IGNORE su propia lista de capas y
+    dibuje lo que el arbol del proyecto tenga marcado. Tres planchas lo tenian
+    asi, justo las tres cuya lista estaba vacia: por mucho que se les declaren
+    capas, no las miran. Es la causa de que la zonificacion siguiera sin su
+    subzona despues de declararsela.
+
+    'autoUpdateModel' ausente deja la leyenda con una COPIA CONGELADA de las
+    capas que tenia el dia que se creo. Por eso el area de influencia seguia
+    apareciendo en las convenciones despues de retirarla del mapa. Con el
+    puesto, la leyenda sigue al marco al que ya apunta por 'map_uuid' y las dos
+    cosas no pueden volver a discrepar.
+    """
+    hechos: list[str] = []
+    marcos = leyendas = 0
+    for lay in raiz.iter("Layout"):
+        if not (lay.get("name") or "").startswith("Figura"):
+            continue
+        for item in lay.findall("LayoutItem"):
+            if item.find("LayerSet") is not None:
+                if item.get("keepLayerSet") != "true":
+                    if escribir:
+                        item.set("keepLayerSet", "true")
+                    marcos += 1
+            if item.find("layer-tree-group") is not None:
+                if item.get("autoUpdateModel") != "1":
+                    if escribir:
+                        item.set("autoUpdateModel", "1")
+                    leyendas += 1
+    if marcos:
+        hechos.append(f"{marcos} marco(s) pasan a respetar su lista de capas")
+    if leyendas:
+        hechos.append(f"{leyendas} leyenda(s) pasan a seguir a su mapa")
+    return hechos
+
+
+def limpiar_arbol(raiz, escribir: bool) -> list[str]:
+    """
+    Quita del arbol del proyecto los nodos que apuntan a capas que ya no estan.
+
+    Al retirar las capas en memoria y las copias sin uso, sus nodos quedaron
+    colgando. No rompen el dibujo, pero QGIS los muestra en blanco al abrir el
+    proyecto y no se puede saber que eran.
+    """
+    existentes = {ml.findtext("id") for ml in raiz.iter("maplayer")}
+    padres = _padres(raiz)
+    colgando = [n for n in raiz.iter("layer-tree-layer")
+                if n.get("id") not in existentes]
+    if not colgando:
+        return []
+    if escribir:
+        for nodo in colgando:
+            padres[nodo].remove(nodo)
+    return [f"quitados {len(colgando)} nodo(s) del arbol sin capa detras"]
+
+
+
+# La plancha de subcuencas habla de las subcuencas, no del contorno de la
+# cuenca. Se cambia la capa y se le ponen etiquetas con el nombre de cada una.
+SUSTITUIR_CAPA = {
+    "Figura 6. Subcuencas del modelo hidrológico": ("Cuenca completa",
+                                                    "Subcuencas"),
+}
+
+# Capa de la que se copia la estructura de etiquetado. Se CLONA en lugar de
+# escribirse a mano porque el bloque de etiquetas de QGIS tiene decenas de
+# claves y una mal puesta no da error: deja la capa sin etiquetar y en silencio.
+MODELO_ETIQUETAS = "Subzona hidrográfica"
+ETIQUETAR = {"Subcuencas": "name"}
+
+
+def ajustar_plancha_de_subcuencas(raiz, escribir: bool) -> list[str]:
+    """Cambia la capa de la plancha de subcuencas y la etiqueta."""
+    import copy as _copy
+
+    hechos: list[str] = []
+    por_nombre = {}
+    for ml in raiz.iter("maplayer"):
+        por_nombre.setdefault(ml.findtext("layername") or "", ml)
+
+    # --- 1. La capa que dibuja la plancha ------------------------------------
+    for lay in raiz.iter("Layout"):
+        nombre = lay.get("name") or ""
+        if nombre not in SUSTITUIR_CAPA:
+            continue
+        viejo, nuevo = SUSTITUIR_CAPA[nombre]
+        capa_vieja = por_nombre.get(viejo)
+        capa_nueva = por_nombre.get(nuevo)
+        if capa_vieja is None or capa_nueva is None:
+            hechos.append(f"NO SE ENCONTRARON las capas '{viejo}' o '{nuevo}'")
+            continue
+        id_viejo = capa_vieja.findtext("id")
+        id_nuevo = capa_nueva.findtext("id")
+        for item in lay.findall("LayoutItem"):
+            conjunto = item.find("LayerSet")
+            if conjunto is None:
+                continue
+            textos = [e.text for e in conjunto]
+            if id_nuevo in textos:
+                hechos.append(f"YA AJUSTADA: '{nombre}' dibuja '{nuevo}'")
+                break
+            for elemento in conjunto:
+                if elemento.text == id_viejo:
+                    if escribir:
+                        elemento.text = id_nuevo
+                    hechos.append(f"'{nombre}' pasa de '{viejo}' a '{nuevo}'")
+                    break
+            break
+
+    # --- 2. Etiquetas, clonadas de una capa que ya las tiene bien ------------
+    modelo = por_nombre.get(MODELO_ETIQUETAS)
+    if modelo is None or modelo.find("labeling") is None:
+        hechos.append(f"NO HAY DE DONDE COPIAR el etiquetado "
+                      f"('{MODELO_ETIQUETAS}')")
+        return hechos
+
+    for etiqueta_capa, campo in ETIQUETAR.items():
+        capa = por_nombre.get(etiqueta_capa)
+        if capa is None:
+            hechos.append(f"NO ESTA la capa '{etiqueta_capa}'")
+            continue
+        if capa.find("labeling") is not None:
+            hechos.append(f"YA ETIQUETADA: '{etiqueta_capa}'")
+            continue
+        if escribir:
+            copia = _copy.deepcopy(modelo.find("labeling"))
+            for estilo in copia.iter("text-style"):
+                estilo.set("fieldName", campo)
+                estilo.set("isExpression", "0")
+            capa.append(copia)
+            # QGIS activa el etiquetado con esta propiedad; sin ella el bloque
+            # se guarda y no se dibuja nada.
+            propiedades = capa.find("customproperties")
+            if propiedades is None:
+                propiedades = ET.SubElement(capa, "customproperties")
+            for opcion in propiedades.iter("Option"):
+                if opcion.get("name") == "labeling/enabled":
+                    opcion.set("value", "true")
+                    break
+        hechos.append(f"'{etiqueta_capa}' etiquetada por el campo '{campo}'")
+    return hechos
+
+
+
+def fondo_a_la_rosa(raiz, escribir: bool) -> list[str]:
+    """
+    Da fondo opaco a la rosa nautica, que se dibujaba sobre el trazo del mapa.
+
+    Su PNG tiene transparencia y quedaba encima del perimetro de la cuenca sin
+    nada que la separase. La leyenda ya tenia fondo y marco; la rosa no.
+    """
+    puestos = 0
+    for lay in raiz.iter("Layout"):
+        for item in lay.findall("LayoutItem"):
+            if "ROSA" not in (item.get("file") or ""):
+                continue
+            if item.get("background") == "true":
+                continue
+            if escribir:
+                item.set("background", "true")
+                item.set("backgroundColor", "255,255,255,255")
+            puestos += 1
+    return [f"fondo opaco a {puestos} rosa(s) nautica(s)"] if puestos else []
+
+
 def _abrir(ruta: Path) -> tuple[ET.Element, dict]:
     """Devuelve el árbol del .qgs y los demás archivos del contenedor."""
     with zipfile.ZipFile(ruta) as paquete:
@@ -510,6 +681,10 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
     # --- 8. Capas de cada plancha --------------------------------------------
     hechos.extend(quitar_relleno(raiz, escribir))
     hechos.extend(corregir_capas_de_planchas(raiz, escribir))
+    hechos.extend(ajustar_plancha_de_subcuencas(raiz, escribir))
+    hechos.extend(sincronizar_marcos_y_leyendas(raiz, escribir))
+    hechos.extend(fondo_a_la_rosa(raiz, escribir))
+    hechos.extend(limpiar_arbol(raiz, escribir))
 
     if escribir and hechos:
         _guardar(raiz, contenedor, ruta)
