@@ -63,6 +63,9 @@ ANCHO_MAXIMO_MM = 440.0
 QUITAR_PLANCHAS = (
     "Figura 4. Modelo digital de elevación",
     "Figura 13. Cobertura de la tierra por clase",
+    # Composicion vacia que QGIS crea por defecto. Se exportaba como una
+    # plancha mas, produciendo un PDF de 3 kB sin nada dentro.
+    "Composición 1",
 )
 
 # El numero de cada plancha en el juego final, en el orden de los PDF. Se
