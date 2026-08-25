@@ -63,6 +63,29 @@ insumos_usuario:
 # simbología no vive dentro del proyecto sino en los .qml del directorio
 # 'estilos', de modo que los ajustes del consultor sobreviven a la regeneración.
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# M16 - CARTOGRAFÍA
+# -----------------------------------------------------------------------------
+planchas:
+  # La plantilla con las 29 planchas ya compuestas. ES LA FUENTE DE VERDAD y
+  # esta versionada: encuadres, simbologia y posicion del rotulo salen de ahi.
+  # Para cambiar la presentacion se abre en QGIS y se guarda; el M16 la respeta.
+  plantilla: "templates/planchas.qgz"
+  catalogo: "config/planchas.yaml"
+  salida: "data/05_resultados/mapas"
+  proyecto: "data/05_resultados/mapas/planchas.qgz"
+
+  # Rutas RELATIVAS al .qgz del estudio, que es donde QGIS las resuelve.
+  logos:
+    contratante: "../../00_insumos_usuario/logos/logo_amarilo.png"
+    consultor: "../../00_insumos_usuario/logos/logo real.png"
+
+  # Resolucion del PNG. El PDF sale vectorial y no depende de esto.
+  ppp_png: 300
+
+  # Formatos a exportar. El informe consume el PNG y el anexo el PDF.
+  formatos: [pdf, png]
+
 proyecto_qgis:
   declaracion: "config/proyecto_qgis.yaml"
   archivo: "data/03_SIG/proyecto/estudio_hidrologico.qgz"
@@ -165,6 +188,10 @@ referencia_nacional:
 
 subzonas_hidrograficas:
   archivo: "data/referencia/sig/Zonificacion_hidrografica_2013.shp"
+  # SU .prj VA EN DIALECTO ESRI ('GCS_MAGNA', sin AUTHORITY) y el adaptador no
+  # puede deducir el codigo. Se declara: suponerlo colocaria la capa a cientos
+  # de kilometros y el encuadre saldria inventado.
+  crs: "EPSG:4686"
   tolerancia_m: 500.0            # distancia máxima admitida si el punto cae fuera
   # Adaptador de nombres de campo. La capa la publica el IDEAM y sus nombres
   # pueden cambiar entre versiones; se declaran aquí y no en el código.

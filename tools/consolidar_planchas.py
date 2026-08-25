@@ -57,6 +57,57 @@ RUTAS_AJENAS = ("/Users/", "\\Users\\", "Downloads")
 ANCHO_MAXIMO_MM = 440.0
 
 
+# Planchas que el consultor retiro del juego. Quedaron como layout en el
+# proyecto pero NO estan entre los PDF que entrego, que son un juego limpio de
+# 1 a 29 sin huecos: esa numeracion consecutiva es la decision.
+QUITAR_PLANCHAS = (
+    "Figura 4. Modelo digital de elevación",
+    "Figura 13. Cobertura de la tierra por clase",
+)
+
+# El numero de cada plancha en el juego final, en el orden de los PDF. Se
+# renumera para que la plantilla, el catalogo y el entregable digan lo mismo:
+# mantener el numero viejo obligaria a una tabla de equivalencias, que es una
+# fuente de error mas.
+ORDEN_FINAL = (
+    "Localización general",
+    "Zonificacion Hidrografica",
+    "Área de influencia",
+    "Pendiente del terreno",
+    "Red de drenaje",
+    "Subcuencas del modelo hidrológico",
+    "Cobertura de la tierra",
+    "Estaciones hidrometeorológicas",
+    "Número de curva",
+    "Tiempo de rezago",
+    "Orden de la red de drenaje",
+    "Escorrentía media multianual",
+    "Evapotranspiración real",
+    "Evapotranspiración potencial",
+    "Temperatura media",
+    "Coeficiente de infiltración",
+    "Precipitación media anual",
+    "Precipitación Total Multianual Año compuesto",
+    "Precipitación Total Multianual Año neutral",
+    "Precipitación Total Multianual Año nina",
+    "Precipitación Total Multianual Año nino",
+    "Precipitación Máxima Tr 10 Años",
+    "Precipitación Máxima Tr 100 Años",
+    "Precipitación Máxima Tr 15 Años",
+    "Precipitación Máxima Tr 25 Años",
+    "Precipitación Máxima Tr 2.33 Años",
+    "Precipitación Máxima Tr 5 Años",
+    "Precipitación Máxima Tr 50 Años",
+    "Precipitación Máxima Tr 500 Años",
+)
+
+
+def _titulo_sin_numero(nombre: str) -> str:
+    """'Figura 12. Orden de la red' -> 'Orden de la red'."""
+    partes = nombre.split(". ", 1)
+    return partes[1] if len(partes) == 2 else nombre
+
+
 def _abrir(ruta: Path) -> tuple[ET.Element, dict]:
     """Devuelve el árbol del .qgs y los demás archivos del contenedor."""
     with zipfile.ZipFile(ruta) as paquete:
@@ -189,6 +240,39 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
                 vistos.add(idd)
     if vacias:
         hechos.append(f"quitadas {vacias} etiqueta(s) vacias repetidas")
+
+
+    # --- 6. Planchas retiradas y renumeracion ---------------------------------
+    for layout in list(raiz.iter("Layout")):
+        if (layout.get("name") or "") in QUITAR_PLANCHAS:
+            if escribir:
+                padres[layout].remove(layout)
+            hechos.append(f"retirada la plancha '{layout.get('name')}'")
+
+    posicion = {titulo: numero
+                for numero, titulo in enumerate(ORDEN_FINAL, start=1)}
+    renumeradas = 0
+    huerfanas = []
+    for layout in raiz.iter("Layout"):
+        nombre = layout.get("name") or ""
+        if not nombre.startswith("Figura"):
+            continue
+        titulo = _titulo_sin_numero(nombre)
+        numero = posicion.get(titulo)
+        if numero is None:
+            huerfanas.append(nombre)
+            continue
+        nuevo = f"Figura {numero}. {titulo}"
+        if nuevo == nombre:
+            continue
+        if escribir:
+            layout.set("name", nuevo)
+        renumeradas += 1
+    if renumeradas:
+        hechos.append(f"renumeradas {renumeradas} plancha(s) al juego final "
+                      f"de {len(ORDEN_FINAL)}")
+    for nombre in huerfanas:
+        hechos.append(f"SIN SITIO en el juego final: '{nombre}'")
 
     if escribir and hechos:
         _guardar(raiz, contenedor, ruta)

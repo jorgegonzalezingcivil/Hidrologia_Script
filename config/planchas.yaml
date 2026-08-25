@@ -1,0 +1,225 @@
+# =============================================================================
+# CATALOGO DE PLANCHAS  (insumo del M16)
+# -----------------------------------------------------------------------------
+# QUE ES VARIABLE Y QUE ES FIJO. Es la unica pregunta que este archivo responde,
+# y la respuesta esta en tres niveles:
+#
+#   FIJO EN LA PLANTILLA, nunca se toca desde aqui ni desde el codigo:
+#     la geometria del rotulo, sus posiciones y tamanos
+#     los rotulos "PROYECTO:" y "CONTENIDO:"
+#     la simbologia de cada capa
+#     el tamano y la orientacion de cada pagina
+#     la rosa nautica
+#   Cambiar cualquiera de estas cosas se hace abriendo templates/planchas.qgz
+#   en QGIS y guardando. El M16 las respeta.
+#
+#   VARIABLE POR ESTUDIO, sale de config.yaml y es igual en las 29 planchas:
+#     rot_proyecto      <- proyecto.nombre y la fecha de ejecucion
+#     rot_contratante   <- proyecto.contratante
+#     rot_consultor     <- proyecto.consultor
+#     logo_contratante  <- planchas.logos.contratante
+#     logo_consultor    <- planchas.logos.consultor
+#     el CRS de presentacion <- el del punto de descarga del M01
+#
+#   VARIABLE POR PLANCHA, se declara aqui o se calcula:
+#     titulo y subtitulo  -> se declaran abajo, van a rot_contenido
+#     encuadre            -> se calcula de la capa que enmarca
+#     escala              -> se CALCULA del marco y se normaliza
+#     escala_numerica y rot_referencia -> se derivan de la escala
+#
+# LA ESCALA NO SE ESCRIBE NUNCA A MANO, y no es una preferencia. Medido sobre
+# las 31 planchas que el consultor entrego, CUATRO llevaban mal la escala:
+#   Figura 4  decia 1:200.000 y el marco estaba en 1:234.656
+#   Figura 6  decia 1:200.000 y estaba en 1:165.000
+#   Figura 13 decia 1:200.000 en un texto y 1:600.000 en el otro
+#   Figura 23 decia 1:16.500, con un cero de menos
+# Un revisor que mida sobre el papel encuentra eso, y desacredita el estudio
+# entero. Derivarla del marco hace imposible la discrepancia.
+#
+# 'enmarca' es la capa cuya extension define el encuadre. 'holgura' es la
+# fraccion que se anade alrededor antes de normalizar la escala.
+# =============================================================================
+
+version: 1
+
+# Serie de escalas a la que se redondea HACIA ARRIBA. Es doctrina cartografica:
+# una plancha en 1:234.656 no es una plancha, es un descuido.
+escalas_normalizadas: [1000, 2000, 2500, 5000, 10000, 15000, 20000, 25000,
+                       50000, 75000, 100000, 125000, 150000, 165000, 200000,
+                       250000, 300000, 400000, 500000, 600000, 750000, 1000000]
+
+holgura_por_defecto: 0.08
+
+# Formato del bloque de referencia. Las llaves se sustituyen; el resto es fijo.
+formato_referencia: |-
+  Sistema de coordenadas: {crs}
+  Unidades: {unidades}
+  Escala: 1:{escala}
+
+formato_escala: "Escala 1:{escala}"
+
+# -----------------------------------------------------------------------------
+# LAS 29 PLANCHAS
+#
+# 'layout' es el nombre EXACTO del layout en templates/planchas.qgz y es la
+# clave que las une: si no coincide, el modulo lo reporta y no adivina.
+#
+# SE RETIRARON DOS del juego original, el modelo digital de elevacion y la
+# cobertura por clase, y las demas quedaron renumeradas. La decision esta en
+# los PDF que el consultor entrego: un juego limpio de 1 a 29 sin huecos.
+# -----------------------------------------------------------------------------
+planchas:
+
+  - layout: "Figura 1. Localización general"
+    titulo: "LOCALIZACIÓN GENERAL"
+    subtitulo: "Cuenca de Estudio en su Subzona Hidrográfica"
+    # ENMARCA LA SUBZONA QUE CONTIENE LA CUENCA, no el contexto entero. La capa
+    # de contexto se dibuja debajo para situarla, pero encuadrar sobre sus diez
+    # subzonas llevaba la plancha al tope de la serie de escalas y la cuenca
+    # quedaba en un punto.
+    enmarca: "subzona_intersectada"
+    holgura: 0.10
+
+  - layout: "Figura 2. Zonificacion Hidrografica"
+    titulo: "ZONIFICACIÓN HIDROGRÁFICA"
+    subtitulo: "Subzona Hidrográfica del IDEAM y Cuenca de Estudio"
+    enmarca: "subzona_intersectada"
+    holgura: 0.12
+
+  - layout: "Figura 3. Área de influencia"
+    titulo: "ÁREA DE INFLUENCIA"
+    subtitulo: "Delimitación Adoptada y Envolvente de la Cuenca"
+    enmarca: "area_influencia"
+
+  - layout: "Figura 4. Pendiente del terreno"
+    titulo: "PENDIENTE DEL TERRENO"
+    subtitulo: "Derivada del Modelo Digital de Elevación"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 5. Red de drenaje"
+    titulo: "RED DE DRENAJE"
+    subtitulo: "Cauces Sencillos, Dobles y Cuerpos de Agua"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 6. Subcuencas del modelo hidrológico"
+    titulo: "SUBCUENCAS DEL MODELO HIDROLÓGICO"
+    subtitulo: "Delimitación Asistida en HEC-HMS"
+    enmarca: "subcuencas"
+
+  - layout: "Figura 7. Cobertura de la tierra"
+    titulo: "COBERTURA DE LA TIERRA"
+    subtitulo: "Corine Land Cover Recortado al Área de Influencia"
+    enmarca: "cobertura_clc_area"
+
+  - layout: "Figura 8. Estaciones hidrometeorológicas"
+    titulo: "ESTACIONES HIDROMETEOROLÓGICAS"
+    subtitulo: "Seleccionadas y Descartadas del Catálogo del IDEAM"
+    enmarca: "estaciones_seleccionadas"
+    holgura: 0.12
+
+  - layout: "Figura 9. Número de curva"
+    titulo: "NÚMERO DE CURVA"
+    subtitulo: "Método SCS por Subcuenca"
+    enmarca: "subcuencas"
+
+  - layout: "Figura 10. Tiempo de rezago"
+    titulo: "TIEMPO DE REZAGO"
+    subtitulo: "Por Subcuenca, en Minutos"
+    enmarca: "subcuencas"
+
+  - layout: "Figura 11. Orden de la red de drenaje"
+    titulo: "ORDEN DE LA RED DE DRENAJE"
+    subtitulo: "Clasificación de Strahler"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 12. Escorrentía media multianual"
+    titulo: "ESCORRENTÍA MEDIA MULTIANUAL"
+    subtitulo: "Por Subcuenca, en Milímetros por Año"
+    enmarca: "subcuencas"
+
+  - layout: "Figura 13. Evapotranspiración real"
+    titulo: "EVAPOTRANSPIRACIÓN REAL"
+    subtitulo: "Por Subcuenca, en Milímetros por Año"
+    enmarca: "subcuencas"
+
+  - layout: "Figura 14. Evapotranspiración potencial"
+    titulo: "EVAPOTRANSPIRACIÓN POTENCIAL"
+    subtitulo: "Por Subcuenca, en Milímetros por Año"
+    enmarca: "subcuencas"
+
+  - layout: "Figura 15. Temperatura media"
+    titulo: "TEMPERATURA MEDIA"
+    subtitulo: "Por Subcuenca, en Grados Celsius"
+    enmarca: "subcuencas"
+
+  - layout: "Figura 16. Coeficiente de infiltración"
+    titulo: "COEFICIENTE DE INFILTRACIÓN"
+    subtitulo: "Método de Schosinsky y Losilla por Subcuenca"
+    enmarca: "subcuencas"
+
+  - layout: "Figura 17. Precipitación media anual"
+    titulo: "PRECIPITACIÓN MEDIA ANUAL"
+    subtitulo: "Por Subcuenca, en Milímetros"
+    enmarca: "subcuencas"
+
+  # Las cuatro fases del ENSO. El nombre de la fase entra en el subtitulo.
+  - layout: "Figura 18. Precipitación Total Multianual Año compuesto"
+    titulo: "PRECIPITACIÓN TOTAL MULTIANUAL"
+    subtitulo: "Año Compuesto"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 19. Precipitación Total Multianual Año neutral"
+    titulo: "PRECIPITACIÓN TOTAL MULTIANUAL"
+    subtitulo: "Año Neutral"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 20. Precipitación Total Multianual Año nina"
+    titulo: "PRECIPITACIÓN TOTAL MULTIANUAL"
+    subtitulo: "Año La Niña"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 21. Precipitación Total Multianual Año nino"
+    titulo: "PRECIPITACIÓN TOTAL MULTIANUAL"
+    subtitulo: "Año El Niño"
+    enmarca: "cuenca_completa"
+
+  # Las ocho isoyetas de precipitacion maxima. El periodo entra en el subtitulo.
+  - layout: "Figura 22. Precipitación Máxima Tr 10 Años"
+    titulo: "PRECIPITACIÓN MÁXIMA EN 24 HORAS"
+    subtitulo: "Periodo de Retorno de 10 Años"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 23. Precipitación Máxima Tr 100 Años"
+    titulo: "PRECIPITACIÓN MÁXIMA EN 24 HORAS"
+    subtitulo: "Periodo de Retorno de 100 Años"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 24. Precipitación Máxima Tr 15 Años"
+    titulo: "PRECIPITACIÓN MÁXIMA EN 24 HORAS"
+    subtitulo: "Periodo de Retorno de 15 Años"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 25. Precipitación Máxima Tr 25 Años"
+    titulo: "PRECIPITACIÓN MÁXIMA EN 24 HORAS"
+    subtitulo: "Periodo de Retorno de 25 Años"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 26. Precipitación Máxima Tr 2.33 Años"
+    titulo: "PRECIPITACIÓN MÁXIMA EN 24 HORAS"
+    subtitulo: "Periodo de Retorno de 2,33 Años"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 27. Precipitación Máxima Tr 5 Años"
+    titulo: "PRECIPITACIÓN MÁXIMA EN 24 HORAS"
+    subtitulo: "Periodo de Retorno de 5 Años"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 28. Precipitación Máxima Tr 50 Años"
+    titulo: "PRECIPITACIÓN MÁXIMA EN 24 HORAS"
+    subtitulo: "Periodo de Retorno de 50 Años"
+    enmarca: "cuenca_completa"
+
+  - layout: "Figura 29. Precipitación Máxima Tr 500 Años"
+    titulo: "PRECIPITACIÓN MÁXIMA EN 24 HORAS"
+    subtitulo: "Periodo de Retorno de 500 Años"
+    enmarca: "cuenca_completa"
