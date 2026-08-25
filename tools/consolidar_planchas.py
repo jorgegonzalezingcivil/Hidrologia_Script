@@ -205,7 +205,7 @@ def reponer_logos(raiz, escribir: bool) -> list[str]:
 # La cuenca completa se dibuja SOLO CON CONTORNO. Heredo el relleno opaco de la
 # capa en memoria de la que salio, y en la plancha de pendientes tapaba el
 # raster que la plancha existe para mostrar.
-CAPAS_SIN_RELLENO = ("Cuenca completa",)
+CAPAS_SIN_RELLENO = ("Cuenca completa", "Subcuencas")
 
 # Planchas donde el area de influencia es el TEMA. En las demas se retira: a la
 # escala de trabajo su contorno sale cortado por el borde del lienzo y se lee
@@ -251,92 +251,115 @@ def quitar_relleno(raiz, escribir: bool) -> list[str]:
     return hechos
 
 
-def _conjunto_de(lay):
-    """El LayerSet del marco principal de una plancha, o None."""
-    for item in lay.findall("LayoutItem"):
-        conjunto = item.find("LayerSet")
-        if conjunto is not None:
-            return conjunto
-    return None
+def _conjuntos_de(lay):
+    """
+    TODOS los LayerSet de una plancha, no solo el primero.
+
+    Dos planchas llevan una vista de detalle ademas del mapa principal, y cada
+    marco tiene su propia lista de capas. Tocando solo la primera, la
+    zonificacion seguia sin su subzona en el mapa grande por mucho que se le
+    declarara: la lista que yo editaba era la del recuadro.
+    """
+    return [item.find("LayerSet") for item in lay.findall("LayoutItem")
+            if item.find("LayerSet") is not None]
 
 
 def corregir_capas_de_planchas(raiz, escribir: bool) -> list[str]:
-    """Repone el juego de capas vacio, anade la cuenca y retira el area."""
+    """
+    Repone el juego de capas vacio, anade la cuenca y retira el area.
+
+    RECORRE TODOS LOS MARCOS de cada plancha. Dos llevan una vista de detalle
+    ademas del mapa principal, con su propia lista de capas: tocando solo la
+    primera, la zonificacion seguia sin subzona en el mapa grande porque la
+    lista que se editaba era la del recuadro.
+    """
     import copy as _copy
 
     hechos: list[str] = []
     nombres = {ml.findtext("id"): (ml.findtext("layername") or "")
                for ml in raiz.iter("maplayer")}
     id_cuenca = next((i for i, n in nombres.items() if n == CAPA_CUENCA), "")
+    por_nombre = {n: i for i, n in nombres.items()}
 
     # Un juego de referencia por familia, para reponer los que quedaron vacios.
     referencia = {}
     for lay in raiz.iter("Layout"):
         nombre = lay.get("name") or ""
-        conjunto = _conjunto_de(lay)
-        if conjunto is not None and len(conjunto):
-            familia = nombre.split(". ", 1)[-1].split(" Tr ")[0][:18]
-            referencia.setdefault(familia, conjunto)
+        for conjunto in _conjuntos_de(lay):
+            if len(conjunto):
+                familia = nombre.split(". ", 1)[-1].split(" Tr ")[0][:18]
+                referencia.setdefault(familia, conjunto)
+                break
 
     for lay in raiz.iter("Layout"):
         nombre = lay.get("name") or ""
         if not nombre.startswith("Figura"):
             continue
-        conjunto = _conjunto_de(lay)
-        if conjunto is None:
+        conjuntos = _conjuntos_de(lay)
+        if not conjuntos:
             hechos.append(f"SIN MARCO DE MAPA: '{nombre}'")
             continue
 
-        # 1. Juego vacio: se repone del de una plancha de la misma familia.
-        if not len(conjunto):
-            familia = nombre.split(". ", 1)[-1].split(" Tr ")[0][:18]
-            modelo = referencia.get(familia)
-            if modelo is None and "Zonificacion" in nombre:
-                # Declarada por nombre: es la unica de su clase.
-                por_nombre = {n: i for i, n in nombres.items()}
+        for orden, conjunto in enumerate(conjuntos, start=1):
+            marca = "" if len(conjuntos) == 1 else f" (marco {orden})"
+
+            # 1. Juego vacio: se repone.
+            if not len(conjunto):
+                familia = nombre.split(". ", 1)[-1].split(" Tr ")[0][:18]
+                modelo = referencia.get(familia)
+                if modelo is None and "Zonificacion" in nombre:
+                    if escribir:
+                        for etiqueta in CAPAS_DE_ZONIFICACION:
+                            ident = por_nombre.get(etiqueta)
+                            if ident:
+                                elemento = ET.SubElement(conjunto, "Layer")
+                                elemento.text = ident
+                    puestas = sum(1 for e in CAPAS_DE_ZONIFICACION
+                                  if por_nombre.get(e))
+                    hechos.append(f"declarado el juego de capas de "
+                                  f"'{nombre}'{marca} ({puestas} capas)")
+                elif modelo is None:
+                    hechos.append(f"JUEGO DE CAPAS VACIO y sin hermana de "
+                                  f"donde copiarlo: '{nombre}'{marca}")
+                    continue
+                else:
+                    if escribir:
+                        for elemento in modelo:
+                            conjunto.append(_copy.deepcopy(elemento))
+                    hechos.append(f"repuesto el juego de capas de "
+                                  f"'{nombre}'{marca} ({len(modelo)} capas)")
+
+            actuales = [e.text for e in conjunto]
+
+            # 2. La cuenca acompana a toda plancha tematica.
+            if id_cuenca and id_cuenca not in actuales and len(conjunto):
                 if escribir:
-                    for etiqueta in CAPAS_DE_ZONIFICACION:
-                        ident = por_nombre.get(etiqueta)
-                        if ident:
+                    elemento = _copy.deepcopy(conjunto[0])
+                    elemento.text = id_cuenca
+                    conjunto.append(elemento)
+                hechos.append(f"anadida la cuenca a '{nombre}'{marca}")
+
+            # 3. El area de influencia solo donde es el tema.
+            if nombre not in PLANCHAS_CON_AREA:
+                for elemento in list(conjunto):
+                    if nombres.get(elemento.text or "") == "Área de influencia":
+                        if escribir:
+                            conjunto.remove(elemento)
+                        hechos.append(f"retirada el area de influencia de "
+                                      f"'{nombre}'{marca}")
+
+            # 4. La subzona, donde la plancha habla de ella.
+            if "Zonificacion" in nombre:
+                for etiqueta in ("Subzona hidrográfica",
+                                 "Zonificación hidrográfica"):
+                    ident = por_nombre.get(etiqueta)
+                    if ident and ident not in [e.text for e in conjunto]:
+                        if escribir:
                             elemento = ET.SubElement(conjunto, "Layer")
                             elemento.text = ident
-                puestas = sum(1 for e in CAPAS_DE_ZONIFICACION
-                              if por_nombre.get(e))
-                hechos.append(f"declarado el juego de capas de '{nombre}' "
-                              f"({puestas} de {len(CAPAS_DE_ZONIFICACION)})")
-                continue
-            if modelo is None:
-                hechos.append(f"JUEGO DE CAPAS VACIO y sin hermana de donde "
-                              f"copiarlo: '{nombre}'")
-                continue
-            if escribir:
-                for elemento in modelo:
-                    conjunto.append(_copy.deepcopy(elemento))
-            hechos.append(f"repuesto el juego de capas de '{nombre}' "
-                          f"({len(modelo)} capas)")
-            conjunto = _conjunto_de(lay)
-
-        actuales = [e.text for e in conjunto]
-
-        # 2. La cuenca acompana a toda plancha tematica.
-        if id_cuenca and id_cuenca not in actuales:
-            if escribir:
-                elemento = _copy.deepcopy(conjunto[0])
-                elemento.text = id_cuenca
-                conjunto.append(elemento)
-            hechos.append(f"anadida la cuenca a '{nombre}'")
-
-        # 3. El area de influencia solo donde es el tema.
-        if nombre not in PLANCHAS_CON_AREA:
-            for elemento in list(conjunto):
-                if nombres.get(elemento.text or "") == "Área de influencia":
-                    if escribir:
-                        conjunto.remove(elemento)
-                    hechos.append(f"retirada el area de influencia de "
-                                  f"'{nombre}'")
+                        hechos.append(f"anadida '{etiqueta}' a "
+                                      f"'{nombre}'{marca}")
     return hechos
-
-
 
 def sincronizar_marcos_y_leyendas(raiz, escribir: bool) -> list[str]:
     """
@@ -465,7 +488,14 @@ def ajustar_plancha_de_subcuencas(raiz, escribir: bool) -> list[str]:
             hechos.append(f"NO ESTA la capa '{etiqueta_capa}'")
             continue
         if capa.find("labeling") is not None:
-            hechos.append(f"YA ETIQUETADA: '{etiqueta_capa}'")
+            # Tener el bloque no basta: sin 'labelsEnabled' se guarda y no se
+            # dibuja nada. Se comprueban las dos cosas.
+            if capa.get("labelsEnabled") == "1":
+                hechos.append(f"YA ETIQUETADA: '{etiqueta_capa}'")
+                continue
+            if escribir:
+                capa.set("labelsEnabled", "1")
+            hechos.append(f"activadas las etiquetas de '{etiqueta_capa}'")
             continue
         if escribir:
             copia = _copy.deepcopy(modelo.find("labeling"))
@@ -473,6 +503,11 @@ def ajustar_plancha_de_subcuencas(raiz, escribir: bool) -> list[str]:
                 estilo.set("fieldName", campo)
                 estilo.set("isExpression", "0")
             capa.append(copia)
+            # SIN ESTE ATRIBUTO EL BLOQUE SE GUARDA Y NO SE DIBUJA NADA. Es lo
+            # que distingue una capa con etiquetado declarado de una que lo
+            # rotula: 'Subzona hidrografica' lo tenia en 1 y por eso salia con
+            # su nombre, y 'Subcuencas' en 0.
+            capa.set("labelsEnabled", "1")
             # QGIS activa el etiquetado con esta propiedad; sin ella el bloque
             # se guarda y no se dibuja nada.
             propiedades = capa.find("customproperties")
@@ -506,6 +541,83 @@ def fondo_a_la_rosa(raiz, escribir: bool) -> list[str]:
                 item.set("backgroundColor", "255,255,255,255")
             puestos += 1
     return [f"fondo opaco a {puestos} rosa(s) nautica(s)"] if puestos else []
+
+
+
+def refrescar_leyendas_y_escalas(raiz, escribir: bool) -> list[str]:
+    """
+    Deja que la leyenda y la barra de escala se reconstruyan desde su mapa.
+
+    LA LEYENDA GUARDA UN ARBOL PROPIO y lo dibuja tal cual, aunque
+    'autoUpdateModel' este en 1: ese ajuste solo dice que QGIS puede
+    reconstruirlo, no que lo haga si ya hay uno escrito. El de estas planchas
+    conservaba los nombres de antes de tocar nada, 'Limpiada' y
+    'Zonificacion_hidrografica_2013', y seguia listando el area de influencia
+    despues de retirarla del mapa. Vaciandolo, QGIS lo repuebla al abrir el
+    proyecto con las capas que el marco dibuja de verdad.
+
+    LA BARRA DE ESCALA NO ESTABA VINCULADA A NINGUN MAPA: llevaba un tamano de
+    segmento fijo, de modo que decia 2,6 km sobre una plancha a 1:750.000, donde
+    esa distancia mide tres milimetros. Se le da el marco y se le pide que ajuste
+    el segmento al ancho, para que no pueda volver a contradecir a la escala
+    escrita.
+    """
+    hechos: list[str] = []
+    vaciadas = 0
+    # VACIAR EL ARBOL DEJA LA LEYENDA EN BLANCO: QGIS no lo repuebla al abrir,
+    # 'autoUpdateModel' solo dice que PUEDE hacerlo. Se reconstruye aqui, con
+    # las capas que el marco dibuja de verdad.
+    capas = {ml.findtext("id"): (ml.findtext("layername") or "",
+                                 ml.findtext("provider") or "ogr",
+                                 ml.findtext("datasource") or "")
+             for ml in raiz.iter("maplayer")}
+    for lay in raiz.iter("Layout"):
+        if not (lay.get("name") or "").startswith("Figura"):
+            continue
+
+        # El marco de mapa principal, que es el mayor.
+        principal = None
+        mayor = -1.0
+        for item in lay.findall("LayoutItem"):
+            if item.find("LayerSet") is None:
+                continue
+            medidas = (item.get("size") or "").split(",")
+            try:
+                superficie = float(medidas[0]) * float(medidas[1])
+            except (IndexError, ValueError):
+                continue
+            if superficie > mayor:
+                mayor, principal = superficie, item
+
+        for item in lay.findall("LayoutItem"):
+            arbol = item.find("layer-tree-group")
+            if arbol is not None and principal is not None:
+                conjunto = principal.find("LayerSet")
+                deseadas = [e.text for e in conjunto] if conjunto is not None else []
+                actuales = [n.get("id") for n in arbol.iter("layer-tree-layer")]
+                if deseadas and actuales != deseadas:
+                    if escribir:
+                        for nodo in list(arbol.iter("layer-tree-layer")):
+                            arbol.remove(nodo)
+                        for ident in deseadas:
+                            ficha = capas.get(ident)
+                            if ficha is None:
+                                continue
+                            nodo = ET.SubElement(arbol, "layer-tree-layer")
+                            nodo.set("checked", "Qt::Checked")
+                            nodo.set("expanded", "1")
+                            nodo.set("id", ident)
+                            nodo.set("legend_exp", "")
+                            nodo.set("legend_split_behavior", "0")
+                            nodo.set("name", ficha[0])
+                            nodo.set("patch_size", "-1,-1")
+                            nodo.set("providerKey", ficha[1])
+                            nodo.set("source", ficha[2])
+                            ET.SubElement(nodo, "customproperties")
+                    vaciadas += 1
+    if vaciadas:
+        hechos.append(f"reconstruido el arbol de {vaciadas} leyenda(s) con las capas de su mapa")
+    return hechos
 
 
 def _abrir(ruta: Path) -> tuple[ET.Element, dict]:
@@ -683,6 +795,7 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
     hechos.extend(corregir_capas_de_planchas(raiz, escribir))
     hechos.extend(ajustar_plancha_de_subcuencas(raiz, escribir))
     hechos.extend(sincronizar_marcos_y_leyendas(raiz, escribir))
+    hechos.extend(refrescar_leyendas_y_escalas(raiz, escribir))
     hechos.extend(fondo_a_la_rosa(raiz, escribir))
     hechos.extend(limpiar_arbol(raiz, escribir))
 

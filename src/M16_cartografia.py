@@ -226,6 +226,33 @@ def encuadrar(
              centro_x + medio_ancho, centro_y + medio_alto), escala)
 
 
+def segmento_de_barra(escala: int, milimetros_objetivo: float = 20.0) -> float:
+    """
+    Kilometros por segmento de la barra grafica, en numero redondo.
+
+    LA BARRA NO PUEDE CONTRADECIR A LA ESCALA ESCRITA, y es lo que hacia: la
+    plantilla traia 'numMapUnitsPerScaleBarUnit' en 10 cuando de metros a
+    kilometros son 1000, y el modo de ajuste automatico de QGIS respondia con
+    segmentos de cinco metros sobre una plancha a 1:150.000. Se calcula aqui,
+    donde la escala ya esta decidida.
+
+    Se busca el numero redondo (1, 2 o 5 por una potencia de diez) cuyo
+    segmento mas se acerque a los milimetros pedidos sobre el papel.
+    """
+    if escala <= 0:
+        raise ErrorHidrologia(
+            f"la escala vale {escala} y debe ser positiva para dimensionar la "
+            "barra grafica.")
+    import math
+
+    ideal_km = milimetros_objetivo * escala / 1e6
+    if ideal_km <= 0:
+        return 1.0
+    potencia = 10 ** math.floor(math.log10(ideal_km))
+    return min((1, 2, 5, 10),
+               key=lambda n: abs(n * potencia - ideal_km)) * potencia
+
+
 def formatear_escala(escala: int) -> str:
     """
     La escala con separador de miles, como se escribe en un rótulo.
@@ -426,6 +453,7 @@ def aplicar_datos_del_estudio(
     raiz: ET.Element, nombre_proyecto: str, fecha: str,
     contratante: str, consultor: str,
     logo_contratante: str, logo_consultor: str,
+    escribir_nombres: bool = False,
 ) -> dict[str, int]:
     """
     Escribe en TODAS las planchas lo que es igual en el estudio entero.
@@ -444,12 +472,18 @@ def aplicar_datos_del_estudio(
         for item in items.get(ID_PROYECTO) or []:
             fijar_etiqueta(item, texto_proyecto)
             cuenta["proyecto"] += 1
-        for item in items.get(ID_CONTRATANTE) or []:
-            fijar_etiqueta(item, (contratante or "").strip())
-            cuenta["contratante"] += 1
-        for item in items.get(ID_CONSULTOR) or []:
-            fijar_etiqueta(item, (consultor or "").strip())
-            cuenta["consultor"] += 1
+        # EL NOMBRE NO SE ESCRIBE ENCIMA DEL LOGO. En el diseno del consultor
+        # estos marcos van vacios a proposito: quien identifica a la empresa es
+        # su logo, y el marco de texto esta justo debajo. Al rellenarlos, el
+        # nombre quedaba montado sobre la imagen. Se escriben solo si la
+        # configuracion lo pide.
+        if escribir_nombres:
+            for item in items.get(ID_CONTRATANTE) or []:
+                fijar_etiqueta(item, (contratante or "").strip())
+                cuenta["contratante"] += 1
+            for item in items.get(ID_CONSULTOR) or []:
+                fijar_etiqueta(item, (consultor or "").strip())
+                cuenta["consultor"] += 1
         if logo_contratante:
             for item in items.get(ID_LOGO_CONTRATANTE) or []:
                 fijar_imagen(item, logo_contratante)
@@ -609,6 +643,16 @@ def escribir_subzona_contexto(
 # =============================================================================
 # Exportación, que es la única parte que necesita QGIS
 # =============================================================================
+def _mapa_mayor(layout):
+    """El marco de mapa de mayor superficie, que es el mapa principal."""
+    from qgis.core import QgsLayoutItemMap
+
+    mapas = [i for i in layout.items() if isinstance(i, QgsLayoutItemMap)]
+    if not mapas:
+        return None
+    return max(mapas, key=lambda m: m.rect().width() * m.rect().height())
+
+
 def exportar_planchas(ruta_proyecto: Path, salida: Path,
                       formatos: Sequence[str], ppp: int,
                       solo: Sequence[str] = ()) -> list[str]:
@@ -626,7 +670,8 @@ def exportar_planchas(ruta_proyecto: Path, salida: Path,
     """
     try:
         from qgis.core import (
-            QgsApplication, QgsLayoutExporter, QgsProject,
+            QgsApplication, QgsLayoutExporter, QgsLayoutItemMap,
+            QgsLayoutItemScaleBar, QgsProject, QgsUnitTypes,
         )
     except ImportError as error:
         raise ErrorConfiguracion(
@@ -645,22 +690,55 @@ def exportar_planchas(ruta_proyecto: Path, salida: Path,
             raise ErrorRutas(f"QGIS no pudo abrir {ruta_proyecto}.")
         gestor = proyecto.layoutManager()
         escritas: list[str] = []
+        fallidas: list[str] = []
         for layout in gestor.printLayouts():
             nombre = layout.name()
             if solo and nombre not in solo:
                 continue
+            # LA BARRA LA DIMENSIONA QGIS CON SU PROPIA API. Escribir sus
+            # atributos a mano en el XML no funciono: el valor mostrado sale de
+            # dividir 'numUnitsPerSegment' entre 'numMapUnitsPerScaleBarUnit',
+            # hay un 'segmentMillimeters' que se queda del ajuste anterior y el
+            # modo automatico daba segmentos de cinco metros. applyDefaultSize
+            # resuelve las tres cosas a la vez y con el mapa ya encuadrado.
+            for elemento in layout.items():
+                if not isinstance(elemento, QgsLayoutItemScaleBar):
+                    continue
+                mapa = _mapa_mayor(layout)
+                if mapa is not None:
+                    elemento.setLinkedMap(mapa)
+                elemento.setUnits(QgsUnitTypes.DistanceKilometers)
+                elemento.setUnitLabel("km")
+                elemento.applyDefaultSize(QgsUnitTypes.DistanceKilometers)
+
             exportador = QgsLayoutExporter(layout)
             if "pdf" in formatos:
                 opciones = QgsLayoutExporter.PdfExportSettings()
                 destino = salida / f"{nombre}.pdf"
-                exportador.exportToPdf(str(destino), opciones)
-                escritas.append(str(destino))
+                # SE COMPRUEBA EL CODIGO DE RETORNO. Sin esto el modulo daba
+                # por exportadas planchas que no se habian escrito: cuatro
+                # quedaron con el PDF de una corrida anterior y el reporte
+                # decia 29 de 29. Un entregable viejo que parece nuevo es peor
+                # que uno que falta.
+                codigo = exportador.exportToPdf(str(destino), opciones)
+                if codigo != QgsLayoutExporter.ExportResult.Success:
+                    fallidas.append(f"{nombre} (pdf: {codigo})")
+                else:
+                    escritas.append(str(destino))
             if "png" in formatos:
                 opciones = QgsLayoutExporter.ImageExportSettings()
                 opciones.dpi = ppp
                 destino = salida / f"{nombre}.png"
-                exportador.exportToImage(str(destino), opciones)
-                escritas.append(str(destino))
+                codigo = exportador.exportToImage(str(destino), opciones)
+                if codigo != QgsLayoutExporter.ExportResult.Success:
+                    fallidas.append(f"{nombre} (png: {codigo})")
+                else:
+                    escritas.append(str(destino))
+        if fallidas:
+            raise ErrorHidrologia(
+                f"QGIS no pudo escribir {len(fallidas)} plancha(s): "
+                f"{fallidas}. Lo mas comun es que el PDF este abierto en un "
+                "visor, que bloquea el archivo.")
         return escritas
     finally:
         aplicacion.exitQgis()
@@ -774,9 +852,11 @@ def ejecutar(
             str(configuracion.obtener("proyecto.consultor", "") or ""),
             str(logos.get("contratante", "")),
             str(logos.get("consultor", "")),
+            bool(configuracion.obtener("planchas.escribir_nombres", False)),
         )
         logger.info("rotulo: %s", cuenta)
-        for clave in ("contratante", "consultor"):
+        for clave in ("contratante", "consultor") if configuracion.obtener(
+                "planchas.escribir_nombres", False) else ():
             if not str(configuracion.obtener(f"proyecto.{clave}", "") or "").strip():
                 resultado.hallazgos.append(Hallazgo(
                     ADVERTENCIA, f"planchas.sin_{clave}",
@@ -829,7 +909,8 @@ def ejecutar(
                                         for r in escritas]
                 resultado.productos.extend(resultado.exportadas)
                 logger.info("%d archivo(s) exportados", len(escritas))
-            except (ErrorConfiguracion, ErrorRutas) as error:
+            except (ErrorConfiguracion, ErrorRutas,
+                    ErrorHidrologia) as error:
                 resultado.hallazgos.append(Hallazgo(
                     ADVERTENCIA, "planchas.exportacion", str(error)))
 
