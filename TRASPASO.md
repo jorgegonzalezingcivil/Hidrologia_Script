@@ -1,0 +1,218 @@
+# Traspaso a otra máquina y a otro usuario
+
+Qué hay que mover, en qué orden y qué comprobar antes de dar por buena la
+instalación. El `README.md` explica cada pieza con detalle; esto es la
+secuencia.
+
+---
+
+## 1. Antes de empezar: qué se mueve y qué no
+
+El repositorio pesa **120 MB** y lleva el código, la doctrina técnica de
+`data/referencia/` y las dos plantillas: la del informe y la de las planchas.
+Eso es lo que viaja por `git`.
+
+**Lo que NO viaja y hay que copiar aparte:**
+
+| Qué | Tamaño | De dónde a dónde |
+|---|---|---|
+| Capas nacionales del IGAC y del IDEAM | 3,8 GB | `C:\SIG_Referencia_Nacional` |
+| Descargas crudas del IDEAM | 2,9 GB | `<repo>\data\01_crudos` |
+| Estudios ya ejecutados | variable | `C:\Estudios\<nombre>` |
+
+**Los datos crudos se copian, no se vuelven a descargar.** La consulta al IDEAM
+no es idempotente: un registro hoy `Preliminar` puede ser `Definitivo` en la
+próxima consulta, y el Catálogo Nacional de Estaciones cambia. Quien vuelva a
+descargar obtendrá series distintas de las del estudio en curso, y los
+descartes ya registrados dejarán de corresponder a los datos que los
+justificaron.
+
+---
+
+## 2. Publicar el repositorio
+
+Hoy el repositorio **solo existe en esta máquina** y no tiene remoto. Sin
+publicarlo, el nuevo usuario recibiría una copia de archivos sin historial, y
+con ella se pierde el registro de por qué se tomó cada decisión, que es lo que
+la sección 7 de `CLAUDE.md` exige poder mostrar ante interventoría.
+
+Crear un repositorio **privado** y vacío en GitHub, Azure DevOps o el servidor
+de la empresa. Privado, no público: la doctrina técnica transcrita de las
+tablas del consultor y las plantillas de informe son trabajo propio.
+
+Después, desde esta máquina:
+
+```bash
+git remote add origin <URL del repositorio vacío>
+git push -u origin main
+```
+
+Si el servidor rechaza el envío por tamaño, el culpable son las capas de
+`data/referencia/sig/`, que suman unos 30 MB. Casi todos los servidores
+admiten 120 MB sin problema; GitHub avisa por encima de 50 MB **por archivo**,
+y aquí el mayor es de 15 MB.
+
+---
+
+## 3. En la máquina nueva
+
+### 3.1 Lo que hay que tener instalado
+
+- **QGIS 4.2.0** o la versión que se declare. El estudio se ejecutó con 4.2.0,
+  que no es LTR; esa desviación respecto de `CLAUDE.md` está declarada en
+  `config.yaml` con su motivo.
+- **HEC-HMS 4.13**
+- **Python 3.12** para el entorno de análisis
+- **Git**
+
+### 3.2 Traer el repositorio
+
+```bash
+git clone <URL del repositorio> C:\Hidrologia_Script
+cd C:\Hidrologia_Script
+py -3.12 -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+### 3.3 Declarar lo propio de esa máquina
+
+`config/config.yaml` **no se edita** para acomodar una instalación. Es doctrina
+del estudio y es igual para todo el equipo.
+
+```bash
+copy config\config.local.ejemplo.yaml config\config.local.yaml
+```
+
+Abrir la copia y ajustar dónde están QGIS, HEC-HMS y las capas nacionales. Ese
+archivo no se versiona.
+
+**El archivo local solo puede sobrescribir claves de máquina.** Si el nuevo
+usuario intenta cambiar desde ahí un periodo de retorno, un umbral o un método,
+la carga se detiene con un mensaje explícito. La restricción es deliberada: un
+parámetro técnico distinto en cada equipo produciría resultados distintos del
+mismo estudio sin dejar rastro. Todo lo que se sustituya queda escrito en el log
+de cada módulo, con el valor compartido y el propio uno al lado del otro.
+
+### 3.4 Las credenciales son de cada quien
+
+El nuevo usuario crea **su propia** cuenta de Earthdata y su propio archivo
+`C:\Users\<su usuario>\.netrc`:
+
+```
+machine urs.earthdata.nasa.gov
+    login <su usuario de Earthdata>
+    password <su contraseña>
+```
+
+**Las credenciales nunca van a un archivo del repositorio.** La carpeta del
+estudio se comprime y se entrega como anexo, y ninguna regla de `git` alcanza a
+un `.zip`. Declarar una ruta de `netrc` dentro del repositorio es un hallazgo
+bloqueante que detiene la carga de la configuración.
+
+El token de Socrata es gratuito y opcional; sin él la API aplica un límite de
+peticiones más estricto.
+
+### 3.5 Copiar los datos
+
+```bash
+robocopy <origen>\SIG_Referencia_Nacional C:\SIG_Referencia_Nacional /E /R:1 /W:1
+robocopy <origen>\Hidrologia_Script\data\01_crudos C:\Hidrologia_Script\data\01_crudos /E /R:1 /W:1
+```
+
+---
+
+## 4. Comprobar antes de trabajar
+
+En este orden. Si algo falla, no seguir: cada paso supone el anterior.
+
+```bash
+.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
+```
+
+Deben pasar las **1.256** pruebas. Es la comprobación más completa y no toca
+ningún dato.
+
+```bash
+.venv\Scripts\python.exe src\M00_configuracion.py
+```
+
+Verifica que la configuración carga, que las rutas declaradas existen y que la
+superposición local solo toca claves de máquina.
+
+```bash
+"C:\Program Files\QGIS 4.2.0\bin\python-qgis.bat" -c "import qgis.core; print(qgis.core.Qgis.QGIS_VERSION)"
+```
+
+Confirma que el intérprete de QGIS responde. Es el que ejecuta M01, M02, M06,
+M08, M11 y M16.
+
+---
+
+## 5. Un estudio nuevo
+
+El estudio **no vive dentro del repositorio**. La herramienta y el estudio son
+cosas distintas, y esa separación es lo que permite que un mismo código sirva a
+varios contratos.
+
+```bash
+py -3.12 C:\Hidrologia_Script\nuevo_estudio.py
+```
+
+Pregunta lo imprescindible, lo valida antes de escribir nada y crea el árbol del
+estudio con su configuración. Las dos validaciones que importan: que el código
+EPSG exista, y que el punto caiga dentro de Colombia una vez reproyectado. La
+segunda atrapa el error más común al declarar una coordenada, que es escribir la
+latitud antes que la longitud.
+
+A partir de ahí, todos los módulos se ejecutan con `--raiz C:\Estudios\<nombre>`,
+o situándose dentro del estudio.
+
+Lo que el consultor debe poner en `data/00_insumos_usuario/` antes de empezar:
+
+- **`logos/`** con el logo del contratante y el del consultor. Los nombres se
+  declaran en `planchas.logos` del `config.yaml` del estudio.
+- **`suelos/`** y su tabla de homologación
+- **`cobertura/`** si se aporta una propia; si no, se usa Corine
+- **`caudales/`** si existen series para calibrar
+- **`topografia/`** los planos del sitio, que son el Anexo 8
+
+El **único paso manual obligatorio** de toda la cadena es la delimitación
+asistida en HEC-HMS, entre el M02 y el M09. Todo lo demás se ejecuta sin abrir
+software.
+
+---
+
+## 6. Lo que el ingeniero tendrá que ajustar a mano
+
+Conviene que el nuevo usuario lo sepa de entrada, para que no lo lea como un
+fallo:
+
+**La colocación de la leyenda y la rosa náutica en las planchas.** El M16 deja
+las 29 correctas en contenido, encuadre y escala, pero dónde cae la caja de
+convenciones dentro de cada lienzo depende de la forma de la cuenca y es
+criterio visual. Se ajusta abriendo `templates/planchas.qgz` en QGIS, moviendo
+las dos cajas y guardando. **Lo que se guarde ahí queda fijo para todos los
+estudios siguientes**, así que se hace una vez.
+
+**Los 47 análisis del informe.** El M15 resuelve lo mecánico (92 figuras y 27
+tablas) y deja en verde las instrucciones que empiezan por "Analizar". Exigen
+mirar el resultado y decir qué significa, y eso no se programa.
+
+**La calibración del modelo (M14b).** No está programada porque en este estudio
+no había con qué: las estaciones LG y LM del área registran nivel, no caudal.
+Si el estudio nuevo tiene series de caudal utilizables, hay que programarla.
+
+---
+
+## 7. Trabajar en paralelo sin pisarse
+
+Si dos personas van a tocar el repositorio, cada una en su rama y con revisión
+antes de fusionar. Lo que **nunca** debe divergir sin acuerdo explícito:
+
+- `config/config.yaml`, que es doctrina compartida
+- `data/referencia/`, que son las tablas técnicas
+- `templates/`, que son las dos plantillas
+
+Un cambio ahí afecta a todos los estudios, pasados y futuros. Un cambio en
+`config.local.yaml` no afecta a nadie más, y por eso es el único sitio donde
+cada quien decide solo.

@@ -905,6 +905,16 @@ def _resumir(resultado: ResultadoM15) -> list[Hallazgo]:
 
     if resultado.analisis_pendientes:
         hallazgos.append(Hallazgo(
+            INFORMATIVO, "informe.cambio_de_modelo",
+            "AQUI TERMINA LO MECANICO Y EMPIEZA EL JUICIO. Lo hecho hasta este "
+            "punto (figuras, tablas, mapas, anexos) es determinista: se ejecuta "
+            "y se comprueba. Lo que queda exige mirar el resultado y decir que "
+            "significa, defenderlo ante una interventoria y reconocer cuando un "
+            "numero no cuadra. Si se trabaja con asistencia de un modelo, es el "
+            "momento de pasar al de mayor capacidad de razonamiento: en el resto "
+            "de la cadena la diferencia no se nota, y aqui es toda la "
+            "diferencia."))
+        hallazgos.append(Hallazgo(
             ADVERTENCIA, "informe.analisis_pendiente",
             f"{resultado.analisis_pendientes} instruccion(es) de análisis "
             "siguen en verde y sin resolver, que es lo previsto: exigen mirar "
