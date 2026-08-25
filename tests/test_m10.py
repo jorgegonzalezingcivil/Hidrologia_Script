@@ -972,5 +972,52 @@ class PruebaClasificarSubcuencas(unittest.TestCase):
         subcuencas = [{"coef_forma": None}]
         self.assertEqual(m10.clasificar_subcuencas(subcuencas, self.tabla), {})
 
+
+class PruebaCuencaCompleta(unittest.TestCase):
+    """
+    El contorno disuelto que la cartografia necesita. Hasta ahora habia que
+    disolver a mano en QGIS y el resultado quedaba en una capa temporal que el
+    proyecto NO guarda: al reabrirlo salia vacia.
+    """
+
+    def _cuadro(self, x0, y0, lado):
+        return [[(x0, y0), (x0 + lado, y0), (x0 + lado, y0 + lado),
+                 (x0, y0 + lado), (x0, y0)]]
+
+    def test_dos_piezas_contiguas_dan_un_solo_contorno(self) -> None:
+        # El linde comun aparece dos veces y desaparece; el borde, una sola.
+        piezas = [self._cuadro(0, 0, 10), self._cuadro(10, 0, 10)]
+        anillos = m10.geometria.contorno_exterior(piezas)
+        self.assertEqual(len(anillos), 1)
+        self.assertAlmostEqual(
+            abs(m10.geometria._area_con_signo(anillos[0])), 200.0, places=3)
+
+    def test_dos_piezas_separadas_dan_dos_contornos(self) -> None:
+        # Quedarse con el mayor perderia la segunda en silencio.
+        piezas = [self._cuadro(0, 0, 10), self._cuadro(100, 100, 5)]
+        self.assertEqual(len(m10.geometria.contorno_exterior(piezas)), 2)
+
+    def test_el_area_del_contorno_es_la_suma_de_las_piezas(self) -> None:
+        piezas = [self._cuadro(0, 0, 10), self._cuadro(10, 0, 10),
+                  self._cuadro(0, 10, 10)]
+        anillos = m10.geometria.contorno_exterior(piezas)
+        total = sum(abs(m10.geometria._area_con_signo(a)) for a in anillos)
+        self.assertAlmostEqual(total, 300.0, places=3)
+
+    def test_sin_subcuencas_es_error_y_no_una_capa_vacia(self) -> None:
+        # Una capa vacia se veria como una cuenca sin contorno, no como un
+        # insumo que falta.
+        with self.assertRaises(ErrorRutas):
+            m10.escribir_cuenca_completa(
+                Path("no_existe.shp"), Path("salida.shp"))
+
+    def test_el_contorno_para_dibujo_no_sirve_para_medir(self) -> None:
+        # Devuelve UNA cadena, la mas larga: es para trazar el borde al fondo
+        # de una figura, no para escribir la capa ni para medir el area.
+        piezas = [self._cuadro(0, 0, 10), self._cuadro(100, 100, 5)]
+        trazo = m10.contorno_para_dibujo(piezas)
+        self.assertIsInstance(trazo, list)
+        self.assertTrue(all(isinstance(v, tuple) for v in trazo))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

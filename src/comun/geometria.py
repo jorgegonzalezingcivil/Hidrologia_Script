@@ -385,6 +385,29 @@ def _area_con_signo(cadena: Anillo) -> float:
     return total / 2.0
 
 
+def contorno_exterior(
+    poligonos: Sequence[Poligono], tolerancia_m: float = 0.01,
+) -> list[Anillo]:
+    """
+    Los anillos del contorno de un mosaico de polígonos contiguos.
+
+    Es la geometría que 'perimetro_exterior' mide: la misma cadena de aristas
+    que aparecen UNA sola vez, con el mismo descarte de las que no encierran
+    superficie. Se separa para poder escribir la cuenca completa como capa, que
+    es lo que la cartografía necesita y hasta ahora había que disolver a mano
+    en QGIS.
+
+    SE DEVUELVEN TODOS LOS CONTORNOS, no solo el mayor: un estudio con dos
+    piezas separadas tiene dos contornos legítimos, y quedarse con el mayor
+    perdería una en silencio.
+    """
+    cadenas = cadenas_de_frontera(
+        segmentos_de_frontera(poligonos, tolerancia_m), tolerancia_m)
+    return [cadena for cadena in cadenas
+            if abs(_area_con_signo(cadena))
+            > max(tolerancia_m, 1e-9) * _longitud_de_cadena(cadena)]
+
+
 def perimetro_exterior(
     poligonos: Sequence[Poligono], tolerancia_m: float = 0.01,
 ) -> dict[str, Any]:

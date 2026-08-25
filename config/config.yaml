@@ -1030,6 +1030,13 @@ morfometria:
   # plantilla del consultor, que son las que el informe cita.
   tabla_clasificacion: "data/referencia/clasificacion_morfometrica.csv"
 
+  # LA CUENCA COMPLETA COMO CAPA. La cartografia la necesita para el
+  # contorno de la cuenca y hasta ahora habia que disolver las subcuencas
+  # a mano en QGIS, con el resultado en una capa temporal que el proyecto
+  # NO guarda: al reabrirlo salia vacia. Se escribe aqui, que es donde ya
+  # se calcula ese contorno para el perimetro.
+  salida_cuenca_completa: "data/03_SIG/vector/cuenca_completa.shp"
+
   parametros:
     geometria: [area, perimetro, longitud_axial, ancho_medio,
                 coef_forma, coef_compacidad]

@@ -76,6 +76,7 @@ import tiempo_concentracion  # noqa: E402
 from comun import (  # noqa: E402
     esquema, geometria, raster, registro, rutas, shapefile,
 )
+from comun.campos import CampoSalida  # noqa: E402
 from comun.config import Config, cargar, leer_yaml  # noqa: E402
 from comun.errores import (  # noqa: E402
     ErrorConfiguracion,
@@ -1119,6 +1120,76 @@ def _numero(fila: dict, campo: str) -> float | None:
         return None
     return valor if math.isfinite(valor) else None
 
+
+
+CAMPOS_CUENCA_COMPLETA = (
+    CampoSalida("nombre", "Nombre", "texto", 60),
+    CampoSalida("area_km2", "Área", "decimal", 14, 4, "km2"),
+    CampoSalida("area_ha", "Área", "decimal", 14, 2, "ha"),
+    CampoSalida("perim_km", "Perímetro", "decimal", 14, 3, "km"),
+    CampoSalida("subcuencas", "Subcuencas que la componen", "entero", 6),
+    CampoSalida("contornos", "Contornos exteriores", "entero", 4),
+)
+
+
+def escribir_cuenca_completa(ruta_subcuencas: Path, destino: Path,
+                             nombre: str = "") -> dict[str, Any]:
+    """
+    Escribe el contorno disuelto de las subcuencas como una sola capa.
+
+    LA CARTOGRAFIA LA NECESITA Y NADIE LA PRODUCIA. Hasta ahora el contorno de
+    la cuenca habia que disolverlo a mano en QGIS, y el resultado quedaba en una
+    capa TEMPORAL que el proyecto no guarda: al reabrirlo salia vacia y las
+    planchas perdian el contorno sin avisar.
+
+    NO ES UN DISUELTO GEOMETRICO SINO EL CONTORNO POR CONTEO: se conservan las
+    aristas que aparecen una sola vez, que en un mosaico sin solapes son
+    exactamente las del borde. Es el mismo calculo con que se mide el perimetro,
+    de modo que la capa y la cifra del informe no pueden discrepar.
+
+    SE ESCRIBEN TODOS LOS CONTORNOS COMO UNA ENTIDAD DE VARIAS PIEZAS. Una
+    cuenca partida en dos trozos es un caso posible y quedarse con el mayor
+    perderia el otro en silencio.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si no esta la capa de subcuencas.
+    ErrorHidrologia
+        Si el mosaico no deja ningun contorno cerrado.
+    """
+    ruta_subcuencas = Path(ruta_subcuencas)
+    if not ruta_subcuencas.is_file():
+        raise ErrorRutas(
+            f"no se encuentra {ruta_subcuencas}: sin las subcuencas no hay "
+            "contorno de cuenca que escribir.")
+
+    poligonos = shapefile.leer_geometrias(ruta_subcuencas)
+    anillos = geometria.contorno_exterior(poligonos)
+    if not anillos:
+        raise ErrorHidrologia(
+            f"{ruta_subcuencas.name} no deja ningun contorno cerrado: la capa "
+            "tiene solapes o huecos y el disuelto no es fiable.")
+
+    area_m2 = sum(abs(geometria._area_con_signo(a)) for a in anillos)
+    perimetro_m = sum(geometria._longitud_de_cadena(a) for a in anillos)
+    atributos = {
+        "nombre": nombre or ruta_subcuencas.stem,
+        "area_km2": round(area_m2 / 1e6, 4),
+        "area_ha": round(area_m2 / 1e4, 2),
+        "perim_km": round(perimetro_m / 1000.0, 3),
+        "subcuencas": len(poligonos),
+        "contornos": len(anillos),
+    }
+
+    # 'conservar' y no 'primero_exterior': los contornos son piezas separadas y
+    # no un exterior con huecos, y la regla de huecos invertiria el sentido de
+    # todas menos la primera, restando su area en silencio.
+    shapefile.escribir_poligonos(
+        destino, [list(anillos)], CAMPOS_CUENCA_COMPLETA, [atributos],
+        shapefile.leer_shapefile(ruta_subcuencas).crs_wkt or "",
+        estructura=shapefile.ESTRUCTURA_CONSERVAR)
+    return atributos
 
 def parametros_por_subcuenca(ruta: Path) -> list[dict[str, Any]]:
     """
@@ -3376,6 +3447,27 @@ def ejecutar(
         _resolver_subcuencas(configuracion, base, ruta_cuenca, ruta_dem,
                              matriz, minimo, resultado, logger)
 
+    # LA CUENCA COMPLETA COMO CAPA, para la cartografia. Va aqui porque el
+    # contorno ya esta calculado para el perimetro y porque solo tiene sentido
+    # cuando hay subcuencas: en modo 'general' la cuenca YA es una sola capa.
+    if modo != "general":
+        with registro.bloque(logger, "Cuenca completa"):
+            destino = rutas.resolver(configuracion.obtener(
+                "morfometria.salida_cuenca_completa",
+                "data/03_SIG/vector/cuenca_completa.shp"), base)
+            try:
+                ficha = escribir_cuenca_completa(
+                    ruta_cuenca, destino,
+                    str(configuracion.obtener("proyecto.nombre", "") or ""))
+            except (ErrorRutas, ErrorHidrologia) as error:
+                resultado.hallazgos.append(Hallazgo(
+                    ADVERTENCIA, "cuenca_completa", str(error)))
+            else:
+                resultado.productos.append(rutas.relativa(destino, base))
+                logger.info("cuenca completa: %s km2 en %d contorno(s) desde "
+                            "%d subcuenca(s)", ficha["area_km2"],
+                            ficha["contornos"], ficha["subcuencas"])
+
     if resultado.unidades:
         resultado.unidades[0].update({
             "tc_horas": resultado.adoptados.get("tc_horas"),
@@ -3743,13 +3835,19 @@ def cadenas_de_frontera(segmentos, tolerancia_m: float = 0.01):
     return cadenas
 
 
-def contorno_exterior(poligonos, tolerancia_m: float = 0.01):
+def contorno_para_dibujo(poligonos, tolerancia_m: float = 0.01):
     """
-    El contorno exterior de un mosaico de polígonos, como lista de vértices.
+    El contorno más largo de un mosaico, como una sola lista de vértices.
 
-    Es la cadena de frontera más larga. Un hueco interior nunca puede ser más
-    largo que el contorno que lo encierra, de modo que la más larga es la de
-    fuera sin necesidad de calcular áreas ni de resolver qué contiene a qué.
+    ES SOLO PARA DIBUJAR el borde de la cuenca al fondo de las figuras, donde un
+    trazo basta. NO SIRVE PARA MEDIR NI PARA ESCRIBIR LA CAPA: se queda con la
+    cadena más larga y una cuenca partida en dos piezas perdería la segunda sin
+    decirlo. Para eso está geometria.contorno_exterior, que las devuelve todas y
+    descarta las que no encierran superficie, y es la que usa
+    'escribir_cuenca_completa'.
+
+    Se conserva el nombre distinto a propósito: dos funciones que se llamaban
+    igual y devolvían cosas distintas son una trampa.
     """
     cadenas = cadenas_de_frontera(
         segmentos_de_frontera(poligonos, tolerancia_m), tolerancia_m)
@@ -3953,7 +4051,7 @@ def _figuras_de_delimitacion(graficos, configuracion, base, resultado, estilo,
     sencillos = _lineas_en(vector / "drenaje_sencillo_area.shp", ventana)
     dobles = _poligonos_en(vector / "drenaje_doble_area.shp", ventana)
     cuerpos = _poligonos_en(vector / "embalses_area.shp", ventana)
-    frontera = contorno_exterior(subcuencas)
+    frontera = contorno_para_dibujo(subcuencas)
     logger.info("red en la ventana: %d tramo(s), %d cauce(s) doble(s), "
                 "%d cuerpo(s) de agua", len(sencillos), len(dobles),
                 len(cuerpos))
