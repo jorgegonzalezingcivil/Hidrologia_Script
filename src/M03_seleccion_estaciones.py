@@ -112,6 +112,33 @@ CAMPOS_ESTACION: tuple[CampoSalida, ...] = (
 )
 
 
+def wkt_de_epsg(codigo: str) -> str:
+    """
+    WKT de un codigo EPSG, para escribir un .prj que se pueda volver a leer.
+
+    WKT1_GDAL Y NO WKT1_ESRI. El sabor ESRI no escribe el nodo AUTHORITY, de
+    modo que el .prj resultante no permite confirmar el codigo y el adaptador
+    lee la capa como "sin sistema declarado". Le pasaba a las capas de
+    estaciones y a las cuatro capas nacionales recortadas de este estudio.
+
+    VIVE AQUI Y NO EN comun. La seccion 3 de CLAUDE.md separa los entornos y
+    comun lo comparten los dos: meter pyproj alli romperia los modulos que
+    corren en el Python de QGIS. El equivalente para ese entorno esta en
+    red_drenaje, resuelto con las clases del propio QGIS.
+    """
+    if not codigo:
+        return ""
+    try:
+        from pyproj import CRS
+        from pyproj.exceptions import CRSError
+    except ImportError:
+        return ""
+    try:
+        return CRS.from_user_input(codigo).to_wkt("WKT1_GDAL")
+    except (CRSError, ValueError):
+        return ""
+
+
 def proyectar_estaciones(estaciones: list, crs_origen: str,
                          crs_destino: str) -> int:
     """
@@ -705,8 +732,22 @@ def _fila_salida(estacion: Estacion) -> dict[str, Any]:
 def escribir_capa(
     destino: Path, estaciones: Sequence[Estacion], wkt_crs: str
 ) -> Path:
-    """Escribe una capa de puntos con el inventario indicado."""
-    puntos = [(e.longitud or 0.0, e.latitud or 0.0) for e in estaciones]
+    """
+    Escribe una capa de puntos con el inventario indicado.
+
+    SE ESCRIBE EN EL CRS DE CALCULO, no en los grados del catalogo. La capa
+    entra en el proyecto de QGIS junto a las demas del estudio, y una capa en
+    grados entre capas en metros no se superpone: el M16 la encuadraba a
+    1:1.000. La seccion 5 de CLAUDE.md pide reproyeccion explicita y .prj
+    escrito, y las dos cosas se resuelven aqui usando el este y el norte que
+    'proyectar_estaciones' ya calculo.
+
+    La que no tenga coordenada proyectada se escribe en el origen, que es lo
+    unico que el formato admite, pero su fila del inventario lleva Este y Norte
+    vacios y el modulo lo reporta.
+    """
+    puntos = [(e.valores.get("este") or 0.0, e.valores.get("norte") or 0.0)
+              for e in estaciones]
     valores = [_fila_salida(e) for e in estaciones]
     return shapefile.escribir_puntos(
         destino=destino, puntos=puntos, campos=CAMPOS_ESTACION,
@@ -1016,12 +1057,17 @@ def _punto_del_m01(base: Path) -> dict:
 
 def _escribir_productos(configuracion, base, info, resultado, logger) -> None:
     """Escribe las dos capas, el inventario y los diccionarios de campos."""
-    wkt_crs = info.crs_wkt or ""
+    # EL CRS DE SALIDA ES EL DE CALCULO Y NO EL DEL CATALOGO. El catalogo del
+    # IDEAM publica grados y su .prj no siempre declara el codigo; heredarlo
+    # dejaba una capa que ninguna otra del estudio puede acompanar.
+    crs_calculo = str(configuracion.obtener("crs.calculo"))
+    wkt_crs = wkt_de_epsg(crs_calculo)
     if not wkt_crs:
         resultado.hallazgos.append(Hallazgo(
-            ADVERTENCIA, "estaciones.catalogo",
-            "el catálogo no trae .prj legible; las capas de salida se escriben "
-            "sin sistema de referencia declarado.",
+            ADVERTENCIA, "estaciones.crs",
+            f"no se pudo componer el .prj de {crs_calculo}: las capas de "
+            "salida quedan sin sistema de referencia declarado y el M16 no "
+            "podra encuadrarlas.",
         ))
 
     delimitador = configuracion.obtener("insumos_usuario.delimitador_csv")

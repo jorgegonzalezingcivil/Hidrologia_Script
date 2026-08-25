@@ -109,7 +109,12 @@ planchas:
   - layout: "Figura 7. Cobertura de la tierra"
     titulo: "COBERTURA DE LA TIERRA"
     subtitulo: "Corine Land Cover Recortado al Área de Influencia"
-    enmarca: "cobertura_clc_area"
+    # ENMARCA EL AREA DE INFLUENCIA, no la capa de cobertura. El recorte de las
+    # capas nacionales filtra por ENVOLVENTE y conserva el poligono entero que
+    # la toca, que es lo correcto (cortarlo falsearia sus areas) pero deja una
+    # capa de 746 por 956 km: encuadrar sobre ella llevaba la plancha al tope
+    # de la serie de escalas.
+    enmarca: "area_influencia"
 
   - layout: "Figura 8. Estaciones hidrometeorológicas"
     titulo: "ESTACIONES HIDROMETEOROLÓGICAS"

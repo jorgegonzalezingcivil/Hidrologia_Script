@@ -196,6 +196,18 @@ def recortar_capa(
     if error != QgsVectorFileWriter.WriterError.NoError:
         raise ErrorFormato(f"No se pudo escribir {destino}: {mensaje or error}")
 
+    # EL .prj SE REESCRIBE, y no es un detalle de formato. GDAL lo emite en el
+    # sabor ESRI, que no lleva el nodo AUTHORITY: el archivo dice
+    # 'MAGNA-SIRGAS_2018_Origen-Nacional' y ningun lector puede confirmar de ahi
+    # que sea EPSG:9377. Las cuatro capas nacionales recortadas de este estudio
+    # salian asi, y el M16 las leia como "sin sistema declarado" y se negaba a
+    # encuadrarlas. CLAUDE.md, seccion 5: escritura explicita del .prj.
+    # Se compone con las clases del propio QGIS y no con pyproj: este modulo
+    # corre en el Python de QGIS y no puede depender del venv.
+    wkt = destino_crs.toWkt(QgsCoordinateReferenceSystem.WKT1_GDAL)
+    if wkt:
+        destino.with_suffix(".prj").write_text(wkt, encoding="utf-8")
+
     return destino
 
 
