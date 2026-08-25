@@ -6,6 +6,38 @@ secuencia.
 
 ---
 
+## 0. El flujo, en una mirada
+
+Tres cosas distintas se mueven a la máquina nueva, por dos caminos distintos,
+y una de ellas puede no ser necesaria. Confundir estas tres capas es lo que
+vuelve confuso el traspaso.
+
+| Capa | Qué es | Tamaño | Camino | ¿Se necesita para un estudio nuevo? |
+|---|---|---|---|---|
+| **1. La herramienta** | Código, doctrina de `data/referencia/`, plantillas de informe y planchas | 120 MB | `git push` / `git clone` | Sí, siempre |
+| **2. El insumo nacional** | Capas del IGAC y del IDEAM que usa cualquier estudio, en `SIG_Referencia_Nacional` | 3,8 GB | Copia directa (USB, disco externo, red) | Sí, siempre. No cambia entre estudios: se copia una sola vez por máquina |
+| **3. El estudio** | Descargas del IDEAM y resultados de un proyecto concreto, como Refugio del Valle | Variable | Copia directa, y solo si se quiere | **No.** Un estudio nuevo se genera vacío en la máquina nueva y descarga sus propios datos. Solo se copia si además se quiere llevar Refugio del Valle como referencia |
+
+En orden:
+
+1. **Capa 1**, desde esta máquina: `git push` al repositorio privado. En la
+   máquina nueva, `git clone` crea el árbol completo de la herramienta.
+2. **Capa 2**, copia directa (no por `git`): llevar `SIG_Referencia_Nacional`
+   a `C:\SIG_Referencia_Nacional` en la máquina nueva. Una sola vez; sirve
+   para todos los estudios que se hagan allí después.
+3. **Capa 3**, copia directa y **opcional**: solo si además de trabajar en el
+   estudio nuevo se quiere tener Refugio del Valle como referencia en la
+   máquina nueva, llevar esa carpeta completa a `C:\Estudios\refugio_del_valle`.
+   Un estudio nuevo no depende de esto.
+
+La credencial de Earthdata (sección 3.4) no es una capa que se mueva: cada
+usuario crea la suya en la máquina nueva, nunca se copia la de otro.
+
+Para un estudio **nuevo**, lo estrictamente necesario es la Capa 1 (por git)
+y la Capa 2 (copiada aparte). El resto de este documento detalla cada paso.
+
+---
+
 ## 1. Antes de empezar: qué se mueve y qué no
 
 El repositorio pesa **120 MB** y lleva el código, la doctrina técnica de
@@ -115,8 +147,11 @@ peticiones más estricto.
 ### 3.5 Copiar los datos
 
 ```bash
-robocopy <origen>\SIG_Referencia_Nacional C:\SIG_Referencia_Nacional /E /R:1 /W:1
-robocopy <origen>\Hidrologia_Script\data\01_crudos C:\Hidrologia_Script\data\01_crudos /E /R:1 /W:1
+robocopy <origen>\SIG_Referencia_Nacional C:\SIG_Referencia_Nacional ^
+    /E /R:1 /W:1
+
+robocopy <origen>\Hidrologia_Script\data\01_crudos ^
+    C:\Hidrologia_Script\data\01_crudos /E /R:1 /W:1
 ```
 
 ---
@@ -140,7 +175,8 @@ Verifica que la configuración carga, que las rutas declaradas existen y que la
 superposición local solo toca claves de máquina.
 
 ```bash
-"C:\Program Files\QGIS 4.2.0\bin\python-qgis.bat" -c "import qgis.core; print(qgis.core.Qgis.QGIS_VERSION)"
+set QGIS_PY="C:\Program Files\QGIS 4.2.0\bin\python-qgis.bat"
+%QGIS_PY% -c "import qgis.core; print(qgis.core.Qgis.QGIS_VERSION)"
 ```
 
 Confirma que el intérprete de QGIS responde. Es el que ejecuta M01, M02, M06,
