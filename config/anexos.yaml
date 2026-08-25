@@ -1,0 +1,184 @@
+# =============================================================================
+# ESTRUCTURA DE ANEXOS  (insumo del M17)
+# -----------------------------------------------------------------------------
+# QUE ENTRA EN CADA ANEXO DEL INFORME. La numeracion y los titulos NO se
+# inventan aqui: estan transcritos del indice de anexos de la plantilla del
+# consultor, que es lo que el informe cita en su texto. Cambiar un numero aqui
+# sin cambiarlo alli deja el informe remitiendo a un anexo que no existe.
+#
+# 'origen' es lo que la cadena produce o el consultor entrega. Puede ser una
+# carpeta o un archivo, y admite comodines. Las rutas se resuelven contra la
+# raiz del estudio.
+#
+# 'obligatorio' distingue lo que el estudio NO PUEDE entregar sin ello de lo
+# que puede faltar con una explicacion. Un anexo obligatorio ausente es
+# BLOQUEANTE: el informe lo cita y quien lo abra no lo encontrara.
+#
+# 'fuente' dice de donde sale, para el acta de entrega: 'cadena' lo produce un
+# modulo, 'usuario' lo aporta el consultor, 'doctrina' viene del repositorio.
+# =============================================================================
+
+version: 1
+
+# Donde se arma el paquete. Se REESCRIBE en cada corrida: es un producto, y un
+# anexo de una version anterior mezclado con los de esta no se distingue.
+destino: "data/05_resultados/anexos"
+
+# Extensiones que no se copian nunca. Los temporales de QGIS y los bloqueos de
+# ArcGIS pesan y no son informacion del estudio.
+excluir: ["*.lock", "*.tmp", "*.qix", "*.cpg~", "Thumbs.db", "*.aux.xml",
+          ".gitkeep", "desktop.ini"]
+
+anexos:
+
+  - numero: "1"
+    titulo: "Información Hidrometereológica"
+    subanexos:
+
+      - numero: "1.1"
+        titulo: "Información Crudos IDEAM"
+        origen: "data/01_crudos/ideam"
+        fuente: "cadena"
+        obligatorio: true
+        nota: >-
+          Las descargas tal como el IDEAM las entrega, sin normalizar. Es lo
+          unico que permite rehacer el estudio desde el principio, y no se
+          vuelve a descargar: la consulta no es idempotente.
+
+      - numero: "1.2"
+        titulo: "Información ENA 2022"
+        origen: "data/referencia/ena_rendimiento_subzonas.csv"
+        fuente: "doctrina"
+        obligatorio: false
+        nota: >-
+          Rendimiento que el Estudio Nacional del Agua publica para la subzona.
+          Es la unica verificacion externa del balance hidrico.
+
+      - numero: "1.3"
+        titulo: "Resumen Información IDEAM"
+        origen: "data/02_procesado/estaciones"
+        fuente: "cadena"
+        obligatorio: true
+
+  - numero: "2"
+    titulo: "Información Cartográfica"
+    subanexos:
+
+      - numero: "2.1"
+        titulo: "Planchas 100k IGAC"
+        origen: "data/00_insumos_usuario/cartografia/100k"
+        fuente: "usuario"
+        obligatorio: false
+
+      - numero: "2.2"
+        titulo: "Planchas 25k IGAC"
+        origen: "data/00_insumos_usuario/cartografia/25k"
+        fuente: "usuario"
+        obligatorio: false
+
+      - numero: "2.3"
+        titulo: "DEM ALOS PALSAR"
+        origen: "data/03_SIG/raster/dem_recortado.tif"
+        fuente: "cadena"
+        obligatorio: true
+
+  - numero: "3"
+    titulo: "Análisis de Precipitación"
+    subanexos:
+
+      - numero: "3.1"
+        titulo: "Análisis de Consistencia"
+        origen: "data/02_procesado/estaciones/M05_consistencia.csv"
+        fuente: "cadena"
+        obligatorio: true
+
+      - numero: "3.2"
+        titulo: "Complemento de Datos"
+        origen: "data/02_procesado/estaciones/M05_complemento.csv"
+        fuente: "cadena"
+        obligatorio: true
+
+      - numero: "3.3"
+        titulo: "Datos Anómalos"
+        origen: "data/02_procesado/estaciones/M05_anomalos.csv"
+        fuente: "cadena"
+        obligatorio: true
+
+      - numero: "3.4"
+        titulo: "Análisis ENSO"
+        origen: "data/02_procesado/enso"
+        fuente: "cadena"
+        obligatorio: true
+
+      - numero: "3.5"
+        titulo: "IDW Total Mensual"
+        origen: "data/03_SIG/raster/isoyetas"
+        fuente: "cadena"
+        obligatorio: true
+
+      - numero: "3.6"
+        titulo: "IDW Mensual"
+        origen: "data/02_procesado/precipitacion"
+        fuente: "cadena"
+        obligatorio: true
+
+      - numero: "3.7"
+        titulo: "Hietograma de Pmáx"
+        origen: "data/02_procesado/tormenta"
+        fuente: "cadena"
+        obligatorio: true
+
+      - numero: "3.8"
+        titulo: "Conversión de Pmáx 24 h a Pmáx 1 h"
+        origen: "data/02_procesado/tormenta/idf_silva_hoja.csv"
+        fuente: "cadena"
+        obligatorio: false
+        nota: >-
+          El informe lo cita al explicar el paso de la maxima en 24 horas a la
+          de una hora. Lo produce el M12a como hoja de calculo ano por ano.
+
+  - numero: "4"
+    titulo: "Balance Hidrológico"
+    origen: "data/02_procesado/balance"
+    fuente: "cadena"
+    obligatorio: true
+
+  - numero: "5"
+    titulo: "Caracterización Morfométrica"
+    origen: "data/02_procesado/morfometria"
+    fuente: "cadena"
+    obligatorio: true
+
+  - numero: "6"
+    titulo: "Análisis de Crecientes (HEC-HMS)"
+    origen: "data/02_procesado/hidrologia"
+    fuente: "cadena"
+    obligatorio: true
+    nota: >-
+      El proyecto de HEC-HMS vive fuera del arbol del estudio, en la ruta que
+      declara 'hec_hms.proyecto'. Se copia aparte porque es lo que permite
+      reabrir el modelo y no solo leer sus resultados.
+
+  - numero: "7"
+    titulo: "Mapas Temáticos Hidrología"
+    origen: "data/05_resultados/mapas/*.pdf"
+    fuente: "cadena"
+    obligatorio: true
+
+  - numero: "8"
+    titulo: "Planos Topográficos Sitio de Proyecto"
+    origen: "data/00_insumos_usuario/topografia"
+    fuente: "usuario"
+    obligatorio: false
+    nota: >-
+      Lo entrega el consultor. Sin el, el informe no puede sustentar la
+      implantacion de la estructura sobre el cauce.
+
+  - numero: "9"
+    titulo: "Estudio de Suelos de Referencia"
+    origen: "data/00_insumos_usuario/suelos"
+    fuente: "usuario"
+    obligatorio: false
+    nota: >-
+      El informe lo cita para las granulometrias del analisis de socavacion.
+      Lo aporta el consultor: la cadena no lo produce.

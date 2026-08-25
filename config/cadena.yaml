@@ -294,4 +294,4 @@ pasos:
     nombre: "Ensamble y verificación de anexos"
     script: "src/M17_anexos.py"
     entorno: venv
-    estado: pendiente
+    estado: disponible
