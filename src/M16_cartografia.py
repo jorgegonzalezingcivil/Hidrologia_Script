@@ -117,6 +117,22 @@ class ResultadoM16:
 # =============================================================================
 # Funciones puras
 # =============================================================================
+MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+         "agosto", "septiembre", "octubre", "noviembre", "diciembre")
+
+
+def fecha_en_espanol(fecha) -> str:
+    """
+    Mes y ano en espanol, sin depender de la configuracion regional.
+
+    strftime('%B') devuelve el mes en el idioma de la maquina, que en Windows
+    sale en ingles salvo que alguien haya fijado el locale: el rotulo decia
+    'AUGUST 2026'. Una plancha no puede salir en un idioma u otro segun quien
+    la genere.
+    """
+    return f"{MESES[fecha.month - 1]} {fecha.year}"
+
+
 def leer_catalogo(ruta: Path) -> dict[str, Any]:
     """
     Catálogo de planchas: qué título lleva cada una y qué capa la enmarca.
@@ -753,7 +769,7 @@ def ejecutar(
         cuenta = aplicar_datos_del_estudio(
             raiz_xml,
             str(configuracion.obtener("proyecto.nombre", "")),
-            _dt.date.today().strftime("%B %Y"),
+            fecha_en_espanol(_dt.date.today()),
             str(configuracion.obtener("proyecto.contratante", "") or ""),
             str(configuracion.obtener("proyecto.consultor", "") or ""),
             str(logos.get("contratante", "")),

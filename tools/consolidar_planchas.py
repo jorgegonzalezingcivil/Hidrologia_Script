@@ -111,6 +111,232 @@ def _titulo_sin_numero(nombre: str) -> str:
     return partes[1] if len(partes) == 2 else nombre
 
 
+# Los logos que el consultor coloco NO llevan id, y los marcos que SI lo llevan
+# son sobras de una plantilla anterior. Rellenar los segundos ponia un logo
+# duplicado en mitad del lienzo, otro desbordando el borde del rotulo y una
+# equis roja donde el marco estaba vacio. Se quitan las sobras y se le da el id
+# al marco de verdad, reconocido por el archivo al que apunta.
+LOGOS_POR_ARCHIVO = (
+    ("logo_amarilo", "logo_contratante"),
+    ("logo real", "logo_consultor"),
+    ("ROSA", "rosa_nautica"),
+)
+
+
+def identificar_logos(raiz, escribir: bool) -> list[str]:
+    """Quita los marcos de logo heredados y nombra los que el consultor puso."""
+    hechos: list[str] = []
+    sobras = nombrados = 0
+    for lay in raiz.iter("Layout"):
+        if not (lay.get("name") or "").startswith("Figura"):
+            continue
+        for item in list(lay.findall("LayoutItem")):
+            if item.get("file") is None:
+                continue
+            archivo = item.get("file") or ""
+            esperado = next((idd for marca, idd in LOGOS_POR_ARCHIVO
+                             if marca in archivo), "")
+            if not esperado:
+                # Marco de imagen sin archivo reconocible: es una sobra, y es
+                # lo que se dibuja como una equis roja.
+                if escribir:
+                    lay.remove(item)
+                sobras += 1
+                continue
+            if item.get("id") != esperado:
+                if escribir:
+                    item.set("id", esperado)
+                nombrados += 1
+    if sobras:
+        hechos.append(f"quitados {sobras} marco(s) de imagen sin archivo util")
+    if nombrados:
+        hechos.append(f"nombrados {nombrados} marco(s) de logo por su archivo")
+    return hechos
+
+
+
+def reponer_logos(raiz, escribir: bool) -> list[str]:
+    """
+    Repone el marco de logo que le falte a una plancha, copiandolo de otra.
+
+    LOS QUE FALTAN SON LOS QUE APUNTABAN A OTRA MAQUINA. Al quitar las rutas
+    ajenas, dos planchas se quedaron sin logo y salieron con el hueco. Se copia
+    el marco de otra plancha DEL MISMO TAMANO DE PAGINA, para que la posicion
+    siga cayendo dentro del rotulo.
+    """
+    import copy as _copy
+
+    por_pagina: dict[str, dict[str, object]] = {}
+    paginas: dict[str, str] = {}
+    for lay in raiz.iter("Layout"):
+        nombre = lay.get("name") or ""
+        if not nombre.startswith("Figura"):
+            continue
+        pagina = ""
+        for pg in lay.iter("LayoutItem"):
+            pagina = pg.get("size") or ""
+            break
+        paginas[nombre] = pagina
+        for item in lay.findall("LayoutItem"):
+            idd = item.get("id") or ""
+            if idd in ("logo_contratante", "logo_consultor", "rosa_nautica"):
+                por_pagina.setdefault(pagina, {}).setdefault(idd, item)
+
+    hechos: list[str] = []
+    for lay in raiz.iter("Layout"):
+        nombre = lay.get("name") or ""
+        if not nombre.startswith("Figura"):
+            continue
+        presentes = {i.get("id") for i in lay.findall("LayoutItem")}
+        for idd in ("logo_contratante", "logo_consultor"):
+            if idd in presentes:
+                continue
+            modelo = (por_pagina.get(paginas[nombre]) or {}).get(idd)
+            if modelo is None:
+                hechos.append(f"NO HAY DE DONDE COPIAR {idd} para '{nombre}'")
+                continue
+            if escribir:
+                lay.append(_copy.deepcopy(modelo))
+            hechos.append(f"repuesto {idd} en '{nombre}'")
+    return hechos
+
+
+
+# La cuenca completa se dibuja SOLO CON CONTORNO. Heredo el relleno opaco de la
+# capa en memoria de la que salio, y en la plancha de pendientes tapaba el
+# raster que la plancha existe para mostrar.
+CAPAS_SIN_RELLENO = ("Cuenca completa",)
+
+# Planchas donde el area de influencia es el TEMA. En las demas se retira: a la
+# escala de trabajo su contorno sale cortado por el borde del lienzo y se lee
+# como un error de dibujo.
+PLANCHAS_CON_AREA = ("Figura 3. Área de influencia",)
+
+# La cuenca acompana a toda plancha tematica: es la unidad de la que habla el
+# dato que se dibuja.
+# La plancha de zonificacion no tiene hermana de la que copiar su juego de
+# capas, de modo que se declara por nombre. El orden es el de dibujo, de arriba
+# abajo, como QGIS lo escribe.
+CAPAS_DE_ZONIFICACION = (
+    "Punto de descarga",
+    "Cuenca completa",
+    "Subzona hidrográfica",
+    "Zonificación hidrográfica",
+    "Drenaje sencillo",
+    "Cauce doble",
+    "Embalses y lagunas",
+    "Esri World Imagery",
+)
+
+CAPA_CUENCA = "Cuenca completa"
+
+
+def quitar_relleno(raiz, escribir: bool) -> list[str]:
+    """Deja en contorno las capas que no deben tapar lo que hay debajo."""
+    hechos: list[str] = []
+    for capa in raiz.iter("maplayer"):
+        if (capa.findtext("layername") or "") not in CAPAS_SIN_RELLENO:
+            continue
+        cambiados = 0
+        for opcion in capa.iter("Option"):
+            if opcion.get("name") == "style" and opcion.get("value") != "no":
+                if escribir:
+                    opcion.set("value", "no")
+                cambiados += 1
+            if opcion.get("name") == "outline_width" and escribir:
+                opcion.set("value", "0.46")
+        if cambiados:
+            hechos.append(f"'{capa.findtext('layername')}' pasa a contorno "
+                          f"solo ({cambiados} relleno(s))")
+    return hechos
+
+
+def _conjunto_de(lay):
+    """El LayerSet del marco principal de una plancha, o None."""
+    for item in lay.findall("LayoutItem"):
+        conjunto = item.find("LayerSet")
+        if conjunto is not None:
+            return conjunto
+    return None
+
+
+def corregir_capas_de_planchas(raiz, escribir: bool) -> list[str]:
+    """Repone el juego de capas vacio, anade la cuenca y retira el area."""
+    import copy as _copy
+
+    hechos: list[str] = []
+    nombres = {ml.findtext("id"): (ml.findtext("layername") or "")
+               for ml in raiz.iter("maplayer")}
+    id_cuenca = next((i for i, n in nombres.items() if n == CAPA_CUENCA), "")
+
+    # Un juego de referencia por familia, para reponer los que quedaron vacios.
+    referencia = {}
+    for lay in raiz.iter("Layout"):
+        nombre = lay.get("name") or ""
+        conjunto = _conjunto_de(lay)
+        if conjunto is not None and len(conjunto):
+            familia = nombre.split(". ", 1)[-1].split(" Tr ")[0][:18]
+            referencia.setdefault(familia, conjunto)
+
+    for lay in raiz.iter("Layout"):
+        nombre = lay.get("name") or ""
+        if not nombre.startswith("Figura"):
+            continue
+        conjunto = _conjunto_de(lay)
+        if conjunto is None:
+            hechos.append(f"SIN MARCO DE MAPA: '{nombre}'")
+            continue
+
+        # 1. Juego vacio: se repone del de una plancha de la misma familia.
+        if not len(conjunto):
+            familia = nombre.split(". ", 1)[-1].split(" Tr ")[0][:18]
+            modelo = referencia.get(familia)
+            if modelo is None and "Zonificacion" in nombre:
+                # Declarada por nombre: es la unica de su clase.
+                por_nombre = {n: i for i, n in nombres.items()}
+                if escribir:
+                    for etiqueta in CAPAS_DE_ZONIFICACION:
+                        ident = por_nombre.get(etiqueta)
+                        if ident:
+                            elemento = ET.SubElement(conjunto, "Layer")
+                            elemento.text = ident
+                puestas = sum(1 for e in CAPAS_DE_ZONIFICACION
+                              if por_nombre.get(e))
+                hechos.append(f"declarado el juego de capas de '{nombre}' "
+                              f"({puestas} de {len(CAPAS_DE_ZONIFICACION)})")
+                continue
+            if modelo is None:
+                hechos.append(f"JUEGO DE CAPAS VACIO y sin hermana de donde "
+                              f"copiarlo: '{nombre}'")
+                continue
+            if escribir:
+                for elemento in modelo:
+                    conjunto.append(_copy.deepcopy(elemento))
+            hechos.append(f"repuesto el juego de capas de '{nombre}' "
+                          f"({len(modelo)} capas)")
+            conjunto = _conjunto_de(lay)
+
+        actuales = [e.text for e in conjunto]
+
+        # 2. La cuenca acompana a toda plancha tematica.
+        if id_cuenca and id_cuenca not in actuales:
+            if escribir:
+                elemento = _copy.deepcopy(conjunto[0])
+                elemento.text = id_cuenca
+                conjunto.append(elemento)
+            hechos.append(f"anadida la cuenca a '{nombre}'")
+
+        # 3. El area de influencia solo donde es el tema.
+        if nombre not in PLANCHAS_CON_AREA:
+            for elemento in list(conjunto):
+                if nombres.get(elemento.text or "") == "Área de influencia":
+                    if escribir:
+                        conjunto.remove(elemento)
+                    hechos.append(f"retirada el area de influencia de "
+                                  f"'{nombre}'")
+    return hechos
+
+
 def _abrir(ruta: Path) -> tuple[ET.Element, dict]:
     """Devuelve el árbol del .qgs y los demás archivos del contenedor."""
     with zipfile.ZipFile(ruta) as paquete:
@@ -276,6 +502,14 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
                       f"de {len(ORDEN_FINAL)}")
     for nombre in huerfanas:
         hechos.append(f"SIN SITIO en el juego final: '{nombre}'")
+
+    # --- 7. Logos -------------------------------------------------------------
+    hechos.extend(identificar_logos(raiz, escribir))
+    hechos.extend(reponer_logos(raiz, escribir))
+
+    # --- 8. Capas de cada plancha --------------------------------------------
+    hechos.extend(quitar_relleno(raiz, escribir))
+    hechos.extend(corregir_capas_de_planchas(raiz, escribir))
 
     if escribir and hechos:
         _guardar(raiz, contenedor, ruta)

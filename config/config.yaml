@@ -84,7 +84,8 @@ planchas:
   ppp_png: 300
 
   # Formatos a exportar. El informe consume el PNG y el anexo el PDF.
-  formatos: [pdf, png]
+  # SOLO PDF. El PNG duplicaba cada plancha sin que nada lo consumiera.
+  formatos: [pdf]
 
 proyecto_qgis:
   declaracion: "config/proyecto_qgis.yaml"
