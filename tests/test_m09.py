@@ -7,6 +7,7 @@ Pruebas del M09: intercambio con el paso manual de HEC-HMS.
 
 from __future__ import annotations
 
+import shutil
 import struct
 import sys
 import tempfile
@@ -593,6 +594,62 @@ class PruebaConfiguracion(unittest.TestCase):
         # verificación del paso manual.
         for clave in ("salida_recorte_sencillo", "salida_recorte_doble"):
             self.assertTrue(_CFG.obtener(f"referencia_nacional.{clave}"), clave)
+
+
+class PruebaAreaDefinitiva(unittest.TestCase):
+    """El área de influencia derivada de las subcuencas ya delimitadas."""
+
+    def setUp(self) -> None:
+        self.temporal = Path(tempfile.mkdtemp())
+        # Dos subcuencas contiguas: 2 km por 1 km en total.
+        self.subcuencas = _escribir_poligonos(
+            self.temporal / "subcuencas.shp",
+            [[[(0.0, 0.0), (1000.0, 0.0), (1000.0, 1000.0),
+               (0.0, 1000.0), (0.0, 0.0)]],
+             [[(1000.0, 0.0), (2000.0, 0.0), (2000.0, 1000.0),
+               (1000.0, 1000.0), (1000.0, 0.0)]]])
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.temporal, ignore_errors=True)
+
+    def test_es_la_envolvente_mas_el_margen(self) -> None:
+        info = m09.escribir_area_definitiva(
+            self.subcuencas, self.temporal / "area.shp", 1.0, "")
+        x_min, y_min, x_max, y_max = info["extension"]
+        # 2x1 km mas 1 km por cada lado: 4 km por 3 km.
+        self.assertAlmostEqual(x_max - x_min, 4000.0, places=6)
+        self.assertAlmostEqual(y_max - y_min, 3000.0, places=6)
+        self.assertAlmostEqual(info["area_km2"], 12.0, places=6)
+
+    def test_sin_margen_es_la_envolvente_exacta(self) -> None:
+        info = m09.escribir_area_definitiva(
+            self.subcuencas, self.temporal / "area.shp", 0.0, "")
+        self.assertAlmostEqual(info["area_km2"], 2.0, places=6)
+
+    def test_escribe_una_capa_legible(self) -> None:
+        info = m09.escribir_area_definitiva(
+            self.subcuencas, self.temporal / "area.shp", 1.0, "")
+        self.assertTrue(info["ruta"].is_file())
+        # El área medida sobre la geometría escrita debe coincidir con la
+        # declarada: si discrepasen, el rectángulo estaría mal orientado.
+        medida = shapefile.area_poligonos(info["ruta"]) / 1e6
+        self.assertAlmostEqual(medida, info["area_km2"], places=3)
+
+    def test_rechaza_una_capa_vacia(self) -> None:
+        # Cabecera de shapefile válida y sin un solo registro: 100 bytes, que
+        # en palabras de 16 bits son 50. Es lo que deja una exportación que no
+        # seleccionó nada, y el área no puede salir de ahí.
+        vacia = self.temporal / "vacia.shp"
+        cabecera = struct.pack(">i", 9994) + b"\x00" * 20
+        cabecera += struct.pack(">i", 50)
+        cabecera += struct.pack("<2i", 1000, 5)
+        cabecera += struct.pack("<4d", 0.0, 0.0, 0.0, 0.0)
+        cabecera += struct.pack("<4d", 0.0, 0.0, 0.0, 0.0)
+        vacia.write_bytes(cabecera)
+
+        with self.assertRaises(ErrorFormato):
+            m09.escribir_area_definitiva(
+                vacia, self.temporal / "area.shp", 1.0, "")
 
 
 if __name__ == "__main__":

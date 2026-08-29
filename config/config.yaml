@@ -340,7 +340,18 @@ dem:
     salida_acumulacion: "data/03_SIG/raster/acumulacion_flujo.tif"
     salida_cuenca: "data/03_SIG/vector/cuenca_preliminar.shp"
     salida_envolvente: "data/03_SIG/vector/envolvente.shp"
-    salida_area_influencia: "data/03_SIG/vector/area_influencia.shp"
+    # AREA PRELIMINAR, no la definitiva. Sale de la envolvente del trazado de
+    # red mas buffer, o de la subzona entera, y sobredimensiona varias veces.
+    # Sirve para dos cosas y solo dos: acotar la descarga y el recorte del DEM,
+    # y alimentar el paso manual de HEC-HMS. La definitiva la escribe el M09b a
+    # partir de las subcuencas ya delimitadas, y es la que consumen el M03, el
+    # M06, el M08, el M12a y el M16.
+    #
+    # LAS DOS NO PUEDEN SER EL MISMO ARCHIVO. El M09b comprueba que la
+    # delimitacion no exceda esta area, que es COTA SUPERIOR; si escribiera su
+    # resultado encima, esa comprobacion se estaria haciendo contra algo
+    # derivado de si misma y no detectaria nada.
+    salida_area_influencia: "data/03_SIG/vector/area_influencia_preliminar.shp"
 
 # -----------------------------------------------------------------------------
 # M03 - SELECCIÓN DE ESTACIONES
@@ -1331,6 +1342,25 @@ hec_hms:
   intercambio:
     insumos: "data/04_modelos/hec_hms/insumos"
     salida: "data/04_modelos/hec_hms/salida"
+
+    # --- AREA DE INFLUENCIA DEFINITIVA -------------------------------------
+    # La escribe el M09b al importar, sobre la envolvente de las subcuencas ya
+    # delimitadas mas este margen. Sustituye a la preliminar del M02 en todo lo
+    # que viene despues: seleccion de estaciones, isoyetas, IDF y cartografia.
+    #
+    # POR QUE AQUI Y NO EN EL M02. La preliminar sale de una ESTIMACION (la
+    # envolvente del trazado de red mas buffer) y sobredimensiona varias veces:
+    # medida en este estudio, 990,7 km2 para una cuenca de 220,3. Sobre una
+    # cuenca pequena dentro de una subzona grande, esa desproporcion obliga a
+    # interpolar, recortar y dibujar sobre un area varias veces mayor que la
+    # del estudio, sin que nada mejore por ello.
+    #
+    # EL MARGEN ES MENOR QUE EL DE LA PRELIMINAR, y a proposito: alli absorbia
+    # la incertidumbre de una delimitacion estimada, y aqui la delimitacion ya
+    # es la definitiva del paso asistido. Solo tiene que dar holgura al recorte
+    # del DEM y de la cobertura, y espacio de dibujo a las planchas.
+    salida_area_influencia: "data/03_SIG/vector/area_influencia.shp"
+    buffer_area_km: 2.0
     # Nombres que el consultor debe dar a lo que exporte desde HEC-HMS.
     subcuencas: "subcuencas.shp"
     corrientes: "corrientes.shp"

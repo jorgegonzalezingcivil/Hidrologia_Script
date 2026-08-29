@@ -458,7 +458,8 @@ ESQUEMA: dict[str, Campo] = {
     "dem.delimitacion.salida_envolvente": texto("envolvente de la cuenca",
                                                 no_vacio=True),
     "dem.delimitacion.salida_area_influencia": texto(
-        "área de influencia", no_vacio=True,
+        "área de influencia PRELIMINAR; la definitiva la escribe el M09b",
+        no_vacio=True,
     ),
 
     # --- M03 -----------------------------------------------------------------
@@ -1175,6 +1176,15 @@ ESQUEMA: dict[str, Campo] = {
         "directorio de los insumos para el paso manual", no_vacio=True),
     "hec_hms.intercambio.salida": texto(
         "directorio donde el consultor deposita la salida", no_vacio=True),
+    # El área de influencia DEFINITIVA, escrita al importar sobre la
+    # delimitación ya asistida. La del M02 es preliminar y solo acota descargas.
+    "hec_hms.intercambio.salida_area_influencia": texto(
+        "área de influencia definitiva, derivada de las subcuencas",
+        no_vacio=True),
+    "hec_hms.intercambio.buffer_area_km": numero(
+        "margen alrededor de las subcuencas para el área definitiva",
+        minimo=0, maximo=20,
+    ),
     "hec_hms.intercambio.subcuencas": texto(
         "nombre del shapefile de subcuencas", no_vacio=True),
     "hec_hms.intercambio.corrientes": texto(

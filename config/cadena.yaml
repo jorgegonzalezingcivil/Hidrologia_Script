@@ -62,14 +62,54 @@ pasos:
     entorno: qgis
     estado: disponible
 
-  # El área definitiva necesita la red, y la red necesita el DEM: por eso el
+  # El área preliminar necesita la red, y la red necesita el DEM: por eso el
   # M02 va en dos fases y la segunda cae DESPUÉS del M02b.
   - modulo: M02c
-    nombre: "Área de influencia acotada por trazado de red"
+    nombre: "Área de influencia preliminar, acotada por trazado de red"
     script: "src/M02_dem_delimitacion.py"
     entorno: qgis
     argumentos: ["--fase", "area"]
     estado: disponible
+
+  # --- Delimitación definitiva ----------------------------------------------
+  # EL PASO MANUAL VA AQUI Y NO DESPUES DE LA PRECIPITACION. El orden anterior
+  # ejecutaba toda la cadena de precipitación (M03 a M08, que es la cara: la
+  # descarga del IDEAM, el análisis de frecuencia y dos juegos de isoyetas)
+  # ANTES de conocer la cuenca definitiva, y por tanto sobre el área preliminar,
+  # que sobredimensiona varias veces. Medido en este estudio: 990,7 km2 de área
+  # preliminar para una cuenca de 220,3. Sobre una cuenca pequeña dentro de una
+  # subzona grande esa desproporción crece, y no aporta nada a cambio.
+  #
+  # El adelanto es posible porque el M09a solo necesita el DEM, el punto, el
+  # área preliminar y el drenaje, todo del M01 y el M02: NINGUN producto de
+  # precipitación. Se comprobó antes de reordenar.
+  - modulo: M09a
+    nombre: "Insumos para HEC-HMS"
+    script: "src/M09_hec_hms.py"
+    entorno: venv
+    argumentos: ["--preparar"]
+    estado: disponible
+    modos: [detallado]
+
+  - modulo: HEC
+    nombre: "Delimitación asistida en HEC-HMS"
+    entorno: manual
+    manual: true
+    estado: disponible
+    modos: [detallado]
+    nombre_largo: >-
+      Abrir HEC-HMS, cargar los insumos que dejó el M09 en el directorio de
+      intercambio y delimitar las subcuencas con el geoprocesamiento asistido.
+      Es el único paso con intervención manual obligatoria (CLAUDE.md,
+      sección 4). Al terminar, exportar y relanzar la cadena desde M09b.
+
+  - modulo: M09b
+    nombre: "Importación de subcuencas y área de influencia definitiva"
+    script: "src/M09_hec_hms.py"
+    entorno: venv
+    argumentos: ["--importar"]
+    estado: disponible
+    modos: [detallado]
 
   - modulo: M00b
     nombre: "Proyecto QGIS"
@@ -130,35 +170,10 @@ pasos:
     estado: disponible
 
   # --- Delimitación definitiva ---------------------------------------------
-  - modulo: M09a
-    nombre: "Insumos para HEC-HMS"
-    script: "src/M09_hec_hms.py"
-    entorno: venv
-    argumentos: ["--preparar"]
-    estado: disponible
-    modos: [detallado]
-
-  - modulo: HEC
-    nombre: "Delimitación asistida en HEC-HMS"
-    entorno: manual
-    manual: true
-    estado: disponible
-    modos: [detallado]
-    nombre_largo: >-
-      Abrir HEC-HMS, cargar los insumos que dejó el M09 en el directorio de
-      intercambio y delimitar las subcuencas con el geoprocesamiento asistido.
-      Es el único paso con intervención manual obligatoria (CLAUDE.md,
-      sección 4). Al terminar, exportar y relanzar la cadena desde M09b.
-
-  - modulo: M09b
-    nombre: "Importación de subcuencas y corrientes"
-    script: "src/M09_hec_hms.py"
-    entorno: venv
-    argumentos: ["--importar"]
-    estado: disponible
-    modos: [detallado]
-
   # --- Caracterización ------------------------------------------------------
+  # El M09 y el paso manual ya no van aquí: se adelantaron delante del M03 para
+  # que la precipitación se analice sobre la cuenca definitiva y no sobre el
+  # área preliminar. El motivo completo está junto al M09a.
   - modulo: M10
     nombre: "Caracterización morfométrica e hidrológica"
     script: "src/M10_morfometria.py"

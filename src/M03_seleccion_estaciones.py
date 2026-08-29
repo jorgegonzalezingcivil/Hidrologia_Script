@@ -1037,8 +1037,24 @@ def ejecutar(
         # La ampliación decide QUE estaciones entran, de modo que corre antes
         # de clasificar y no después.
         codigos_en_area: set[str] | None = None
+        # LA DEFINITIVA PRIMERO. La escribe el M09b sobre las subcuencas ya
+        # delimitadas; la preliminar del M02 sobredimensiona varias veces y
+        # solo sirve de reserva si el paso manual todavia no se ha hecho.
         ruta_area = rutas.resolver(configuracion.obtener(
-            "dem.delimitacion.salida_area_influencia"), base)
+            "hec_hms.intercambio.salida_area_influencia"), base)
+        if not ruta_area.is_file():
+            ruta_area = rutas.resolver(configuracion.obtener(
+                "dem.delimitacion.salida_area_influencia"), base)
+            if ruta_area.is_file():
+                resultado.hallazgos.append(Hallazgo(
+                    ADVERTENCIA, "estaciones.area_preliminar",
+                    "se seleccionan las estaciones sobre el area PRELIMINAR "
+                    "del M02, porque el M09b todavia no ha escrito la "
+                    "definitiva. La preliminar sobredimensiona varias veces "
+                    "(medido en este estudio: 990,7 km2 frente a 220,3 de "
+                    "cuenca), de modo que la cobertura se comprueba sobre un "
+                    "area mayor que la del estudio y entraran mas estaciones "
+                    "de las necesarias. Repetir el M03 despues del M09b."))
         if ruta_area.is_file():
             try:
                 resultado.ampliacion = _ampliar_por_cobertura(

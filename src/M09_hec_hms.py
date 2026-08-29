@@ -90,7 +90,7 @@ _DIRECTORIO_SRC = Path(__file__).resolve().parent
 if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
-from comun import esquema, registro, rutas, shapefile  # noqa: E402
+from comun import esquema, geometria, registro, rutas, shapefile  # noqa: E402
 from comun.campos import CampoSalida  # noqa: E402
 from comun.config import Config, cargar  # noqa: E402
 from comun.errores import (  # noqa: E402
@@ -125,6 +125,7 @@ class ResultadoM09:
     insumos: list[str] = field(default_factory=list)
     subcuencas: dict[str, Any] = field(default_factory=dict)
     corrientes: dict[str, Any] = field(default_factory=dict)
+    area_definitiva: dict[str, Any] = field(default_factory=dict)
     verificaciones: list[dict[str, Any]] = field(default_factory=list)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
@@ -618,7 +619,10 @@ def _preparar(configuracion, base, resultado, logger) -> None:
 
     vectoriales = [
         rutas.directorio("sig_vector", base) / "punto_descarga.shp",
-        rutas.directorio("sig_vector", base) / "area_influencia.shp",
+        # LA PRELIMINAR, que es la que existe en este punto de la cadena: la
+        # definitiva se deriva de las subcuencas que este paso manual produce.
+        rutas.resolver(configuracion.obtener(
+            "dem.delimitacion.salida_area_influencia"), base),
         rutas.resolver(
             configuracion.obtener("referencia_nacional.salida_recorte_sencillo"),
             base),
@@ -770,6 +774,67 @@ def _referencia_drenada(configuracion, base) -> dict[str, Any] | None:
 # =============================================================================
 # Modo importar
 # =============================================================================
+def escribir_area_definitiva(
+    ruta_subcuencas: Path, destino: Path, buffer_km: float, wkt_crs: str,
+) -> dict[str, Any]:
+    """
+    El área de influencia DEFINITIVA: envolvente de las subcuencas más margen.
+
+    SUSTITUYE A LA PRELIMINAR DEL M02 en todo lo que viene después. La
+    preliminar sale de una estimación, la envolvente del trazado de red más
+    buffer, y sobredimensiona varias veces: medida en este estudio, 990,7 km2
+    para una cuenca de 220,3. Cuando la cuenca es pequeña frente a su subzona,
+    esa desproporción obliga a interpolar, recortar y dibujar sobre un área
+    varias veces mayor que la del estudio sin que nada mejore por ello.
+
+    ES UN RECTANGULO Y NO EL CONTORNO DE LA CUENCA, igual que la preliminar. El
+    área de influencia no es una unidad hidrológica: es la extensión sobre la
+    que se recortan el terreno y la cobertura, se interpolan las isoyetas y se
+    encuadran las planchas. Un contorno irregular no serviría mejor para nada
+    de eso y complicaría todos los recortes.
+
+    Excepciones
+    -----------
+    ErrorFormato
+        Si la capa de subcuencas no tiene entidades de las que sacar extensión.
+    """
+    geometrias = shapefile.leer_geometrias(ruta_subcuencas)
+    if not geometrias:
+        raise ErrorFormato(
+            f"{Path(ruta_subcuencas).name} no tiene entidades: no hay "
+            "extensión de la que derivar el área de influencia.")
+
+    x_min, y_min, x_max, y_max = geometria.envolvente(geometrias)
+    margen = float(buffer_km) * 1000.0
+    x_min, y_min = x_min - margen, y_min - margen
+    x_max, y_max = x_max + margen, y_max + margen
+
+    anillo = [(x_min, y_min), (x_max, y_min), (x_max, y_max),
+              (x_min, y_max), (x_min, y_min)]
+    campos = [
+        CampoSalida(corto="origen", descriptivo="Origen del área",
+                    tipo="texto", longitud=40),
+        CampoSalida(corto="buffer_km", descriptivo="Margen aplicado",
+                    tipo="decimal", longitud=8, precision=2, unidad="km"),
+        CampoSalida(corto="area_km2", descriptivo="Área",
+                    tipo="decimal", longitud=14, precision=3, unidad="km2"),
+    ]
+    area_km2 = ((x_max - x_min) * (y_max - y_min)) / 1e6
+    valores = [{"origen": "subcuencas HEC-HMS",
+                "buffer_km": round(float(buffer_km), 2),
+                "area_km2": round(area_km2, 3)}]
+
+    destino = Path(destino)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    shapefile.escribir_poligonos(destino, [[anillo]], campos, valores, wkt_crs)
+    return {
+        "ruta": destino,
+        "area_km2": round(area_km2, 3),
+        "buffer_km": round(float(buffer_km), 2),
+        "extension": (x_min, y_min, x_max, y_max),
+    }
+
+
 def _importar(configuracion, base, resultado, logger) -> None:
     """Lee lo que el consultor exporto desde HEC-HMS, lo verifica y lo publica."""
     salida = rutas.resolver(
@@ -940,7 +1005,8 @@ def _importar(configuracion, base, resultado, logger) -> None:
     # definicion, y por eso sirve de tope; pero admite delimitaciones varias
     # veces mayores de lo debido sin emitir senal. El contraste con significado
     # hidrologico es el siguiente.
-    cuenca = rutas.directorio("sig_vector", base) / "area_influencia.shp"
+    cuenca = rutas.resolver(configuracion.obtener(
+        "dem.delimitacion.salida_area_influencia"), base)
     fraccion_minima = float(configuracion.obtener(
         "hec_hms.intercambio.fraccion_minima_pct"))
     if cuenca.is_file():
@@ -977,6 +1043,40 @@ def _importar(configuracion, base, resultado, logger) -> None:
                 f"({preliminar:.2f} km2), que es COTA SUPERIOR y no objetivo."
                 + ("" if not problemas else " " + ". ".join(problemas) + "."),
             ))
+
+    # --- Area de influencia DEFINITIVA ---------------------------------------
+    # Se escribe DESPUES de contrastar contra la preliminar, no antes: si se
+    # escribiera primero y ambas compartieran archivo, la comprobacion de cota
+    # superior se estaria haciendo contra algo derivado de si misma.
+    destino_area = rutas.resolver(configuracion.obtener(
+        "hec_hms.intercambio.salida_area_influencia"), base)
+    try:
+        definitiva = escribir_area_definitiva(
+            ruta_trabajo, destino_area,
+            float(configuracion.obtener("hec_hms.intercambio.buffer_area_km")),
+            _wkt_de_calculo(base, esperado))
+    except (ErrorFormato, ErrorRutas, OSError, TypeError, ValueError) as exc:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "importar.area_definitiva",
+            f"no se pudo escribir el area de influencia definitiva: {exc}. Sin "
+            "ella el M03 seleccionaria estaciones sobre el area preliminar, "
+            "que sobredimensiona varias veces.",
+        ))
+    else:
+        resultado.productos.append(rutas.relativa(definitiva["ruta"], base))
+        resultado.area_definitiva = definitiva
+        logger.info(
+            "Area de influencia definitiva: %.2f km2 (subcuencas mas %.1f km).",
+            definitiva["area_km2"], definitiva["buffer_km"])
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "importar.area_definitiva",
+            f"el area de influencia pasa a ser {definitiva['area_km2']:.2f} "
+            f"km2, derivada de las subcuencas ya delimitadas mas "
+            f"{definitiva['buffer_km']:.1f} km de margen. Sustituye a la "
+            f"preliminar del M02 en la seleccion de estaciones, las isoyetas, "
+            "las IDF y la cartografia. La preliminar se conserva porque es la "
+            "cota superior contra la que se verifico la delimitacion.",
+        ))
 
     # --- Contraste con la superficie drenada ---------------------------------
     drenada = _referencia_drenada(configuracion, base)
