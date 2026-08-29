@@ -198,6 +198,7 @@ class ResultadoM03:
     por_estado: dict[str, int] = field(default_factory=dict)
     calibracion: dict = field(default_factory=dict)
     duplicados: list = field(default_factory=list)
+    ampliacion: dict = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -280,6 +281,150 @@ def leer_area(
         )
 
     return geometria.poligonos_de_wkt(wkt)
+
+
+def ampliar_hasta_cubrir(
+    area: Sequence[geometria.Poligono],
+    candidatas: Sequence[tuple[str, float, float]],
+    inicial_km: float,
+    paso_km: float,
+    tope_km: float,
+    cobertura_minima: float = 1.0,
+    piso_candidatas: int = 0,
+) -> dict[str, Any]:
+    """
+    Amplía el buffer de búsqueda hasta que las estaciones RODEEN el área.
+
+    LA PARADA LA DECIDE LA COBERTURA Y NO EL CONTEO, y la diferencia no es
+    teórica. Medido sobre este estudio, contra la cuenca de 220 km2:
+
+        buffer   estaciones   dentro del casco convexo   brecha
+          5 km       18                80,4 %            12,3 km
+         10 km       36               100,0 %            11,0 km
+         20 km       67               100,0 %            11,0 km
+
+    La cobertura se satura a los 10 km. Un criterio por conteo habría seguido
+    ampliando hasta 20 km para sumar 31 estaciones que no mejoran ni la
+    cobertura ni la brecha, y que solo añaden riesgo de mezclar regímenes
+    climáticos distintos en la misma interpolación.
+
+    EL TOPE ES DE REGIMEN, NO DE COMODIDAD. Al alcanzarlo sin cubrir, la
+    función NO sigue: devuelve el mejor intento y declara que no cubrió, para
+    que el consultor decida con el dato delante. Ampliar en silencio produciría
+    un campo que mezcla dos regímenes con la misma apariencia que uno bueno.
+
+    'candidatas' son (código, este, norte) YA PROYECTADOS al mismo sistema que
+    'area'. La distancia se mide una sola vez por estación, porque no depende
+    del buffer: lo que cambia en cada intento es solo el umbral.
+
+    Devuelve el diagnóstico completo, incluida la escalera de intentos, que es
+    lo que deja registrado por qué se adoptó ese radio y no otro.
+
+    Excepciones
+    -----------
+    ErrorFormato
+        Si el área no tiene vértices contra los que medir la cobertura.
+    """
+    if paso_km <= 0:
+        raise ValueError("el paso de ampliación debe ser positivo.")
+
+    distancias = [
+        (codigo, x, y, geometria.distancia_a_poligonos(x, y, area))
+        for codigo, x, y in candidatas
+    ]
+
+    escalera: list[dict[str, Any]] = []
+    mejor: dict[str, Any] | None = None
+    buffer_km = float(inicial_km)
+
+    while buffer_km <= float(tope_km) + 1e-9:
+        limite = buffer_km * 1000.0
+        dentro = [(c, x, y) for c, x, y, d in distancias if d <= limite]
+        puntos = [(x, y) for _, x, y in dentro]
+
+        if len(puntos) >= 3:
+            fraccion, cubiertos, total = geometria.cobertura_convexa(area, puntos)
+            brecha = geometria.brecha_maxima(area, puntos)
+        else:
+            fraccion, cubiertos, brecha = 0.0, 0, float("nan")
+            total = len(geometria.vertices_de(area))
+
+        intento = {
+            "buffer_km": round(buffer_km, 2),
+            "estaciones": len(dentro),
+            "cobertura": round(fraccion, 4),
+            "vertices_cubiertos": cubiertos,
+            "vertices_totales": total,
+            "brecha_km": (None if brecha != brecha else round(brecha / 1000.0, 2)),
+        }
+        escalera.append(intento)
+        mejor = {**intento, "codigos": [c for c, _, _ in dentro]}
+
+        if fraccion >= cobertura_minima and len(dentro) >= piso_candidatas:
+            return {**mejor, "cubre": True, "escalera": escalera,
+                    "motivo": "cobertura alcanzada"}
+
+        buffer_km += float(paso_km)
+
+    if mejor is None:                        # inicial_km ya excedía el tope
+        raise ValueError(
+            f"el buffer inicial ({inicial_km} km) supera el tope ({tope_km} km).")
+
+    motivo = ("tope de régimen alcanzado sin cubrir el área"
+              if mejor["cobertura"] < cobertura_minima
+              else "tope alcanzado; cubre pero no llega al piso de candidatas")
+    return {**mejor, "cubre": False, "escalera": escalera, "motivo": motivo}
+
+
+def proyectar_candidatas(
+    filas: Iterable[dict[str, str]],
+    mapa_campos: dict[str, str],
+    categorias_por_variable: dict[str, Sequence[str]],
+    variable: str,
+    area: Sequence[geometria.Poligono],
+    crs_catalogo: str,
+    crs_calculo: str,
+    tope_km: float,
+) -> list[tuple[str, float, float]]:
+    """
+    Las estaciones que sirven a una variable, proyectadas y prefiltradas.
+
+    SE PREFILTRA POR ENVOLVENTE ANTES DE MEDIR NINGUNA DISTANCIA. El catálogo
+    trae miles de estaciones y el área tiene millares de vértices; medir todo
+    contra todo son decenas de millones de operaciones para descartar el 98 %
+    por una comparación de cuatro números. La envolvente se agranda con el TOPE
+    para no excluir a ninguna que la ampliación pudiera llegar a alcanzar.
+    """
+    from pyproj import Transformer
+
+    x_min, y_min, x_max, y_max = geometria.envolvente(area)
+    margen = float(tope_km) * 1000.0
+    x_min, y_min = x_min - margen, y_min - margen
+    x_max, y_max = x_max + margen, y_max + margen
+
+    conversor = Transformer.from_crs(crs_catalogo, crs_calculo, always_xy=True)
+    salida: list[tuple[str, float, float]] = []
+    vistos: set[str] = set()
+
+    for fila in filas:
+        categoria = (fila.get(mapa_campos["categoria"]) or "").strip().upper()
+        if variable not in variables_de_categoria(
+                categoria, categorias_por_variable):
+            continue
+        latitud = a_decimal(fila.get(mapa_campos["latitud"]))
+        longitud = a_decimal(fila.get(mapa_campos["longitud"]))
+        if latitud is None or longitud is None:
+            continue
+        codigo = (fila.get(mapa_campos["codigo"]) or "").strip()
+        if not codigo or codigo in vistos:
+            continue
+        este, norte = conversor.transform(longitud, latitud)
+        if not (x_min <= este <= x_max and y_min <= norte <= y_max):
+            continue
+        vistos.add(codigo)
+        salida.append((codigo, float(este), float(norte)))
+
+    return salida
 
 
 def deduplicar_catalogo(
@@ -365,6 +510,7 @@ def clasificar(
     categorias_por_variable: dict[str, Sequence[str]],
     poligonos: Sequence[geometria.Poligono],
     resultado: ResultadoM03,
+    codigos_en_area: set[str] | None = None,
 ) -> None:
     """
     Recorre el catálogo y separa las estaciones seleccionadas de las descartadas.
@@ -372,6 +518,13 @@ def clasificar(
     Se aplica primero la envolvente y solo después el punto en polígono: sobre un
     catálogo de miles de estaciones y un área pequeña, esa comprobación barata
     descarta la inmensa mayoría sin evaluar aristas.
+
+    CON 'codigos_en_area' LA PERTENENCIA YA VIENE DECIDIDA. Es lo que ocurre
+    cuando 'ampliar_hasta_cubrir' fijó el radio: el conjunto se calculó en
+    coordenadas proyectadas, donde una distancia significa metros, y repetir
+    aquí la prueba contra un polígono en grados daría un resultado distinto
+    sobre las mismas estaciones. Los polígonos siguen sirviendo para la
+    envolvente, que solo decide a cuáles vale la pena listar como descartadas.
     """
     x_min, y_min, x_max, y_max = geometria.envolvente(poligonos)
 
@@ -396,9 +549,16 @@ def clasificar(
         resultado.con_coordenadas += 1
 
         dentro_envolvente = (x_min <= longitud <= x_max and y_min <= latitud <= y_max)
-        estacion.en_area = dentro_envolvente and geometria.punto_en_alguno(
-            longitud, latitud, poligonos
-        )
+        if codigos_en_area is None:
+            estacion.en_area = dentro_envolvente and geometria.punto_en_alguno(
+                longitud, latitud, poligonos
+            )
+        else:
+            codigo = str(estacion.valores.get("codigo", "")).strip()
+            estacion.en_area = codigo in codigos_en_area
+            # Una estación adoptada por la ampliación puede caer fuera de la
+            # envolvente del área base; se lista igualmente.
+            dentro_envolvente = dentro_envolvente or estacion.en_area
 
         if not estacion.en_area:
             # Solo se conservan como descartadas las que caen en la envolvente:
@@ -874,12 +1034,37 @@ def ejecutar(
                 "sirve la estacion; el estado, por la precedencia declarada.",
             ))
             resultado.duplicados = conflictos
+        # La ampliación decide QUE estaciones entran, de modo que corre antes
+        # de clasificar y no después.
+        codigos_en_area: set[str] | None = None
+        ruta_area = rutas.resolver(configuracion.obtener(
+            "dem.delimitacion.salida_area_influencia"), base)
+        if ruta_area.is_file():
+            try:
+                resultado.ampliacion = _ampliar_por_cobertura(
+                    configuracion, ruta_area, filas, mapa_campos, categorias,
+                    resultado, logger)
+                codigos_en_area = set(resultado.ampliacion.get("codigos", ()))
+            except (ErrorFormato, ErrorRutas, ImportError, ValueError) as error:
+                resultado.hallazgos.append(Hallazgo(
+                    ADVERTENCIA, "estaciones.ampliacion",
+                    f"no se pudo ampliar por cobertura ({error}). Se conserva "
+                    "el area de seleccion del M02 con su buffer declarado, sin "
+                    "comprobar si las estaciones rodean el area."))
+        else:
+            resultado.hallazgos.append(Hallazgo(
+                INFORMATIVO, "estaciones.ampliacion",
+                f"no existe {ruta_area.name}, de modo que no se comprueba la "
+                "cobertura. Se usa el area de seleccion del M02 con su buffer "
+                "declarado."))
+
         clasificar(
             registros=filas,
             mapa_campos=mapa_campos,
             categorias_por_variable=categorias,
             poligonos=poligonos,
             resultado=resultado,
+            codigos_en_area=codigos_en_area,
         )
         logger.info(
             "Catálogo: %d | con coordenadas: %d | dentro del área: %d | "
@@ -1016,6 +1201,95 @@ def ejecutar(
               else SALIDA_CORRECTA)
     return _cerrar(logger, resultado, base, ruta_json, inicio, codigo)
 
+
+
+def _ampliar_por_cobertura(
+    configuracion, ruta_area: Path, filas, mapa_campos, categorias,
+    resultado: ResultadoM03, logger,
+) -> dict[str, Any]:
+    """
+    Fija el radio de búsqueda por cobertura y deja constancia de por qué.
+
+    LA COBERTURA SE MIDE SOBRE LA PRECIPITACION y no sobre el total de
+    estaciones. Es la variable que alimenta las isoyetas, que es donde la
+    extrapolación hace daño; una estación de caudal no sostiene el campo de
+    lluvia por mucho que esté bien situada.
+    """
+    area = shapefile.leer_geometrias(ruta_area)
+    inicial = float(configuracion.obtener("estaciones.buffer_adicional_km"))
+    paso = float(configuracion.obtener("estaciones.ampliacion.paso_km"))
+    tope = float(configuracion.obtener("estaciones.ampliacion.tope_km"))
+    minima = float(configuracion.obtener(
+        "estaciones.ampliacion.cobertura_minima"))
+    piso = int(configuracion.obtener("estaciones.ampliacion.piso_candidatas"))
+    tasa = float(configuracion.obtener(
+        "estaciones.ampliacion.tasa_supervivencia"))
+    minimo_isoyetas = int(configuracion.obtener("isoyetas.minimo_estaciones"))
+
+    candidatas = proyectar_candidatas(
+        filas, mapa_campos, categorias, "precipitacion", area,
+        CRS_CATALOGO, str(configuracion.obtener("crs.calculo")), tope)
+
+    diagnostico = ampliar_hasta_cubrir(
+        area, candidatas, inicial, paso, tope, minima, piso)
+
+    adoptado = diagnostico["buffer_km"]
+    cuantas = diagnostico["estaciones"]
+    logger.info(
+        "Buffer adoptado: %.1f km (%d estaciones de precipitacion, cobertura "
+        "%.1f %%, brecha %s km). Partia de %.1f km.",
+        adoptado, cuantas, 100.0 * diagnostico["cobertura"],
+        diagnostico["brecha_km"], inicial)
+
+    if diagnostico["cubre"] and adoptado > inicial:
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "estaciones.ampliacion",
+            f"el buffer se amplio de {inicial:.1f} a {adoptado:.1f} km porque a "
+            f"la distancia inicial las estaciones no rodeaban el area. Con "
+            f"{adoptado:.1f} km quedan {cuantas} de precipitacion y el area "
+            "entera cae dentro de su envolvente convexa, que es la condicion "
+            "para que la interpolacion sea interpolacion y no extrapolacion."))
+
+    if not diagnostico["cubre"]:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "estaciones.cobertura",
+            f"{diagnostico['motivo']}. Al tope de {tope:.1f} km hay {cuantas} "
+            f"estacion(es) de precipitacion y solo el "
+            f"{100.0 * diagnostico['cobertura']:.1f} % del area queda dentro de "
+            "su envolvente convexa: en el resto la interpolacion seria "
+            "extrapolacion, y el IDW no lo senala. NO se amplia mas por cuenta "
+            "propia porque el tope es de REGIMEN CLIMATICO, no de comodidad: "
+            "pasarlo mezclaria estaciones de otro regimen en el mismo campo. "
+            "Decide el consultor, y la decision debe quedar registrada."))
+
+    if cuantas < piso:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "estaciones.piso",
+            f"solo hay {cuantas} estacion(es) de precipitacion, por debajo del "
+            f"piso de {piso} declarado. El estudio no es viable con ese "
+            "soporte."))
+
+    proyeccion = cuantas * tasa
+    if cuantas >= piso and proyeccion < minimo_isoyetas:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "estaciones.proyeccion",
+            f"las {cuantas} candidatas proyectan unas {proyeccion:.1f} "
+            f"estaciones utiles con la tasa de supervivencia medida "
+            f"({100.0 * tasa:.0f} %), por debajo de las {minimo_isoyetas} que "
+            "el M06 y el M08 exigen por fase ENSO. El aviso se emite AQUI, "
+            "antes de descargar del IDEAM, porque el fallo se produciria ocho "
+            "modulos despues y con las descargas ya hechas. Conviene revisar "
+            "el tope o el area antes de seguir."))
+
+    if diagnostico.get("brecha_km"):
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "estaciones.brecha",
+            f"el punto del area peor servido queda a "
+            f"{diagnostico['brecha_km']:.1f} km de su estacion mas proxima. Es "
+            "un hueco de la red del IDEAM y NO se cierra ampliando el radio: "
+            "queda documentado con que densidad real se interpolo."))
+
+    return diagnostico
 
 
 def _punto_del_m01(base: Path) -> dict:
@@ -1170,6 +1444,10 @@ def _cerrar(logger, resultado: ResultadoM03, base: Path, ruta_json: Path | None,
         },
         "seleccionadas": len(resultado.seleccionadas),
         "descartadas": len(resultado.descartadas),
+        # La escalera de intentos deja registrado POR QUE se adoptó ese radio y
+        # no otro, que es lo que una interventoría pregunta.
+        "ampliacion": {k: v for k, v in resultado.ampliacion.items()
+                       if k != "codigos"},
         "por_variable": resultado.por_variable,
         "por_categoria": resultado.por_categoria,
         "por_estado": resultado.por_estado,

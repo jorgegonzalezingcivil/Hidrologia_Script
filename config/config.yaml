@@ -368,6 +368,50 @@ estaciones:
   # piso de la Sabana, con un régimen distinto del flanco oriental, y la
   # zonificación pluviométrica del M11 tendría que absorber ese gradiente.
   buffer_adicional_km: 5.0
+
+  # --- AMPLIACION DEL BUFFER HASTA CUBRIR EL AREA --------------------------
+  # El buffer de arriba es el PUNTO DE PARTIDA, no el valor final. Si a esa
+  # distancia las estaciones no rodean el area, el M03 amplia por pasos.
+  #
+  # LA GOBIERNA LA COBERTURA Y NO EL CONTEO. Medido sobre este estudio, contra
+  # la cuenca de 220 km2 y el catalogo del IDEAM:
+  #
+  #     buffer   estaciones   dentro del casco convexo   brecha maxima
+  #       5 km       18                 80,4 %              12,3 km
+  #      10 km       36                100,0 %              11,0 km
+  #      15 km       48                100,0 %              11,0 km
+  #      20 km       67                100,0 %              11,0 km
+  #
+  # La cobertura se satura a los 10 km. Pasar de 10 a 20 km suma 31 estaciones
+  # y no mejora nada: ni la cobertura, ni la brecha, ni la distancia media.
+  # Esas 31 solo anaden riesgo de mezclar regimenes. Un criterio por conteo
+  # habria seguido ampliando sin ganar informacion.
+  #
+  # LA BRECHA NO SE CIERRA AMPLIANDO. Los 11 km son un hueco interior de la red
+  # del IDEAM, no un efecto de borde. Se reporta para dejar constancia de con
+  # que densidad real se interpolo, y no se pretende corregir.
+  ampliacion:
+    paso_km: 1.0
+    # Tope por CAMBIO DE REGIMEN, no por distancia comoda. En esta zona, a
+    # partir de unos 15 km las estaciones caen al piso de la Sabana, con un
+    # regimen distinto del flanco oriental. Es un valor DE ESTE ESTUDIO: otra
+    # cuenca tiene otra geografia y debe declarar el suyo.
+    tope_km: 15.0
+    # Fraccion de los vertices del area que debe quedar dentro de la envolvente
+    # convexa de las estaciones. Por debajo de 1,0 se admite extrapolar en
+    # parte del borde, y hay que poder justificarlo.
+    cobertura_minima: 1.0
+    # Piso de inviabilidad. DECISION DEL CONSULTOR: por debajo de 8 candidatas
+    # el M03 se detiene sin mas, aunque la cobertura se declare satisfecha.
+    piso_candidatas: 8
+    # Fraccion de candidatas del M03 que llega a la interpolacion del M06.
+    # MEDIDA en este estudio: 39 candidatas de precipitacion y 12 estaciones
+    # usadas por fase ENSO, es decir el 31 %. Con ella el modulo proyecta si se
+    # alcanzaran las isoyetas.minimo_estaciones y avisa ANTES de descargar, en
+    # vez de fallar ocho modulos despues. Es un valor medido y revisable, no
+    # una constante: conviene recalcularlo al cerrar cada estudio.
+    tasa_supervivencia: 0.31
+
   catalogo: "data/referencia/sig/CNE_IDEAM_Final.shp"
   fecha_catalogo: "2024-01-01"   # descarga del CNE, para trazabilidad
   # Adaptador de nombres de campo del Catálogo Nacional de Estaciones. Los

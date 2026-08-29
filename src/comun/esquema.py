@@ -465,6 +465,27 @@ ESQUEMA: dict[str, Campo] = {
     "estaciones.buffer_adicional_km": numero(
         "buffer adicional para la selección de estaciones", minimo=0, maximo=50,
     ),
+    # Ampliación del buffer hasta cubrir el área. La gobierna la COBERTURA y no
+    # el conteo: medido sobre este estudio, pasar de 10 a 20 km suma 31
+    # estaciones y no mejora ni la cobertura ni la brecha.
+    "estaciones.ampliacion.paso_km": numero(
+        "incremento del buffer en cada intento", minimo=0.5, maximo=10,
+    ),
+    "estaciones.ampliacion.tope_km": numero(
+        "distancia máxima admitida, por cambio de régimen climático",
+        minimo=1, maximo=50,
+    ),
+    "estaciones.ampliacion.cobertura_minima": numero(
+        "fracción del área que debe quedar dentro de la envolvente convexa",
+        minimo=0.5, maximo=1.0,
+    ),
+    "estaciones.ampliacion.piso_candidatas": entero(
+        "candidatas por debajo de las cuales el estudio no es viable", minimo=1,
+    ),
+    "estaciones.ampliacion.tasa_supervivencia": numero(
+        "fracción de candidatas que llega a la interpolación, medida",
+        minimo=0.05, maximo=1.0,
+    ),
     "estaciones.catalogo": ruta("Catálogo Nacional de Estaciones del IDEAM"),
     "estaciones.fecha_catalogo": texto(
         "fecha de descarga del catálogo, para trazabilidad", no_vacio=True,

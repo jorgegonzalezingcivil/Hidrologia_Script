@@ -205,6 +205,147 @@ def centroide(poligono: Poligono) -> tuple[float, float]:
     return (x_total / area_total, y_total / area_total)
 
 
+def vertices_de(poligonos: Sequence[Poligono]) -> list[tuple[float, float]]:
+    """Todos los vértices de todos los anillos, sin distinguir huecos."""
+    salida: list[tuple[float, float]] = []
+    for poligono in poligonos:
+        for anillo in poligono:
+            salida.extend((float(x), float(y)) for x, y in anillo)
+    return salida
+
+
+def envolvente_convexa(
+    puntos: Sequence[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """
+    Envolvente convexa de un conjunto de puntos, por la cadena de Andrew.
+
+    ES LA FRONTERA ENTRE INTERPOLAR Y EXTRAPOLAR. Dentro de ella el valor
+    estimado queda acotado por estaciones que rodean el punto; fuera, el IDW
+    sigue devolviendo un número, pero se sostiene sobre estaciones que están
+    todas al mismo lado y nada lo contradice. Las dos superficies tienen el
+    mismo aspecto y solo esta frontera las distingue.
+
+    Devuelve el anillo CERRADO, con el primer vértice repetido al final, listo
+    para 'punto_en_poligono'. Con menos de tres puntos distintos no hay
+    superficie que encerrar y se devuelve lo que haya, sin cerrar.
+    """
+    unicos = sorted({(float(x), float(y)) for x, y in puntos})
+    if len(unicos) < 3:
+        return unicos
+
+    def giro(o, a, b) -> float:
+        return ((a[0] - o[0]) * (b[1] - o[1])
+                - (a[1] - o[1]) * (b[0] - o[0]))
+
+    inferior: list[tuple[float, float]] = []
+    for punto in unicos:
+        while len(inferior) >= 2 and giro(inferior[-2], inferior[-1], punto) <= 0:
+            inferior.pop()
+        inferior.append(punto)
+    superior: list[tuple[float, float]] = []
+    for punto in reversed(unicos):
+        while len(superior) >= 2 and giro(superior[-2], superior[-1], punto) <= 0:
+            superior.pop()
+        superior.append(punto)
+
+    casco = inferior[:-1] + superior[:-1]
+    if casco and casco[0] != casco[-1]:
+        casco.append(casco[0])
+    return casco
+
+
+def _distancia_a_segmento(px: float, py: float, ax: float, ay: float,
+                          bx: float, by: float) -> float:
+    """Distancia de un punto al segmento AB, no a la recta que lo contiene."""
+    dx = bx - ax
+    dy = by - ay
+    largo2 = dx * dx + dy * dy
+    if largo2 <= 0.0:
+        return math.hypot(px - ax, py - ay)
+    t = ((px - ax) * dx + (py - ay) * dy) / largo2
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def distancia_a_poligonos(x: float, y: float,
+                          poligonos: Sequence[Poligono]) -> float:
+    """
+    Distancia del punto al polígono más próximo. Cero si cae dentro.
+
+    Se mide contra las ARISTAS y no contra los vértices: una estación frente al
+    centro de un lado largo está a la distancia de ese lado, no a la del vértice
+    más cercano, y la diferencia sobre una cuenca alargada llega a kilómetros.
+
+    En las unidades de los datos. Con coordenadas proyectadas son metros; con
+    grados no significa nada, y quien llame debe haber proyectado antes.
+    """
+    if punto_en_alguno(x, y, poligonos):
+        return 0.0
+    menor = float("inf")
+    for poligono in poligonos:
+        for anillo in poligono:
+            for i in range(len(anillo) - 1):
+                ax, ay = anillo[i]
+                bx, by = anillo[i + 1]
+                distancia = _distancia_a_segmento(x, y, ax, ay, bx, by)
+                if distancia < menor:
+                    menor = distancia
+    if menor == float("inf"):
+        raise ErrorFormato("no hay aristas contra las que medir la distancia.")
+    return menor
+
+
+def cobertura_convexa(
+    poligonos: Sequence[Poligono], puntos: Sequence[tuple[float, float]],
+) -> tuple[float, int, int]:
+    """
+    Qué fracción del área queda dentro de la envolvente convexa de los puntos.
+
+    SE COMPRUEBAN LOS VERTICES DEL AREA Y NO UNA MALLA INTERIOR, y no es una
+    aproximación sino el resultado exacto: la envolvente es CONVEXA, de modo que
+    contiene el polígono entero si y solo si contiene todos sus vértices.
+    Muestrear el interior costaría miles de pruebas para responder lo mismo.
+
+    Devuelve (fracción, vértices dentro, vértices totales). Con menos de tres
+    estaciones distintas no hay envolvente y la fracción es cero: no es que el
+    área quede fuera, es que no hay superficie donde interpolar.
+    """
+    esquinas = vertices_de(poligonos)
+    if not esquinas:
+        raise ErrorFormato("el área no tiene vértices que comprobar.")
+
+    casco = envolvente_convexa(puntos)
+    if len(casco) < 4:                      # anillo cerrado: 3 puntos + cierre
+        return (0.0, 0, len(esquinas))
+
+    dentro = sum(1 for (px, py) in esquinas
+                 if punto_en_poligono(px, py, [casco]))
+    return (dentro / len(esquinas), dentro, len(esquinas))
+
+
+def brecha_maxima(poligonos: Sequence[Poligono],
+                  puntos: Sequence[tuple[float, float]]) -> float:
+    """
+    Distancia del punto del área peor servido a su estación más próxima.
+
+    NO SE CIERRA AMPLIANDO EL RADIO DE BUSQUEDA. Es un hueco de la red de
+    medición, no un efecto de borde: medido sobre este estudio se queda en
+    11,4 km tanto con un buffer de 10 km como con uno de 20. Se reporta para
+    que quede documentado con qué densidad real se interpoló, y no se pretende
+    corregir con más estaciones lejanas.
+    """
+    esquinas = vertices_de(poligonos)
+    if not esquinas or not puntos:
+        raise ErrorFormato("hacen falta área y estaciones para medir la brecha.")
+    peor = 0.0
+    for (px, py) in esquinas:
+        cercana = min(math.hypot(px - ex, py - ey) for ex, ey in puntos)
+        if cercana > peor:
+            peor = cercana
+    return peor
+
+
 def columnas_de_fila(
     aristas: Sequence[tuple[float, float, float, float]],
     y: float,

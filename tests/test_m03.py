@@ -698,5 +698,153 @@ class PruebaProyeccionDeEstaciones(unittest.TestCase):
         for campo in m03.CAMPOS_ESTACION:
             self.assertLessEqual(len(campo.corto), 10, campo.corto)
 
+
+# Un cuadrado de 10 km de lado en coordenadas proyectadas, para medir en metros.
+_AREA_PROY = [[[(0.0, 0.0), (10000.0, 0.0), (10000.0, 10000.0),
+                (0.0, 10000.0), (0.0, 0.0)]]]
+
+
+class PruebaEnvolventeConvexa(unittest.TestCase):
+    """La frontera entre interpolar y extrapolar."""
+
+    def test_devuelve_el_anillo_cerrado(self) -> None:
+        casco = geometria.envolvente_convexa(
+            [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
+        self.assertEqual(casco[0], casco[-1])
+
+    def test_descarta_el_punto_interior(self) -> None:
+        # El punto del centro no es vertice del casco.
+        casco = geometria.envolvente_convexa(
+            [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0), (1.0, 1.0)])
+        self.assertNotIn((1.0, 1.0), casco)
+
+    def test_con_menos_de_tres_no_hay_superficie(self) -> None:
+        self.assertEqual(len(geometria.envolvente_convexa([(0.0, 0.0)])), 1)
+        self.assertEqual(
+            len(geometria.envolvente_convexa([(0.0, 0.0), (1.0, 1.0)])), 2)
+
+
+class PruebaDistanciaAPoligonos(unittest.TestCase):
+
+    def test_dentro_es_cero(self) -> None:
+        self.assertEqual(
+            geometria.distancia_a_poligonos(5000.0, 5000.0, _AREA_PROY), 0.0)
+
+    def test_mide_contra_la_arista_y_no_contra_el_vertice(self) -> None:
+        # Frente al centro del lado inferior, a 100 m. Contra el vertice mas
+        # cercano darian mas de 5 km.
+        distancia = geometria.distancia_a_poligonos(5000.0, -100.0, _AREA_PROY)
+        self.assertAlmostEqual(distancia, 100.0, places=6)
+
+    def test_en_diagonal_mide_al_vertice(self) -> None:
+        distancia = geometria.distancia_a_poligonos(-300.0, -400.0, _AREA_PROY)
+        self.assertAlmostEqual(distancia, 500.0, places=6)
+
+
+class PruebaCoberturaConvexa(unittest.TestCase):
+
+    def test_rodeada_cubre_del_todo(self) -> None:
+        rodean = [(-1000.0, -1000.0), (11000.0, -1000.0),
+                  (11000.0, 11000.0), (-1000.0, 11000.0)]
+        fraccion, dentro, total = geometria.cobertura_convexa(
+            _AREA_PROY, rodean)
+        self.assertEqual(fraccion, 1.0)
+        self.assertEqual(dentro, total)
+
+    def test_todas_a_un_lado_no_cubre(self) -> None:
+        # Tres estaciones alineadas al sur: el area queda fuera del casco.
+        un_lado = [(-1000.0, -1000.0), (5000.0, -1200.0), (11000.0, -1000.0)]
+        fraccion, _, _ = geometria.cobertura_convexa(_AREA_PROY, un_lado)
+        self.assertLess(fraccion, 1.0)
+
+    def test_con_menos_de_tres_la_cobertura_es_nula(self) -> None:
+        fraccion, dentro, total = geometria.cobertura_convexa(
+            _AREA_PROY, [(0.0, 0.0), (1.0, 1.0)])
+        self.assertEqual((fraccion, dentro), (0.0, 0))
+        self.assertGreater(total, 0)
+
+
+class PruebaBrechaMaxima(unittest.TestCase):
+
+    def test_una_estacion_en_una_esquina(self) -> None:
+        # El vertice opuesto de un cuadrado de 10 km esta a la diagonal.
+        brecha = geometria.brecha_maxima(_AREA_PROY, [(0.0, 0.0)])
+        self.assertAlmostEqual(brecha, (2 ** 0.5) * 10000.0, places=3)
+
+
+class PruebaAmpliarHastaCubrir(unittest.TestCase):
+    """La ampliación la gobierna la cobertura, no el conteo."""
+
+    def _rodeando(self, desplazamiento: float) -> list:
+        """
+        Cuatro estaciones EN LAS ESQUINAS, que sí encierran el área.
+
+        En los lados no sirven: cuatro estaciones al norte, sur, este y oeste
+        forman un rombo, y las esquinas del área quedan fuera de él. Es
+        exactamente el caso que la cobertura debe detectar y un conteo no.
+        """
+        d = desplazamiento
+        return [
+            ("SO", -d, -d), ("SE", 10000.0 + d, -d),
+            ("NE", 10000.0 + d, 10000.0 + d), ("NO", -d, 10000.0 + d),
+        ]
+
+    def test_para_en_cuanto_cubre(self) -> None:
+        # En las esquinas a 2 km por eje: 2.828 m de distancia al área, de modo
+        # que el intento de 3 km es el primero que las alcanza.
+        d = m03.ampliar_hasta_cubrir(
+            _AREA_PROY, self._rodeando(2000.0), inicial_km=1.0, paso_km=1.0,
+            tope_km=10.0, cobertura_minima=1.0, piso_candidatas=0)
+        self.assertTrue(d["cubre"])
+        self.assertEqual(d["buffer_km"], 3.0)
+        self.assertEqual(d["estaciones"], 4)
+
+    def test_los_lados_no_encierran_las_esquinas(self) -> None:
+        # Cuatro estaciones en los lados: por conteo bastarían, por cobertura no.
+        rombo = [("N", 5000.0, 12500.0), ("S", 5000.0, -2500.0),
+                 ("E", 12500.0, 5000.0), ("O", -2500.0, 5000.0)]
+        d = m03.ampliar_hasta_cubrir(
+            _AREA_PROY, rombo, inicial_km=3.0, paso_km=1.0, tope_km=10.0,
+            cobertura_minima=1.0, piso_candidatas=0)
+        self.assertFalse(d["cubre"])
+        self.assertEqual(d["estaciones"], 4)
+        self.assertLess(d["cobertura"], 1.0)
+
+    def test_no_pasa_del_tope_de_regimen(self) -> None:
+        d = m03.ampliar_hasta_cubrir(
+            _AREA_PROY, self._rodeando(9000.0), inicial_km=1.0, paso_km=1.0,
+            tope_km=5.0, cobertura_minima=1.0, piso_candidatas=0)
+        self.assertFalse(d["cubre"])
+        self.assertLessEqual(d["buffer_km"], 5.0)
+        self.assertIn("régimen", d["motivo"])
+
+    def test_el_piso_manda_aunque_cubra(self) -> None:
+        d = m03.ampliar_hasta_cubrir(
+            _AREA_PROY, self._rodeando(2000.0), inicial_km=1.0, paso_km=1.0,
+            tope_km=6.0, cobertura_minima=1.0, piso_candidatas=8)
+        self.assertFalse(d["cubre"])
+        self.assertEqual(d["estaciones"], 4)
+        self.assertIn("piso", d["motivo"])
+
+    def test_deja_la_escalera_de_intentos(self) -> None:
+        d = m03.ampliar_hasta_cubrir(
+            _AREA_PROY, self._rodeando(2000.0), inicial_km=1.0, paso_km=1.0,
+            tope_km=10.0, cobertura_minima=1.0, piso_candidatas=0)
+        self.assertEqual([i["buffer_km"] for i in d["escalera"]],
+                         [1.0, 2.0, 3.0])
+
+    def test_rechaza_un_paso_no_positivo(self) -> None:
+        with self.assertRaises(ValueError):
+            m03.ampliar_hasta_cubrir(
+                _AREA_PROY, self._rodeando(1000.0), inicial_km=1.0,
+                paso_km=0.0, tope_km=5.0)
+
+    def test_rechaza_un_inicial_por_encima_del_tope(self) -> None:
+        with self.assertRaises(ValueError):
+            m03.ampliar_hasta_cubrir(
+                _AREA_PROY, self._rodeando(1000.0), inicial_km=9.0,
+                paso_km=1.0, tope_km=5.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
