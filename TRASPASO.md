@@ -213,8 +213,15 @@ Lo que el consultor debe poner en `data/00_insumos_usuario/` antes de empezar:
 - **`topografia/`** los planos del sitio, que son el Anexo 8
 
 El **único paso manual obligatorio** de toda la cadena es la delimitación
-asistida en HEC-HMS, entre el M02 y el M09. Todo lo demás se ejecuta sin abrir
-software.
+asistida en HEC-HMS. Va **antes del análisis de precipitación**, entre el M02c y
+el M03: la cadena se detiene en el M09a con las instrucciones, el ingeniero
+delimita en HEC-HMS, y al relanzar desde el M09b la rutina deriva de esas
+subcuencas el área de influencia definitiva y sigue sola.
+
+Ese orden es deliberado. La precipitación (descarga del IDEAM, análisis de
+frecuencia, isoyetas) es la parte cara de la cadena, y corriéndola después de
+la delimitación se ejecuta sobre la cuenca real y no sobre un área estimada que
+la sobredimensiona varias veces. Todo lo demás se ejecuta sin abrir software.
 
 ---
 
