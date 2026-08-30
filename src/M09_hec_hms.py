@@ -500,7 +500,7 @@ cuyo eslabón manual no está escrito no se puede repetir ni auditar.
 |---|---|
 | `dem_recortado.tif` | Terreno del que HEC-HMS deriva direcciones de flujo |
 | `punto_descarga.shp` | Punto de cierre de la cuenca |
-| `area_influencia.shp` | Cota superior del M02. **No es una cuenca**: es una envolvente con holgura |
+| `area_influencia_preliminar.shp` | Cota superior del M02. **No es una cuenca**: es una envolvente con holgura |
 | `drenaje_sencillo_area.shp` | Red del IGAC, para verificar y reacondicionar |
 | `drenaje_doble_area.shp` | Cauces anchos del IGAC |
 
@@ -567,14 +567,14 @@ REFERENCIA_DRENADA = """   **Superficie drenada: {area_drenada:.2f} km²**, que 
    admite una desviación de hasta el {banda:.0f}%. La divisoria está en las
    cumbres, esto es una mancha alrededor de los cauces.
 
-   **Cota superior: {area_preliminar:.2f} km²** (`area_influencia.shp`). La
+   **Cota superior: {area_preliminar:.2f} km²** (`area_influencia_preliminar.shp`). La
    delimitación no puede excederla, porque esa envolvente contiene la cuenca
    aportante por definición: si la supera, está tomando agua de otra vertiente.
    Tampoco puede quedar por debajo del {tolerancia:.0f}% de ella, que es el
    control que atrapa el fallo del DEM descrito más abajo.
 """
 
-REFERENCIA_SIN_DRENADA = """   **Cota superior: {area_preliminar:.2f} km²** (`area_influencia.shp`).
+REFERENCIA_SIN_DRENADA = """   **Cota superior: {area_preliminar:.2f} km²** (`area_influencia_preliminar.shp`).
 
    Es la ÚNICA referencia disponible en este estudio, porque no se acotó el área
    trazando aguas arriba y no hay superficie drenada con la que contrastar. Y es
@@ -647,7 +647,8 @@ def _preparar(configuracion, base, resultado, logger) -> None:
         ))
 
     area_preliminar = 0.0
-    cuenca = rutas.directorio("sig_vector", base) / "area_influencia.shp"
+    cuenca = rutas.resolver(configuracion.obtener(
+        "dem.delimitacion.salida_area_influencia"), base)
     if cuenca.is_file():
         try:
             area_preliminar = float(shapefile.area_poligonos(cuenca)) / 1e6
@@ -731,7 +732,10 @@ def _wkt_de_calculo(base: Path, esperado: str) -> str:
     reproyecciones espurias al vuelo. Si ninguna sirve, se genera con pyproj.
     """
     vector = rutas.directorio("sig_vector", base)
-    for nombre in ("area_influencia.shp", "red_topologica.shp",
+    # La preliminar va en la lista porque al importar todavia puede no existir
+    # la definitiva: es esta misma llamada la que produce su .prj.
+    for nombre in ("area_influencia.shp", "area_influencia_preliminar.shp",
+                   "red_topologica.shp",
                    "punto_descarga.shp", "envolvente.shp"):
         candidata = vector / nombre
         if not candidata.is_file():

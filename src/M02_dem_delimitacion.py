@@ -1179,8 +1179,12 @@ def ejecutar(
 
     if fase != "preliminar" and ruta_dem is not None:
         with registro.bloque(logger, "Pendiente del terreno"):
-            ruta_area_influencia = (rutas.directorio("sig_vector", base)
-                                    / "area_influencia.shp")
+            # LA PRELIMINAR, por la clave y no por el nombre: es la unica que
+            # existe en este punto de la cadena. La definitiva la escribe el
+            # M09b, varios pasos despues, sobre las subcuencas ya delimitadas.
+            ruta_area_influencia = rutas.resolver(
+                configuracion.obtener(
+                    "dem.delimitacion.salida_area_influencia"), base)
             ruta_pendiente = derivar_pendiente(
                 configuracion, base, ruta_dem, ruta_area_influencia,
                 crs_calculo, logger)

@@ -827,7 +827,8 @@ def ejecutar(
         doctrina = rutas.resolver(
             configuracion.obtener("subzonas_hidrograficas.archivo"),
             rutas.raiz_codigo())
-        referencia = vector / "area_influencia.shp"
+        referencia = rutas.resolver(configuracion.obtener(
+            "hec_hms.intercambio.salida_area_influencia"), base)
         try:
             ficha = escribir_subzona_contexto(
                 doctrina, vector / "subzona_contexto.shp",

@@ -1578,13 +1578,19 @@ def _malla_departamental(ruta_raster: Path):
     return matriz, (xmin, xmax, ymin, ymax)
 
 
-def _contorno_en_geograficas(base: Path, crs_calculo: str):
-    """Contorno de la cuenca en grados, para situarla sobre el campo del IDEAM."""
+def _contorno_en_geograficas(base: Path, crs_calculo: str, ruta_area: Path):
+    """
+    Contorno de la cuenca en grados, para situarla sobre el campo del IDEAM.
+
+    'ruta_area' es la reserva si aun no hay subcuencas, y llega resuelta desde
+    fuera: esta funcion no recibe la configuracion, y fijar aqui el nombre del
+    archivo lo desligaria de la ruta que el estudio declara.
+    """
     from pyproj import Transformer
 
     ruta = rutas.directorio("sig_vector", base) / "subcuencas.shp"
     if not ruta.is_file():
-        ruta = rutas.directorio("sig_vector", base) / "area_influencia.shp"
+        ruta = Path(ruta_area)
     if not ruta.is_file():
         return []
     try:
@@ -1692,7 +1698,10 @@ def _figura_cambio_departamental(configuracion, base, resultado,
     norma = TwoSlopeNorm(vmin=min(minimo, -0.5), vcenter=0.0,
                          vmax=max(maximo, 0.5))
 
-    contorno = _contorno_en_geograficas(base, configuracion.obtener("crs.calculo"))
+    contorno = _contorno_en_geograficas(
+        base, configuracion.obtener("crs.calculo"),
+        rutas.resolver(configuracion.obtener(
+            "hec_hms.intercambio.salida_area_influencia"), base))
     adoptado = next((c for c in datos if c.get("adoptado")), None)
 
     estilo = graficos.Estilo.desde_config(configuracion)

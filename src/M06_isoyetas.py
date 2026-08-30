@@ -495,7 +495,11 @@ def ejecutar(
         "precipitacion_por_fase.csv"
     capa_estaciones = rutas.resolver(
         configuracion.obtener("estaciones.salida_seleccionadas"), base)
-    ruta_area = rutas.directorio("sig_vector", base) / "area_influencia.shp"
+    # La DEFINITIVA, que escribe el M09b sobre las subcuencas ya delimitadas.
+    # Por la clave y no por el nombre: si un estudio la declarase en otra ruta,
+    # fijarlo aqui buscaria donde no es.
+    ruta_area = rutas.resolver(configuracion.obtener(
+        "hec_hms.intercambio.salida_area_influencia"), base)
 
     registro.registrar_cabecera(
         logger, MODULO, DESCRIPCION, config=configuracion,

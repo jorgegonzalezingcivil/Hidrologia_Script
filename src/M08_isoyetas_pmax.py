@@ -286,7 +286,9 @@ def ejecutar(
     cuantiles = rutas.directorio("procesado_frecuencia", base) / "cuantiles.csv"
     capa_estaciones = rutas.resolver(
         configuracion.obtener("estaciones.salida_seleccionadas"), base)
-    ruta_area = rutas.directorio("sig_vector", base) / "area_influencia.shp"
+    # La DEFINITIVA, que escribe el M09b sobre las subcuencas ya delimitadas.
+    ruta_area = rutas.resolver(configuracion.obtener(
+        "hec_hms.intercambio.salida_area_influencia"), base)
 
     registro.registrar_cabecera(
         logger, MODULO, DESCRIPCION, config=configuracion,
