@@ -205,6 +205,13 @@ CATEGORIAS_IDEAM = (
 # Esquema
 # =============================================================================
 ESQUEMA: dict[str, Campo] = {
+    # Versión del esquema con la que se escribió esta configuración. No es
+    # requerida: un estudio anterior a que existiera no la trae, y su ausencia
+    # significa la 1. 'migrar_estudio.py' la lee para saber qué recetas quedan
+    # pendientes y la deja escrita al terminar.
+    "esquema_version": entero("versión del esquema de configuración",
+                              requerido=False, minimo=1),
+
     # --- proyecto ------------------------------------------------------------
     "proyecto.nombre": texto("nombre del estudio", no_vacio=True),
     "proyecto.contratante": texto("entidad contratante"),

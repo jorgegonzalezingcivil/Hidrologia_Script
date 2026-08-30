@@ -225,6 +225,34 @@ la sobredimensiona varias veces. Todo lo demás se ejecuta sin abrir software.
 
 ---
 
+## 5b. Un estudio de antes
+
+La configuración de un estudio **no se fusiona** con la de la herramienta: es
+doctrina congelada del proyecto, y por eso dos estudios de la misma versión
+parten de lo mismo. El precio es que, cuando la herramienta añade o mueve una
+clave, un estudio anterior se detiene con `clave ausente`.
+
+Antes de volver sobre un estudio hecho con una versión anterior:
+
+```bash
+py -3.12 migrar_estudio.py --raiz C:\Estudios\<nombre> --simular
+```
+
+Muestra qué haría sin escribir nada. Si convence, se repite sin `--simular`.
+
+Aplica las recetas de `config/migraciones.yaml`, que declaran clave por clave
+qué cambió y por qué. Copia las claves nuevas **con sus comentarios**, ajusta
+las que cambiaron de significado y renombra en disco los productos que
+cambiaron de nombre, porque una cosa sin la otra deja la configuración
+apuntando a un archivo que no existe.
+
+**No pisa un valor que el consultor haya cambiado a mano.** Si encuentra algo
+distinto de lo que la receta esperaba, lo deja intacto y lo reporta: una
+diferencia así es una decisión del estudio, y sustituirla en silencio la
+borraría. Deja además una copia del archivo anterior.
+
+---
+
 ## 6. Lo que el ingeniero tendrá que ajustar a mano
 
 Conviene que el nuevo usuario lo sepa de entrada, para que no lo lea como un

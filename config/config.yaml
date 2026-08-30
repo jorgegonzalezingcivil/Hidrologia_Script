@@ -5,6 +5,17 @@
 # embebidos. Toda decisión con margen técnico queda registrada aquí.
 # =============================================================================
 
+# VERSIÓN DEL ESQUEMA. La declara la herramienta y la copia cada estudio al
+# crearse. Cuando la herramienta añade o cambia claves, esta cifra sube y los
+# estudios anteriores quedan por debajo: `migrar_estudio.py` los pone al día
+# aplicando las recetas de `config/migraciones.yaml`.
+#
+# SIN ESTO LA ACTUALIZACIÓN ERA MANUAL Y SILENCIOSA. Un estudio con la
+# configuración vieja se detiene con 'clave ausente', que al menos es ruidoso,
+# pero corregirlo a mano en cada proyecto es trabajo repetido y propenso a que
+# dos estudios acaben con doctrina distinta sin que nadie lo advierta.
+esquema_version: 2
+
 proyecto:
   nombre: "Estudio Hidrológico - PLANTILLA"
   contratante: ""

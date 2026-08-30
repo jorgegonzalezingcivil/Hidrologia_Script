@@ -1,0 +1,76 @@
+# =============================================================================
+# MIGRACIONES DE LA CONFIGURACIÓN DE UN ESTUDIO  (insumo de migrar_estudio.py)
+# -----------------------------------------------------------------------------
+# Un estudio guarda su propio config.yaml y NO se fusiona con el de la
+# herramienta: es doctrina congelada del proyecto, y así dos estudios de la
+# misma versión parten de lo mismo. El precio es que, cuando la herramienta
+# añade o mueve una clave, los estudios anteriores se quedan atrás.
+#
+# Aquí se declara qué cambió en cada paso de versión y qué hay que hacer para
+# ponerse al día. NO SE DEDUCE DEL DIFF, y esa es la decisión de fondo: añadir
+# claves ausentes sí es automatizable, pero una clave que CAMBIA DE SIGNIFICADO
+# exige además tocar los datos del estudio, y eso ningún diff lo adivina.
+#
+# Cada migración admite tres clases de cambio:
+#
+#   claves_nuevas       se copian del config.yaml de la herramienta CON SUS
+#                       COMENTARIOS, que en ese archivo son medio manual de
+#                       uso. 'despues_de' declara dónde insertarlas: se declara
+#                       y no se busca un hueco, para que el resultado no
+#                       dependa de cómo esté ordenado el archivo del estudio.
+#
+#   claves_revaloradas  el valor cambia. Se exige 'valor_anterior' y solo se
+#                       sustituye si coincide: si el consultor lo había
+#                       ajustado a mano, la migración se detiene y lo reporta
+#                       en lugar de pisarle una decisión suya.
+#
+#   archivos_renombrados  el producto en disco cambia de nombre. Sin esto la
+#                       configuración quedaría apuntando a un archivo que
+#                       existe con el nombre viejo, y el módulo fallaría por
+#                       'no se encuentra' sin explicar por qué.
+# =============================================================================
+
+version: 1
+
+migraciones:
+
+  - desde: 1
+    hasta: 2
+    titulo: "Área de influencia definitiva y ampliación por cobertura"
+    motivo: >-
+      El paso manual de HEC-HMS se adelantó delante del análisis de
+      precipitación, de modo que hay dos áreas de influencia y no una: la
+      PRELIMINAR del M02, que solo acota descargas y recortes, y la DEFINITIVA
+      del M09b, derivada de las subcuencas ya delimitadas. Además, el buffer de
+      selección de estaciones dejó de ser un valor fijo y pasa a ampliarse
+      hasta que las estaciones rodeen la cuenca.
+
+    claves_nuevas:
+      - clave: "estaciones.ampliacion"
+        despues_de: "estaciones.buffer_adicional_km"
+      - clave: "hec_hms.intercambio.salida_area_influencia"
+        despues_de: "hec_hms.intercambio.salida"
+      - clave: "hec_hms.intercambio.buffer_area_km"
+        despues_de: "hec_hms.intercambio.salida_area_influencia"
+
+    claves_revaloradas:
+      - clave: "dem.delimitacion.salida_area_influencia"
+        valor_anterior: "data/03_SIG/vector/area_influencia.shp"
+        valor_nuevo: "data/03_SIG/vector/area_influencia_preliminar.shp"
+        motivo: >-
+          Pasa a ser la PRELIMINAR. El nombre sin sufijo queda para la
+          definitiva que escribe el M09b, y las dos no pueden compartir
+          archivo: el M09b verifica que la delimitación no exceda la
+          preliminar, y escribiendo encima se compararía consigo misma.
+
+    archivos_renombrados:
+      - de: "data/03_SIG/vector/area_influencia"
+        a: "data/03_SIG/vector/area_influencia_preliminar"
+        motivo: >-
+          Lo que el estudio tiene en disco con ese nombre es la preliminar del
+          M02. Se renombra para que la clave revalorada la encuentre, y para
+          dejar libre el nombre que ocupará la definitiva.
+        # Un shapefile son varios archivos y hay que mover todos: dejar el .prj
+        # atrás produce una capa que se abre sin sistema de referencia.
+        extensiones: [".shp", ".shx", ".dbf", ".prj", ".cpg", ".qmd",
+                      ".shp.xml", "_campos.csv"]
