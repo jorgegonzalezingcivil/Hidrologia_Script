@@ -1058,8 +1058,8 @@ def ejecutar(
         if ruta_area.is_file():
             try:
                 resultado.ampliacion = _ampliar_por_cobertura(
-                    configuracion, ruta_area, filas, mapa_campos, categorias,
-                    resultado, logger)
+                    configuracion, base, ruta_area, filas, mapa_campos,
+                    categorias, resultado, logger)
                 codigos_en_area = set(resultado.ampliacion.get("codigos", ()))
             except (ErrorFormato, ErrorRutas, ImportError, ValueError) as error:
                 resultado.hallazgos.append(Hallazgo(
@@ -1220,7 +1220,7 @@ def ejecutar(
 
 
 def _ampliar_por_cobertura(
-    configuracion, ruta_area: Path, filas, mapa_campos, categorias,
+    configuracion, base: Path, ruta_area: Path, filas, mapa_campos, categorias,
     resultado: ResultadoM03, logger,
 ) -> dict[str, Any]:
     """
@@ -1230,8 +1230,24 @@ def _ampliar_por_cobertura(
     estaciones. Es la variable que alimenta las isoyetas, que es donde la
     extrapolación hace daño; una estación de caudal no sostiene el campo de
     lluvia por mucho que esté bien situada.
+
+    Y SE MIDE SOBRE LA CUENCA, NO SOBRE EL AREA DE INFLUENCIA. El área es un
+    RECTANGULO que envuelve la cuenca con holgura, y sus esquinas son un
+    artefacto del recorte: no cae allí ningún resultado del estudio. Exigir que
+    las estaciones las rodeen es una condición más dura que la real y sin
+    significado hidrológico. Medido en este estudio: contra el rectángulo de
+    690 km2 la cobertura se quedaba en el 80 % incluso al tope de 15 km, que
+    son cuatro de sus cinco vértices; contra la cuenca de 220 km2 se alcanza el
+    100 % a 9 km. Se usa el área solo como reserva, cuando el paso manual
+    todavía no ha producido las subcuencas.
     """
-    area = shapefile.leer_geometrias(ruta_area)
+    ruta_cuenca = rutas.directorio("sig_vector", base) / "subcuencas.shp"
+    if ruta_cuenca.is_file():
+        area = shapefile.leer_geometrias(ruta_cuenca)
+        medido_sobre = ruta_cuenca.name
+    else:
+        area = shapefile.leer_geometrias(ruta_area)
+        medido_sobre = Path(ruta_area).name
     inicial = float(configuracion.obtener("estaciones.buffer_adicional_km"))
     paso = float(configuracion.obtener("estaciones.ampliacion.paso_km"))
     tope = float(configuracion.obtener("estaciones.ampliacion.tope_km"))
@@ -1251,10 +1267,11 @@ def _ampliar_por_cobertura(
 
     adoptado = diagnostico["buffer_km"]
     cuantas = diagnostico["estaciones"]
+    diagnostico["medido_sobre"] = medido_sobre
     logger.info(
         "Buffer adoptado: %.1f km (%d estaciones de precipitacion, cobertura "
-        "%.1f %%, brecha %s km). Partia de %.1f km.",
-        adoptado, cuantas, 100.0 * diagnostico["cobertura"],
+        "%.1f %% de %s, brecha %s km). Partia de %.1f km.",
+        adoptado, cuantas, 100.0 * diagnostico["cobertura"], medido_sobre,
         diagnostico["brecha_km"], inicial)
 
     if diagnostico["cubre"] and adoptado > inicial:
