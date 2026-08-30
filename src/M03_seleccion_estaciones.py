@@ -380,7 +380,7 @@ def proyectar_candidatas(
     filas: Iterable[dict[str, str]],
     mapa_campos: dict[str, str],
     categorias_por_variable: dict[str, Sequence[str]],
-    variable: str,
+    variable: str | None,
     area: Sequence[geometria.Poligono],
     crs_catalogo: str,
     crs_calculo: str,
@@ -388,6 +388,13 @@ def proyectar_candidatas(
 ) -> list[tuple[str, float, float]]:
     """
     Las estaciones que sirven a una variable, proyectadas y prefiltradas.
+
+    Con 'variable' a None entran las que sirven a CUALQUIERA. Las dos formas se
+    usan y no son intercambiables: el RADIO lo decide la cobertura de
+    precipitación, que es la que alimenta las isoyetas, pero la SELECCION a ese
+    radio incluye todas las categorías. Confundirlas dejó fuera del inventario
+    las cinco estaciones de caudal de este estudio, que son las únicas que
+    pueden sostener una calibración.
 
     SE PREFILTRA POR ENVOLVENTE ANTES DE MEDIR NINGUNA DISTANCIA. El catálogo
     trae miles de estaciones y el área tiene millares de vértices; medir todo
@@ -408,8 +415,11 @@ def proyectar_candidatas(
 
     for fila in filas:
         categoria = (fila.get(mapa_campos["categoria"]) or "").strip().upper()
-        if variable not in variables_de_categoria(
-                categoria, categorias_por_variable):
+        sirve = variables_de_categoria(categoria, categorias_por_variable)
+        if variable is None:
+            if not sirve:
+                continue
+        elif variable not in sirve:
             continue
         latitud = a_decimal(fila.get(mapa_campos["latitud"]))
         longitud = a_decimal(fila.get(mapa_campos["longitud"]))
@@ -1264,6 +1274,19 @@ def _ampliar_por_cobertura(
 
     diagnostico = ampliar_hasta_cubrir(
         area, candidatas, inicial, paso, tope, minima, piso)
+
+    # EL RADIO LO FIJA LA PRECIPITACION; LA SELECCION NO. A la distancia ya
+    # adoptada entran todas las categorias que sirven a alguna variable. Sin
+    # esto el inventario se quedaba solo con las de lluvia y perdia en silencio
+    # las de caudal, que son las unicas que permiten calibrar.
+    todas = proyectar_candidatas(
+        filas, mapa_campos, categorias, None, area,
+        CRS_CATALOGO, str(configuracion.obtener("crs.calculo")), tope)
+    limite = float(diagnostico["buffer_km"]) * 1000.0
+    diagnostico["codigos"] = [
+        codigo for codigo, x, y in todas
+        if geometria.distancia_a_poligonos(x, y, area) <= limite
+    ]
 
     adoptado = diagnostico["buffer_km"]
     cuantas = diagnostico["estaciones"]

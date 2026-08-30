@@ -846,5 +846,50 @@ class PruebaAmpliarHastaCubrir(unittest.TestCase):
                 paso_km=1.0, tope_km=5.0)
 
 
+class PruebaCandidatasPorVariable(unittest.TestCase):
+    """
+    El RADIO lo fija la precipitación; la SELECCION a ese radio, no.
+
+    Confundirlas dejó fuera del inventario las cinco estaciones de caudal de
+    este estudio, en silencio y con el módulo reportando CORRECTO. Son las
+    únicas que pueden sostener una calibración, y la cadena las necesita justo
+    cuando llegan series de caudal de otra entidad.
+    """
+
+    CAMPOS = {"codigo": "CODIGO", "categoria": "CATEGORIA",
+              "latitud": "latitud", "longitud": "longitud"}
+    CATEGORIAS = {"precipitacion": ["PM", "CO"], "caudal": ["LG", "LM"]}
+
+    def setUp(self) -> None:
+        from pyproj import Transformer
+        conversor = Transformer.from_crs("EPSG:4686", "EPSG:9377",
+                                         always_xy=True)
+        # Un area pequena alrededor del punto de referencia, ya proyectada.
+        self.x, self.y = conversor.transform(-74.0, 4.8)
+        self.area = [[[(self.x - 500, self.y - 500), (self.x + 500, self.y - 500),
+                       (self.x + 500, self.y + 500), (self.x - 500, self.y + 500),
+                       (self.x - 500, self.y - 500)]]]
+        self.filas = [
+            {"CODIGO": "LLUVIA", "CATEGORIA": "PM",
+             "latitud": "4.8", "longitud": "-74.0"},
+            {"CODIGO": "CAUDAL", "CATEGORIA": "LG",
+             "latitud": "4.8", "longitud": "-74.0"},
+            {"CODIGO": "AJENA", "CATEGORIA": "XX",
+             "latitud": "4.8", "longitud": "-74.0"},
+        ]
+
+    def _codigos(self, variable):
+        return {c for c, _, _ in m03.proyectar_candidatas(
+            self.filas, self.CAMPOS, self.CATEGORIAS, variable, self.area,
+            "EPSG:4686", "EPSG:9377", tope_km=5.0)}
+
+    def test_por_variable_deja_solo_la_suya(self) -> None:
+        self.assertEqual(self._codigos("precipitacion"), {"LLUVIA"})
+
+    def test_sin_variable_entran_todas_las_utiles(self) -> None:
+        # La de caudal DEBE entrar; la de categoría que no sirve a nada, no.
+        self.assertEqual(self._codigos(None), {"LLUVIA", "CAUDAL"})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
