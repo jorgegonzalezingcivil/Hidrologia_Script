@@ -2516,7 +2516,7 @@ def _resolver_subcuencas(configuracion, base, ruta_cuenca, ruta_dem, matriz,
     # cuenca entera, y son los que dicen si una unidad evacua rapido o encharca.
     entidades_sub = shapefile.leer_geometrias(ruta_cuenca)
     red_por_unidad = drenaje_por_subcuenca(
-        rutas.directorio("sig_vector", base) / "red_topologica.shp",
+        rutas.resolver(configuracion.obtener("red_topologica.salida_red"), base),
         entidades_sub, [s["subcuenca"] for s in subcuencas])
     for subcuenca in subcuencas:
         datos_red = red_por_unidad.get(subcuenca["subcuenca"])
@@ -4036,6 +4036,19 @@ def _figuras_de_delimitacion(graficos, configuracion, base, resultado, estilo,
 
     vector = rutas.directorio("sig_vector", base)
     crs_calculo = configuracion.obtener("crs.calculo")
+    # POR LA CLAVE Y NO POR EL NOMBRE. Estas capas son SALIDAS declaradas, y
+    # fijar aquí su nombre las desliga de la ruta que el estudio declara: si un
+    # estudio la mueve, la figura se omite en silencio por 'no existe'.
+    ruta_sencillo = rutas.resolver(configuracion.obtener(
+        "referencia_nacional.salida_recorte_sencillo"), base)
+    ruta_doble = rutas.resolver(configuracion.obtener(
+        "referencia_nacional.salida_recorte_doble"), base)
+    ruta_embalses = rutas.resolver(configuracion.obtener(
+        "referencia_nacional.salida_recorte_embalses"), base)
+    ruta_cobertura_clc = rutas.resolver(configuracion.obtener(
+        "referencia_nacional.salida_recorte_cobertura"), base)
+    ruta_subzona_int = rutas.resolver(configuracion.obtener(
+        "subzonas_hidrograficas.salida_subzona"), base)
     ruta_dem = rutas.resolver(
         configuracion.obtener("dem.delimitacion.salida_dem"), base)
 
@@ -4048,9 +4061,9 @@ def _figuras_de_delimitacion(graficos, configuracion, base, resultado, estilo,
     if ventana is None:
         return
 
-    sencillos = _lineas_en(vector / "drenaje_sencillo_area.shp", ventana)
-    dobles = _poligonos_en(vector / "drenaje_doble_area.shp", ventana)
-    cuerpos = _poligonos_en(vector / "embalses_area.shp", ventana)
+    sencillos = _lineas_en(ruta_sencillo, ventana)
+    dobles = _poligonos_en(ruta_doble, ventana)
+    cuerpos = _poligonos_en(ruta_embalses, ventana)
     frontera = contorno_para_dibujo(subcuencas)
     logger.info("red en la ventana: %d tramo(s), %d cauce(s) doble(s), "
                 "%d cuerpo(s) de agua", len(sencillos), len(dobles),
@@ -4148,7 +4161,7 @@ def _figuras_de_delimitacion(graficos, configuracion, base, resultado, estilo,
             fig, directorio / "M10_delimitacion_subcuencas", amplio))
 
     # --- 3. Localización en la subzona hidrográfica -------------------------
-    ruta_subzona = vector / "subzona_intersectada.shp"
+    ruta_subzona = ruta_subzona_int
     subzonas = _poligonos_en(ruta_subzona, (-1e12, -1e12, 1e12, 1e12),
                              campo="cod_szh")
     if subzonas:
@@ -4167,11 +4180,11 @@ def _figuras_de_delimitacion(graficos, configuracion, base, resultado, estilo,
             "SZH": _poligonos_en(ruta_subzona, (-1e12, -1e12, 1e12, 1e12),
                                  campo="nom_szh"),
         }
-        red_regional = _lineas_en(vector / "drenaje_sencillo_area.shp",
+        red_regional = _lineas_en(ruta_sencillo,
                                   ventana_regional)
-        dobles_regional = _poligonos_en(vector / "drenaje_doble_area.shp",
+        dobles_regional = _poligonos_en(ruta_doble,
                                         ventana_regional)
-        cuerpos_regional = _poligonos_en(vector / "embalses_area.shp",
+        cuerpos_regional = _poligonos_en(ruta_embalses,
                                          ventana_regional)
         with graficos.figura(
                 estilo, titulo="Localización en la subzona hidrográfica",
@@ -4298,7 +4311,7 @@ def _figuras_de_delimitacion(graficos, configuracion, base, resultado, estilo,
                     "hidrológico")
 
     # --- 5. Cobertura de la tierra ------------------------------------------
-    ruta_cobertura = vector / "cobertura_clc_area.shp"
+    ruta_cobertura = ruta_cobertura_clc
     campo_cobertura = _campo_de_cobertura(ruta_cobertura)
     coberturas = (_poligonos_en(ruta_cobertura, ventana, campo=campo_cobertura)
                   if campo_cobertura else [])

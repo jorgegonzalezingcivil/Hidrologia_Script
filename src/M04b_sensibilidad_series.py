@@ -693,7 +693,13 @@ def _figuras(configuracion, base, resultado, acumulado, ventanas, umbrales,
                          umbrales, base, nombres, adoptado, excepciones)
     _figura_completitud(graficos, estilo, directorio, acumulado, minimo,
                         resultado, base)
+    # Por la CLAVE y no por el nombre: son salidas declaradas y un estudio
+    # puede haberlas movido.
     _figura_cobertura(graficos, estilo, directorio, resultado, base,
+                      rutas.resolver(configuracion.obtener(
+                          "subzonas_hidrograficas.salida_punto"), base),
+                      rutas.resolver(configuracion.obtener(
+                          "red_topologica.salida_red"), base),
                       variable_de, umbrales, ventana_ref, crs_figuras,
                       float(configuracion.obtener(
                           "red_topologica.radio_cuenca_preliminar_m", 0.0)))
@@ -816,8 +822,8 @@ def _recortar(lineas, caja):
     return dentro
 
 
-def _contexto_geografico(base, crs_figuras, transformador, caja=None,
-                         radio_m: float = 0.0):
+def _contexto_geografico(base, ruta_punto, ruta_red, crs_figuras,
+                         transformador, caja=None, radio_m: float = 0.0):
     """
     Lee del estudio el punto de descarga y la red de drenaje, ya reproyectados.
 
@@ -831,11 +837,9 @@ def _contexto_geografico(base, crs_figuras, transformador, caja=None,
     """
     from comun import shapefile as shp
 
-    vector = rutas.directorio("sig_vector", base)
     a_plano = transformador
 
     punto = None
-    ruta_punto = vector / "punto_descarga.shp"
     if ruta_punto.is_file():
         try:
             crudo = shp.leer_puntos(ruta_punto)
@@ -856,7 +860,6 @@ def _contexto_geografico(base, crs_figuras, transformador, caja=None,
 
     corrientes: list = []
     destacadas: list = []
-    ruta_red = vector / "red_topologica.shp"
     if ruta_red.is_file():
         try:
             registros = list(shp.leer_registros(ruta_red, ["id_tramo", "orden"]))
@@ -894,6 +897,7 @@ def _contexto_geografico(base, crs_figuras, transformador, caja=None,
 
 
 def _figura_cobertura(graficos, estilo, directorio, resultado, base,
+                      ruta_punto, ruta_red,
                       variable_de, umbrales, ventana, crs_figuras,
                       radio_cuenca: float = 0.0) -> None:
     """
@@ -1005,7 +1009,8 @@ def _figura_cobertura(graficos, estilo, directorio, resultado, base,
                     max(equis) + margen, max(griegas) + margen)
 
         corrientes, destacadas, punto, cuenca = _contexto_geografico(
-            base, crs_figuras, graficos.transformador(CRS_CALCULO, crs_figuras),
+            base, ruta_punto, ruta_red, crs_figuras,
+            graficos.transformador(CRS_CALCULO, crs_figuras),
             caja, radio_cuenca)
         graficos.marco_geografico(ax, estilo, corrientes, destacadas, punto,
                                   cuenca)

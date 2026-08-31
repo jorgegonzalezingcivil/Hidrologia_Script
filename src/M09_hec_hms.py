@@ -620,7 +620,8 @@ def _preparar(configuracion, base, resultado, logger) -> None:
         configuracion.obtener("hec_hms.intercambio.salida"), base)
     salida.mkdir(parents=True, exist_ok=True)
 
-    dem = rutas.directorio("sig_raster", base) / "dem_recortado.tif"
+    dem = rutas.resolver(configuracion.obtener(
+        "dem.delimitacion.salida_dem"), base)
     if not dem.is_file():
         resultado.hallazgos.append(Hallazgo(
             BLOQUEANTE, "insumos.dem",
@@ -632,7 +633,8 @@ def _preparar(configuracion, base, resultado, logger) -> None:
     resultado.insumos.append(rutas.relativa(destino / dem.name, base))
 
     vectoriales = [
-        rutas.directorio("sig_vector", base) / "punto_descarga.shp",
+        rutas.resolver(configuracion.obtener(
+            "subzonas_hidrograficas.salida_punto"), base),
         # LA PRELIMINAR, que es la que existe en este punto de la cadena: la
         # definitiva se deriva de las subcuencas que este paso manual produce.
         rutas.resolver(configuracion.obtener(
@@ -736,7 +738,34 @@ def _preparar(configuracion, base, resultado, logger) -> None:
     ))
 
 
-def _wkt_de_calculo(base: Path, esperado: str) -> str:
+def _capas_de_referencia(configuracion, base: Path) -> list[Path]:
+    """
+    Capas del estudio donde buscar un .prj ya escrito, en orden de preferencia.
+
+    SE RESUELVEN POR CLAVE Y NO POR NOMBRE. Son salidas declaradas, y un
+    estudio puede haberlas movido; con el nombre fijo la búsqueda fallaría en
+    silencio y el .prj acabaría generándose con pyproj, que es la reserva y no
+    lo deseable.
+
+    La preliminar va en la lista porque al importar todavía puede no existir la
+    definitiva: es esa misma ejecución la que la produce.
+    """
+    claves = (
+        "hec_hms.intercambio.salida_area_influencia",
+        "dem.delimitacion.salida_area_influencia",
+        "red_topologica.salida_red",
+        "subzonas_hidrograficas.salida_punto",
+        "dem.delimitacion.salida_envolvente",
+    )
+    candidatas: list[Path] = []
+    for clave in claves:
+        declarada = configuracion.obtener(clave, "")
+        if declarada:
+            candidatas.append(rutas.resolver(declarada, base))
+    return candidatas
+
+
+def _wkt_de_calculo(configuracion, base: Path, esperado: str) -> str:
     """
     Definición del sistema de cálculo, para el .prj de la capa reproyectada.
 
@@ -745,13 +774,7 @@ def _wkt_de_calculo(base: Path, esperado: str) -> str:
     definiciones distintas del mismo sistema, que es una fuente conocida de
     reproyecciones espurias al vuelo. Si ninguna sirve, se genera con pyproj.
     """
-    vector = rutas.directorio("sig_vector", base)
-    # La preliminar va en la lista porque al importar todavia puede no existir
-    # la definitiva: es esta misma llamada la que produce su .prj.
-    for nombre in ("area_influencia.shp", "area_influencia_preliminar.shp",
-                   "red_topologica.shp",
-                   "punto_descarga.shp", "envolvente.shp"):
-        candidata = vector / nombre
+    for candidata in _capas_de_referencia(configuracion, base):
         if not candidata.is_file():
             continue
         try:
@@ -783,7 +806,8 @@ def _referencia_drenada(configuracion, base) -> dict[str, Any] | None:
     except (ErrorConfiguracion, TypeError, ValueError):
         radio = 0.0
     return superficie_drenada_de_referencia(
-        rutas.directorio("sig_vector", base) / "red_topologica.shp",
+        rutas.resolver(configuracion.obtener(
+            "red_topologica.salida_red"), base),
         rutas.directorio("procesado", base) / "M02_delimitacion.json",
         radio,
     )
@@ -868,7 +892,8 @@ def _importar(configuracion, base, resultado, logger) -> None:
     # explicar cual se uso.
     origen = str(configuracion.obtener(
         "hec_hms.intercambio.origen_corrientes")).strip().lower()
-    ruta_red = rutas.directorio("sig_vector", base) / "red_topologica.shp"
+    ruta_red = rutas.resolver(configuracion.obtener(
+        "red_topologica.salida_red"), base)
 
     exigidas = [(nombre_sub, ruta_sub)]
     if origen == "hec_hms":
@@ -972,7 +997,7 @@ def _importar(configuracion, base, resultado, logger) -> None:
     declarado_sub = (resultado.subcuencas.get("crs_epsg") or "").upper()
     if declarado_sub and declarado_sub != esperado:
         destino_sig = rutas.directorio("sig_vector", base, crear=True)
-        wkt = _wkt_de_calculo(base, esperado)
+        wkt = _wkt_de_calculo(configuracion, base, esperado)
         if not wkt:
             resultado.hallazgos.append(Hallazgo(
                 BLOQUEANTE, "importar.subcuencas.crs",
@@ -1072,7 +1097,7 @@ def _importar(configuracion, base, resultado, logger) -> None:
         definitiva = escribir_area_definitiva(
             ruta_trabajo, destino_area,
             float(configuracion.obtener("hec_hms.intercambio.buffer_area_km")),
-            _wkt_de_calculo(base, esperado))
+            _wkt_de_calculo(configuracion, base, esperado))
     except (ErrorFormato, ErrorRutas, OSError, TypeError, ValueError) as exc:
         resultado.hallazgos.append(Hallazgo(
             BLOQUEANTE, "importar.area_definitiva",
