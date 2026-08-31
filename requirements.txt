@@ -63,3 +63,14 @@ pyproj==3.7.2
 # faltaba no era la librería sino la validación cruzada, sin la cual ningún
 # método puede compararse con otro.
 scikit-learn==1.9.0
+
+# --- Lectura de libros de Excel ----------------------------------------------
+# La consume ingesta_car.py, que lee las series que la CAR entrega en un libro
+# .xlsx en formato largo. El IDEAM entrega .csv dentro de .zip y no la necesita;
+# la CAR sí, y es la única forma de leer su entrega sin convertirla a mano, que
+# es un paso manual más y una copia más que puede quedar desactualizada.
+#
+# ESTABA INSTALADA PERO SIN DECLARAR. En esta máquina funcionaba por haberse
+# instalado alguna vez a mano; en una instalación limpia desde este archivo, el
+# adaptador habría fallado con ImportError.
+openpyxl==3.1.5

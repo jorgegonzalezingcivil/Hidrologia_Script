@@ -1,0 +1,174 @@
+# =============================================================================
+# PERFIL DE INGESTA DE LA CAR  (insumo del M04)
+# -----------------------------------------------------------------------------
+# La Corporación Autónoma Regional de Cundinamarca entrega sus series en un
+# formato propio, distinto del IDEAM: un solo libro de Excel en formato LARGO,
+# una fila por dato, con ocho columnas.
+#
+# Se declara aparte de 'perfiles_ideam.yaml' y no dentro de él porque es otra
+# entidad, otro contenedor y otro vocabulario. Un archivo por fuente permite que
+# cada uno diga la verdad sobre lo que describe.
+#
+# La decisión de qué se ingiere y qué se descarta está razonada en
+# docs/especificacion_datos_car.md. Este archivo solo declara el CÓMO.
+# =============================================================================
+
+version: 1
+
+fuente: "car"
+entidad: "Corporación Autónoma Regional de Cundinamarca"
+
+# El catálogo con coordenadas, categoría y elevación. El libro de datos NO trae
+# ubicación, de modo que sin este cruce las estaciones no se pueden situar.
+catalogo: "data/referencia/sig/CNE_CAR.shp"
+catalogo_crs: "EPSG:4326"      # declarado en su .prj, distinto del IDEAM
+
+contenedor:
+  tipo: "xlsx"
+  hoja: 0                      # el libro entregado trae una sola hoja
+  fila_encabezado: 1
+
+columnas:
+  - CODIGO
+  - ESTACION
+  - PARAMETRO
+  - ESCALA
+  - TIPO
+  - FECHA
+  - DATO
+  - UNIDADES
+
+campos:
+  codigo: "CODIGO"
+  nombre: "ESTACION"
+  fecha: "FECHA"
+  valor: "DATO"
+  unidades: "UNIDADES"
+  escala: "ESCALA"
+  # PARAMETRO y TIPO no se copian tal cual al esquema interno: juntos deciden
+  # la etiqueta, según la tabla 'series' de más abajo. Se declaran igualmente
+  # para que el adaptador no fije el nombre de la columna en el código.
+  parametro: "PARAMETRO"
+  tipo: "TIPO"
+
+formato_fecha: "%Y-%m-%d %H:%M:%S"
+
+# -----------------------------------------------------------------------------
+# EQUIVALENCIA CON EL VOCABULARIO DE LA CADENA
+#
+# La cadena identifica cada serie por una etiqueta del IDEAM. Las series
+# MENSUALES de la CAR corresponden una a una con etiquetas que la cadena ya usa,
+# de modo que no hace falta inventar ninguna: entran por la puerta que ya
+# existe y los módulos las leen sin cambios.
+#
+# 'unidad_esperada' NO es decorativa. El libro mezcla cm, m3/s, mm y grados en
+# la misma columna DATO, y una fila de nivel en centímetros leída como caudal
+# pasaría los controles numéricos sin protestar. Se verifica al ingerir.
+# -----------------------------------------------------------------------------
+series:
+
+  - parametro: "PRECIPITACIÓN"
+    tipo: "TOTALES"
+    etiqueta: "PTPM_TT_M"
+    unidad_esperada: "mm"
+    nota: >-
+      Precipitación total mensual. Es la ETIQUETA_MENSUAL que el M05 adopta,
+      de modo que las estaciones de la CAR entran a la serie mensual sin
+      ninguna adaptación.
+
+  - parametro: "PRECIPITACIÓN"
+    tipo: "MAXIMA EN 24 HORAS"
+    etiqueta: "PTPM_MX_TT_M"
+    unidad_esperada: "mm"
+    nota: >-
+      Máximo mensual de los totales diarios. En el IDEAM esta etiqueta sirve de
+      CONTRASTE del cálculo del M07 sobre la serie diaria; para la CAR es la
+      ÚNICA fuente de Pmáx, porque no hay serie diaria. El máximo anual sale del
+      mayor de los doce mensuales, y esa reducción es exacta.
+
+  - parametro: "CAUDALES"
+    tipo: "MEDIOS"
+    etiqueta: "Q_MEDIA_M"
+    unidad_esperada: "m3/s"
+
+  - parametro: "CAUDALES"
+    tipo: "MAXIMOS ABSOLUTOS"
+    etiqueta: "Q_MX_M"
+    unidad_esperada: "m3/s"
+    nota: >-
+      MEDIDO, no supuesto: es el máximo de los caudales MEDIOS DIARIOS, no el
+      pico instantáneo. Contrastado contra el caudal medio diario de 2018 del
+      archivo satelital, 139 de 152 meses coinciden exactamente y la razón
+      mediana es 1,000. Por eso la verificación de crecientes promedia el
+      hidrograma modelado a 24 horas en lugar de usar su pico.
+
+  - parametro: "CAUDALES"
+    tipo: "MINIMOS MEDIOS"
+    etiqueta: "Q_MN_M"
+    unidad_esperada: "m3/s"
+
+# -----------------------------------------------------------------------------
+# SE INGIEREN PERO HOY NINGÚN MÓDULO LAS CONSUME
+#
+# Se declaran para que queden en la serie consolidada y el informe pueda
+# citarlas, pero SIN fingir que encajan donde no encajan. El M18a construye el
+# campo térmico con series DIARIAS de máxima y mínima (TMX_CON, TMN_CON) y la
+# CAR solo publica la MEDIA MENSUAL, que es otra variable, no una versión
+# agregada de la misma. Igual la evaporación, que la cadena espera diaria.
+#
+# Usarlas exigiría extender el M18a para admitir escala mensual, que es una
+# decisión metodológica pendiente y no un detalle de formato.
+# -----------------------------------------------------------------------------
+series_sin_consumidor:
+
+  - parametro: "TEMPERATURA AMBIENTE"
+    tipo: "MEDIOS"
+    etiqueta: "T_MEDIA_M"
+    # ANOMALIA DE LA FUENTE, verificada punto de código a punto de código: el
+    # libro no trae el signo de grado (U+00B0) sino el indicador ordinal
+    # femenino (U+00AA), de modo que la unidad es 'ªC' y no '°C'. Se declara lo
+    # que la CAR entrega de verdad y no lo que debería entregar. Escribir aquí
+    # el signo correcto haría que el control rechazara las 9.071 filas de
+    # temperatura, que es lo que ocurrió al probarlo.
+    unidad_esperada: "ªC"
+
+  - parametro: "EVAPORACIÓN"
+    tipo: "TOTALES"
+    etiqueta: "EV_TT_M"
+    unidad_esperada: "mm"
+
+# -----------------------------------------------------------------------------
+# DESCARTES DECLARADOS
+# Cada uno con su motivo, porque un descarte que no se puede explicar no es
+# defendible (CLAUDE.md, sección 7). El informe los recoge.
+# -----------------------------------------------------------------------------
+descartes:
+
+  - parametro: "NIVELES"
+    motivo: >-
+      Sin curva de gasto un nivel no es un caudal. Es la misma limitación que ya
+      impedía usar las estaciones LG y LM del IDEAM en el área.
+
+  - parametros: ["BRILLO SOLAR", "HUMEDAD RELATIVA", "PUNTO DE ROCIO",
+                 "RADIACIÓN SOLAR", "TENSIÓN DE VAPOR",
+                 "DIRECCIÓN Y VELOCIDAD DEL VIENTO", "TEMPERATURA DEL SUELO"]
+    motivo: "Ningún módulo de la cadena los consume."
+
+  - categorias: ["H", "HM"]
+    motivo: >-
+      En el catálogo de la CAR existen solo como estaciones SATELITALES (16 y
+      34). Se descartan con el resto de lo satelital.
+
+# -----------------------------------------------------------------------------
+# CONTROLES AL INGERIR
+# -----------------------------------------------------------------------------
+controles:
+  # La escala debe ser la declarada. Si apareciera una serie diaria en una
+  # entrega futura, hay que verla antes de tratarla como mensual.
+  escala_esperada: "MENSUAL"
+  # Toda estación del libro debe existir en el catálogo, o no se puede situar.
+  exigir_en_catalogo: true
+  # Los códigos de la CAR y del IDEAM no se solapan: verificado, cero comunes
+  # entre 434 y 4.521. Si algún día se solaparan, hay que detenerse: significaría
+  # que la misma estación entra dos veces y pesaría doble en la interpolación.
+  detener_si_codigo_duplicado: true
