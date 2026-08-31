@@ -497,5 +497,93 @@ class PruebaCalificadoresDesdeLaDoctrina(unittest.TestCase):
         self.assertEqual(procedencia, "respaldo del código")
         self.assertIn("ACUMULADO", marcas)
 
+class PruebaMaximosDeMensuales(unittest.TestCase):
+    """
+    Las estaciones que no publican serie diaria entran por su maximo mensual.
+
+    Es el caso de la CAR, que solo entrega escala mensual. La reduccion al
+    maximo anual es EXACTA, no una aproximacion: el mayor de los doce maximos
+    mensuales es el del anio, porque el maximo del anio pertenece a algun mes y
+    ese mes lo declara como suyo.
+    """
+
+    def _anio(self, valores):
+        return {mes: v for mes, v in enumerate(valores, start=1)}
+
+    def test_el_maximo_anual_es_el_mayor_de_los_doce(self) -> None:
+        anios = {2020: self._anio([10, 20, 55, 12, 30, 8, 9, 11, 40, 15, 7, 6])}
+        maximos, rechazados = m07.maximos_anuales_de_mensuales(anios)
+        self.assertEqual(maximos, {2020: 55.0})
+        self.assertEqual(rechazados, 0)
+
+    def test_un_anio_sin_los_doce_meses_se_rechaza(self) -> None:
+        # Si falta un mes entero el maximo corresponde a un anio recortado y no
+        # es comparable con los demas: es el mismo criterio de la serie diaria.
+        anios = {2020: self._anio([10] * 11)}
+        maximos, rechazados = m07.maximos_anuales_de_mensuales(anios)
+        self.assertEqual(maximos, {})
+        self.assertEqual(rechazados, 1)
+
+    def test_convive_lo_aceptado_y_lo_rechazado(self) -> None:
+        anios = {2019: self._anio([5] * 12), 2020: self._anio([9] * 10)}
+        maximos, rechazados = m07.maximos_anuales_de_mensuales(anios)
+        self.assertEqual(list(maximos), [2019])
+        self.assertEqual(rechazados, 1)
+
+    def test_coincide_con_el_calculo_sobre_la_serie_diaria(self) -> None:
+        # La propiedad que hace exacta la reduccion: el maximo de los maximos
+        # mensuales es el mismo numero que el maximo de todos los dias.
+        diaria = {2020: {mes: [mes * 1.5, mes * 2.0, mes * 0.5]
+                         for mes in range(1, 13)}}
+        por_diaria, _ = m07.maximos_anuales(diaria, 1)
+        mensual = {2020: {mes: max(v) for mes, v in diaria[2020].items()}}
+        por_mensual, _ = m07.maximos_anuales_de_mensuales(mensual)
+        self.assertEqual(por_diaria, por_mensual)
+
+
+class PruebaLecturaDeMaximosMensuales(unittest.TestCase):
+
+    def _serie(self, filas):
+        import tempfile
+        temporal = Path(tempfile.mkdtemp())
+        ruta = temporal / "series.csv"
+        with ruta.open("w", encoding="utf-8-sig", newline="") as m:
+            m.write("codigo;etiqueta;fecha;valor\n")
+            for f in filas:
+                m.write(";".join(str(c) for c in f) + "\n")
+        return ruta
+
+    def test_solo_lee_la_etiqueta_pedida(self) -> None:
+        ruta = self._serie([
+            ("A", "PTPM_MX_TT_M", "2020-01-01", "30"),
+            ("A", "PTPM_TT_M", "2020-01-01", "999"),
+        ])
+        datos, leidos = m07.leer_maximos_mensuales(
+            ruta, ";", (1900, 2100), "PTPM_MX_TT_M")
+        self.assertEqual(leidos, 1)
+        self.assertEqual(datos["A"][2020][1], 30.0)
+
+    def test_respeta_la_ventana(self) -> None:
+        ruta = self._serie([
+            ("A", "PTPM_MX_TT_M", "1990-01-01", "30"),
+            ("A", "PTPM_MX_TT_M", "2020-01-01", "40"),
+        ])
+        datos, _ = m07.leer_maximos_mensuales(
+            ruta, ";", (2000, 2100), "PTPM_MX_TT_M")
+        self.assertEqual(list(datos["A"]), [2020])
+
+    def test_un_mes_repetido_conserva_el_mayor(self) -> None:
+        # Quedarse con el ultimo leido haria depender el resultado del orden
+        # del archivo, y son maximos.
+        ruta = self._serie([
+            ("A", "PTPM_MX_TT_M", "2020-03-01", "30"),
+            ("A", "PTPM_MX_TT_M", "2020-03-01", "51"),
+            ("A", "PTPM_MX_TT_M", "2020-03-01", "12"),
+        ])
+        datos, _ = m07.leer_maximos_mensuales(
+            ruta, ";", (1900, 2100), "PTPM_MX_TT_M")
+        self.assertEqual(datos["A"][2020][3], 51.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -132,6 +132,7 @@ class ResultadoM07:
     registros_leidos: int = 0
     excluidos_calificador: dict[str, int] = field(default_factory=dict)
     anios_rechazados: int = 0
+    origen_maximos: dict = field(default_factory=dict)
     series: list[dict[str, Any]] = field(default_factory=list)
     serie_anual: list[dict[str, Any]] = field(default_factory=list)
     ajustes: list[dict[str, Any]] = field(default_factory=list)
@@ -166,6 +167,143 @@ def maximos_anuales(
         maximo = max(max(v) for v in meses.values() if v)
         salida[anio] = float(maximo)
     return salida, rechazados
+
+
+def maximos_anuales_de_mensuales(
+    meses_por_anio: dict[int, dict[int, float]],
+) -> tuple[dict[int, float], int]:
+    """
+    Máximo anual a partir de los DOCE máximos mensuales de un año.
+
+    LA REDUCCION ES EXACTA, no una aproximación: el mayor de los máximos
+    mensuales es el máximo anual, porque el máximo del año pertenece a alguno de
+    los meses y ese mes lo declara como suyo. No se pierde nada frente a
+    calcularlo sobre la serie diaria.
+
+    SE EXIGEN LOS DOCE MESES, por el mismo motivo que en la serie diaria: si
+    falta un mes entero, el máximo resultante corresponde a un año recortado y
+    no es comparable con los demás de la muestra.
+
+    LO QUE SI SE PIERDE, y hay que declararlo, es todo lo que necesita el dato
+    diario: no se puede detectar un acumulado de varios días leído como uno
+    solo, que es lo que el Calificador del IDEAM marcaba, ni contrastar el
+    máximo contra el reparto de la lluvia dentro del mes.
+
+    Devuelve los máximos y cuántos años se rechazaron por incompletos.
+    """
+    salida: dict[int, float] = {}
+    rechazados = 0
+    for anio, meses in meses_por_anio.items():
+        if len(meses) < 12:
+            rechazados += 1
+            continue
+        salida[anio] = float(max(meses.values()))
+    return salida, rechazados
+
+
+def leer_maximos_mensuales(
+    ruta: Path, delimitador: str, ventana: tuple[int, int],
+    etiqueta: str, admitidas: set[str] | None = None,
+) -> tuple[dict[str, dict[int, dict[int, float]]], int]:
+    """
+    Recorre la serie consolidada y agrupa el máximo mensual en 24 horas.
+
+    Es la única fuente de Pmáx para las estaciones que no publican serie
+    diaria, como las de la CAR. Para las que sí la publican, el IDEAM entrega
+    esta misma etiqueta y el M07 la usa de CONTRASTE, no de sustituto.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        Si no existe la serie consolidada.
+    """
+    if not ruta.is_file():
+        raise ErrorRutas(
+            f"no se encuentra {ruta}. Ejecutar el M04 antes que este módulo.")
+
+    por_estacion: dict[str, dict[int, dict[int, float]]] = {}
+    leidos = 0
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        for fila in csv.DictReader(manejador, delimiter=delimitador):
+            if fila.get("etiqueta") != etiqueta:
+                continue
+            fecha = fila.get("fecha", "")
+            if len(fecha) < 7:
+                continue
+            try:
+                anio, mes = int(fecha[:4]), int(fecha[5:7])
+                valor = float(fila.get("valor", ""))
+            except (TypeError, ValueError):
+                continue
+            if not (ventana[0] <= anio <= ventana[1]):
+                continue
+            codigo = fila.get("codigo", "").strip()
+            if admitidas is not None and codigo not in admitidas:
+                continue
+            leidos += 1
+            # Si el mismo mes apareciera repetido se conserva el mayor: son
+            # maximos, y quedarse con el ultimo leido dependeria del orden del
+            # archivo.
+            previo = por_estacion.setdefault(codigo, {}).setdefault(anio, {})
+            previo[mes] = max(valor, previo.get(mes, valor))
+    return por_estacion, leidos
+
+
+ETIQUETA_MAXIMO_MENSUAL = "PTPM_MX_TT_M"
+
+
+def _completar_desde_mensuales(
+    ruta_serie, delimitador, limites, admitidas, maximos_por_estacion,
+    resultado, logger,
+) -> list[Hallazgo]:
+    """
+    Rellena con maximos mensuales las estaciones que no tienen serie diaria.
+
+    SOLO DONDE FALTA. Donde hay serie diaria manda ella: permite excluir los
+    registros marcados como acumulados, y el maximo mensual no.
+    """
+    hallazgos: list[Hallazgo] = []
+    try:
+        mensuales, leidos = leer_maximos_mensuales(
+            ruta_serie, delimitador, limites, ETIQUETA_MAXIMO_MENSUAL,
+            admitidas)
+    except (ErrorRutas, ErrorFormato) as error:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "maximos.mensuales",
+            f"no se pudo leer la serie de maximos mensuales ({error}). Las "
+            "estaciones sin serie diaria quedan fuera del analisis."))
+        return hallazgos
+    if not mensuales:
+        return hallazgos
+
+    anadidas, rechazados_mes = [], 0
+    for codigo, anios in sorted(mensuales.items()):
+        if codigo in maximos_por_estacion:
+            continue                      # tiene serie diaria: manda ella
+        maximos, rechazados = maximos_anuales_de_mensuales(anios)
+        rechazados_mes += rechazados
+        if maximos:
+            maximos_por_estacion[codigo] = maximos
+            resultado.origen_maximos[codigo] = "maximo mensual"
+            anadidas.append(codigo)
+
+    resultado.anios_rechazados += rechazados_mes
+    if not anadidas:
+        return hallazgos
+
+    logger.info("%d estacion(es) entran por su maximo mensual en 24 h "
+                "(%s registros leidos)", len(anadidas), f"{leidos:,}")
+    hallazgos.append(Hallazgo(
+        ADVERTENCIA, "maximos.origen",
+        f"{len(anadidas)} estacion(es) aportan su Pmax a partir del MAXIMO "
+        f"MENSUAL en 24 horas y no de la serie diaria, porque su operador no "
+        f"publica escala diaria: {', '.join(sorted(anadidas)[:8])}"
+        + (" y otras" if len(anadidas) > 8 else "")
+        + ". La reduccion al maximo anual es EXACTA (el mayor de los doce "
+        "mensuales es el del anio), pero sobre ellas NO se puede excluir un "
+        "acumulado de varios dias leido como uno solo, que es lo que el "
+        "Calificador permite en la serie diaria. El informe debe declararlo."))
+    return hallazgos
 
 
 def leer_diaria(
@@ -409,6 +547,16 @@ def ejecutar(
             resultado.anios_rechazados += rechazados
             if maximos:
                 maximos_por_estacion[codigo] = maximos
+                resultado.origen_maximos[codigo] = "serie diaria"
+
+        # LAS QUE NO PUBLICAN SERIE DIARIA entran por su maximo mensual en 24
+        # horas. Es el caso de la CAR, que solo entrega escala mensual. Se
+        # rellena DESPUES y solo donde falta: donde hay serie diaria manda ella,
+        # porque permite el control de acumulados que el mensual no permite.
+        resultado.hallazgos.extend(_completar_desde_mensuales(
+            ruta_serie, delimitador, limites, admitidas,
+            maximos_por_estacion, resultado, logger))
+
         resultado.estaciones = len(maximos_por_estacion)
         # LA SERIE ANO POR ANO SE GUARDA, no solo su resumen. Es la que el
         # informe tabula en la hoja de calculo de la IDF por Silva, y es el
