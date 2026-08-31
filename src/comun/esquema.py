@@ -1193,6 +1193,11 @@ ESQUEMA: dict[str, Campo] = {
         "directorio donde el consultor deposita la salida", no_vacio=True),
     # El área de influencia DEFINITIVA, escrita al importar sobre la
     # delimitación ya asistida. La del M02 es preliminar y solo acota descargas.
+    "tormenta.ventana_simulacion_h": numero(
+        "ventana de simulación en horas; 24 como mínimo para promediar a "
+        "escala diaria en la verificación de crecientes",
+        minimo=1, maximo=240,
+    ),
     "hec_hms.intercambio.salida_area_influencia": texto(
         "área de influencia definitiva, derivada de las subcuencas",
         no_vacio=True),

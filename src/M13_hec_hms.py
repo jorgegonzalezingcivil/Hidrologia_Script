@@ -1079,9 +1079,20 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
         resultado.productos.append(str(destino))
         resultado.escenarios.append(nombre)
 
-    # La ventana cubre la tormenta y una recesion de tres veces su duracion,
-    # para que el hidrograma llegue a agotarse dentro del calculo.
-    fin = inicio + _dt.timedelta(hours=duracion_h * 4)
+    # LA VENTANA SE DECLARA, no se deduce de un multiplicador embebido. Era
+    # 'duracion_h * 4', es decir 12 horas con la tormenta de 3, suficiente para
+    # que el hidrograma se agote pero NO para promediarlo a escala diaria.
+    #
+    # La verificacion de crecientes contrasta contra el maximo de los caudales
+    # MEDIOS DIARIOS observados, y para comparar magnitudes homogeneas hay que
+    # calcular la media movil de 24 h del hidrograma simulado. Con una ventana
+    # de 12 h esa media no existe.
+    #
+    # Alargar la ventana NO cambia el pico: la tormenta dura lo mismo y lo que
+    # se anade es recesion. Solo cuesta ordenadas.
+    ventana_h = float(configuracion.obtener(
+        "tormenta.ventana_simulacion_h", duracion_h * 4))
+    fin = inicio + _dt.timedelta(hours=ventana_h)
     control = proyecto / "Tormenta_diseno.control"
     escribir_control(control, "Tormenta_diseno", inicio, fin, intervalo)
     resultado.productos.append(str(control))
@@ -1110,12 +1121,12 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
         "pluviometros": resumen["pluviometros"],
         "ordenadas": resumen["ordenadas"],
         "periodos": periodos,
-        "ventana_horas": duracion_h * 4,
+        "ventana_horas": ventana_h,
         "intervalo_min": intervalo,
     }
     logger.info("%d pluviometro(s), %d modelo(s) meteorologico(s), ventana de "
                 "%.0f h", resumen["pluviometros"], len(periodos),
-                duracion_h * 4)
+                ventana_h)
     resultado.hallazgos.append(Hallazgo(
         INFORMATIVO, "meteorologia.escrita",
         f"{resumen['pluviometros']} pluviometro(s) con {resumen['ordenadas']} "

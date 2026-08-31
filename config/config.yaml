@@ -1061,6 +1061,21 @@ cambio_climatico:
 # -----------------------------------------------------------------------------
 tormenta:
   duracion_h: 3.0
+  # VENTANA DE SIMULACION, en horas desde el inicio de la tormenta. Era un
+  # multiplicador embebido en el M13 (duracion_h * 4), es decir 12 horas, que
+  # bastan para que el hidrograma se agote pero NO para promediarlo a escala
+  # diaria.
+  #
+  # La verificacion de crecientes contrasta contra el maximo de los caudales
+  # MEDIOS DIARIOS observados, porque eso es lo que la CAR publica. Para
+  # comparar magnitudes homogeneas hay que calcular la media movil de 24 h del
+  # hidrograma simulado, y con 12 horas esa media no existe.
+  #
+  # Se adoptan 36: cubren la tormenta, la recesion y una ventana de 24 h que
+  # contiene el pico con holgura a los dos lados. ALARGARLA NO CAMBIA EL PICO,
+  # porque la tormenta dura lo mismo y lo que se anade es recesion; solo cuesta
+  # ordenadas en el hidrograma.
+  ventana_simulacion_h: 36.0
   intervalo_calculo_min: 5       # Δt; se usa también en HEC-HMS y en tlag 'hechms'
   # UNIDAD DEL HIETOGRAMA. En HEC-HMS cada hietograma distinto es un
   # pluviometro: uno por subcuenca y periodo son mil series que nadie puede
@@ -1363,7 +1378,17 @@ hec_hms:
     # Elementos que ademas del cierre reciben figura de hidrograma. El informe
     # de referencia ilustra la creciente de una subcuenca, una confluencia y un
     # tramo transitado. Los nombres se comprueban contra el .basin.
-    puntos_de_interes: []
+    #
+    # AQUI VAN TAMBIEN LAS UNIONES DE VERIFICACION. Sin su hidrograma no se
+    # puede contrastar el modelo contra el caudal observado, porque el M14 solo
+    # extrae la serie de los elementos declarados: del resto guarda el pico,
+    # que no basta para promediar a 24 h.
+    #
+    # Las de este estudio, emparejadas con las estaciones de la CAR que estan
+    # DENTRO de la cuenca (distancia medida entre la estacion y la union):
+    #   J24  PUENTE LA CALERA (2120872, 29 anios) a 127 m
+    #   J29  SIMAYA           (2120989, 15 anios) a 159 m
+    puntos_de_interes: ["J24", "J29"]
     # La lamina de exceso y el volumen del hidrograma directo son la misma agua
     # contada de dos maneras. Por encima de este porcentaje se advierte: apunta
     # al area declarada en HEC-HMS, al numero de curva o a la transformacion.
