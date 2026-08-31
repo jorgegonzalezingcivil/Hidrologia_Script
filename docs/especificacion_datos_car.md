@@ -467,6 +467,37 @@ Las que exige este trabajo:
 Las dos marcadas en negrita son las que sostienen el capítulo de verificación:
 sin ellas el informe afirma una coincidencia que el lector no puede juzgar.
 
+### Las figuras del informe no son un anexo
+
+Conviene no confundir dos cosas que suenan parecidas:
+
+| | Qué es | Cómo llega |
+|---|---|---|
+| **Gráficas del informe** | Las que produce cada módulo con matplotlib | Van **dentro** del documento. El M15 las inserta resolviendo las instrucciones `Colocar Figura:` de la plantilla, buscándolas de forma recursiva. **No se entregan como anexo** |
+| **Anexo 7, Mapas Temáticos** | Las 29 planchas de QGIS que produce el M16 | Se entregan **como anexo**, en PDF |
+
+Verificado sobre el informe generado: **107 imágenes incrustadas** y una sola
+instrucción sin resolver, que ya estaba corregida en la plantilla.
+
+### Después de cada ajuste hay que regenerar las dos cosas
+
+**Un producto que no se regenera queda describiendo un estado anterior sin que
+nada lo señale**, que es la misma clase de fallo silencioso que la doctrina
+persigue en el resto de la cadena. Medido en este estudio al revisarlo: el
+informe en disco era del 23 de agosto y la plantilla se había corregido el 24,
+de modo que arrastraba una figura que ya no faltaba.
+
+Tras cualquier cambio que mueva números o añada análisis:
+
+1. **Las gráficas del informe**, corriendo los módulos que las producen.
+2. **Las planchas del Anexo 7**, corriendo el M16.
+3. **El informe**, corriendo el M15, que es quien las incorpora.
+
+Y para los temas nuevos, como la verificación de crecientes, **la gráfica se
+programa junto con el análisis**, no después: la produce el mismo módulo en el
+mismo paso, porque una figura que hay que acordarse de generar aparte acaba con
+fecha distinta del dato que ilustra.
+
 ### Lo que debe quedar programado como regla general
 
 La verificación no es un añadido de este estudio. Al programarla, estas tres
