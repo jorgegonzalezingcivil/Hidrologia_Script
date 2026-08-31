@@ -411,6 +411,36 @@ grueso de respuesta, pero **no la atenuación del pico**. El caudal instantáneo
 de diseño, que es el que dimensiona la estructura, queda validado solo de forma
 indirecta. El informe debe decirlo.
 
+### Cuánto importaba esta corrección: medido
+
+Con la ventana ya ampliada y los hidrogramas extraídos en las dos uniones, se
+midió la diferencia entre las dos magnitudes, para Tr 25:
+
+| Elemento | Pico instantáneo | Media móvil 24 h | Razón |
+|---|---|---|---|
+| J24 | 46,86 m³/s | 4,74 m³/s | **9,9** |
+| J29 | 32,38 m³/s | 3,46 m³/s | **9,4** |
+| Cierre | 90,04 m³/s | 11,17 m³/s | **8,1** |
+
+Comparar el pico instantáneo contra un dato que es media diaria no habría dado
+un sesgo del diez por ciento sino de **un factor de diez**. El modelo habría
+parecido groseramente alto, y el remedio "evidente" habría sido bajar el número
+de curva y alargar el rezago hasta hacerlo coincidir, arruinando un modelo que
+probablemente estaba bien.
+
+El error no habría dado ningún mensaje: las dos cifras son caudales en m³/s.
+
+### Alargar la ventana no cambió ningún pico: medido
+
+La ventana pasó de 12 a 36 horas para que la media de 24 h exista. Se comparó el
+resultado contra el anterior **elemento por elemento y periodo por periodo**:
+
+> **2.000 picos comparados (250 elementos x 8 periodos de retorno): 2.000
+> idénticos, ninguno distinto.**
+
+De modo que el cambio habilita la verificación sin tocar una sola cifra de
+diseño de las que ya están en el informe.
+
 ---
 
 ## 8. Lo que el informe debe declarar
