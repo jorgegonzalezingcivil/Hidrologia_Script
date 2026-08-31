@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import itertools
 import json
 import sys
 import time
@@ -54,6 +55,7 @@ if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
 from comun import campos as mod_campos  # noqa: E402
+import ingesta_car  # noqa: E402
 import red_drenaje  # noqa: E402  (solo sus funciones de grafo)
 from comun import esquema, geometria, registro, rutas, shapefile  # noqa: E402
 from comun.campos import CampoSalida  # noqa: E402
@@ -199,6 +201,7 @@ class ResultadoM03:
     calibracion: dict = field(default_factory=dict)
     duplicados: list = field(default_factory=list)
     ampliacion: dict = field(default_factory=dict)
+    catalogo_car: dict = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -1024,9 +1027,18 @@ def ejecutar(
             info.n_registros, len(presentes),
         )
 
+    with registro.bloque(logger, "Catálogo de la CAR"):
+        del_car = _catalogo_de_la_car(configuracion, base, mapa_campos,
+                                      resultado, logger)
+
     with registro.bloque(logger, "Cruce por área y categoría"):
+        # LAS DOS REDES POR LA MISMA PUERTA. El catálogo de la CAR llega ya
+        # traducido a los nombres de campo del IDEAM, de modo que aquí no hay
+        # una rama por red: si la hubiera, habría que mantener dos caminos en
+        # paralelo y podrían divergir sin que nadie lo notara.
         filas, conflictos = deduplicar_catalogo(
-            shapefile.leer_registros(ruta_catalogo), mapa_campos,
+            itertools.chain(shapefile.leer_registros(ruta_catalogo), del_car),
+            mapa_campos,
             configuracion.obtener("estaciones.precedencia_estado", ()))
         if conflictos:
             detalle = "; ".join(
@@ -1221,12 +1233,164 @@ def ejecutar(
     with registro.bloque(logger, "Escritura del inventario"):
         _escribir_productos(configuracion, base, info, resultado, logger)
 
+    with registro.bloque(logger, "Figura"):
+        # La figura la produce el MISMO modulo que hace el analisis y en el
+        # mismo paso: una figura que hay que acordarse de generar aparte es una
+        # figura que acaba con fecha distinta del dato que ilustra.
+        try:
+            _figura_por_operador(configuracion, base, resultado, logger)
+        except (ErrorFormato, ErrorRutas, ImportError, OSError,
+                ValueError) as error:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "estaciones.figura",
+                f"no se pudo dibujar la figura de estaciones por red "
+                f"({error}). El inventario si quedo escrito."))
+
     resultado.hallazgos.extend(_resumir(resultado, configuracion))
 
     codigo = (SALIDA_BLOQUEANTE if esquema.hay_bloqueantes(resultado.hallazgos)
               else SALIDA_CORRECTA)
     return _cerrar(logger, resultado, base, ruta_json, inicio, codigo)
 
+
+
+def _figura_por_operador(configuracion, base, resultado, logger) -> None:
+    """
+    Las estaciones seleccionadas, distinguidas por red que las opera.
+
+    POR QUE ESTA FIGURA Y NO UNA TABLA. Desde que el inventario reune dos
+    operadores, la pregunta que el informe tiene que poder responder no es
+    cuantas hay sino DONDE esta cada red: si una cubre un flanco y la otra el
+    opuesto, el campo interpolado depende de las dos y quitar una lo deja
+    cojo. Un recuento no permite verlo y una figura si.
+
+    Se omite sin ruido si falta su insumo: es una ilustracion de informe, y su
+    ausencia no invalida la seleccion.
+    """
+    try:
+        import graficos
+    except ImportError:
+        return
+
+    ruta_cuenca = rutas.directorio("sig_vector", base) / "subcuencas.shp"
+    if not ruta_cuenca.is_file():
+        return
+    try:
+        poligonos = shapefile.leer_geometrias(ruta_cuenca)
+    except (ErrorFormato, ErrorRutas):
+        return
+
+    grupos: dict[str, tuple[list[float], list[float]]] = {}
+    for estacion in resultado.seleccionadas:
+        este = estacion.valores.get("este")
+        norte = estacion.valores.get("norte")
+        if este is None or norte is None:
+            continue
+        operador = str(estacion.valores.get("entidad") or "").strip()
+        red = "CAR" if "CORPORACI" in operador.upper() else "IDEAM"
+        variable = ("caudal y nivel"
+                    if (estacion.valores.get("categoria") or "").strip().upper()
+                    in CATEGORIAS_CAUDAL else "precipitacion")
+        clave = f"{red}, {variable}"
+        equis, yes = grupos.setdefault(clave, ([], []))
+        equis.append(float(este))
+        yes.append(float(norte))
+
+    if not grupos:
+        return
+
+    estilo = graficos.Estilo.desde_config(configuracion)
+    directorio = rutas.resolver(
+        configuracion.obtener("graficos.directorio"), base)
+    directorio.mkdir(parents=True, exist_ok=True)
+    etiquetados = {f"{k} ({len(v[0])})": v for k, v in sorted(grupos.items())}
+
+    with graficos.figura(
+        estilo, titulo="Estaciones seleccionadas, por red que las opera",
+        etiqueta_x="Este (m)", etiqueta_y="Norte (m)",
+        alto_cm=max(estilo.alto_cm, 12.0),
+    ) as (fig, ax):
+        graficos.dispersion_sobre_area(
+            ax, poligonos, etiquetados, estilo,
+            tamanos={k: 30.0 for k in etiquetados})
+        graficos.rotular_en_miles(ax)
+        adoptado = resultado.ampliacion.get("buffer_km")
+        pie = "Contorno: subcuencas del modelo."
+        if adoptado:
+            pie += f" Buffer adoptado por cobertura: {adoptado:.1f} km."
+        # EL PIE VA POR DEBAJO DEL ROTULO DEL EJE, no sobre el. Colocado en
+        # fraccion de ejes caia justo encima de 'Este (m)' y los dos textos se
+        # leian superpuestos. Se reserva su espacio con el margen inferior.
+        fig.tight_layout(rect=(0, 0.045, 1, 1))
+        fig.text(0.01, 0.012, pie, ha="left", va="bottom",
+                 fontsize=estilo.tamano_fuente - 2, color="#555555")
+        for ruta in graficos.guardar(fig, directorio / "M03_estaciones_por_red",
+                                     estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+    logger.info("Figura de estaciones por red: %d grupo(s)", len(etiquetados))
+
+
+def _catalogo_de_la_car(configuracion, base, mapa_campos, resultado,
+                        logger) -> list[dict[str, str]]:
+    """
+    El catálogo de la CAR, traducido al vocabulario del IDEAM.
+
+    UN ESTUDIO SIN ESTACIONES DE LA CAR ES LO NORMAL fuera de su jurisdicción:
+    la ausencia se informa y se sigue con el IDEAM. Lo que sí es advertencia es
+    que el catálogo esté declarado y no exista.
+    """
+    declarado = str(configuracion.obtener("series.car.perfil", "") or "").strip()
+    if not declarado:
+        return []
+
+    try:
+        perfil = ingesta_car.cargar_perfil(rutas.resolver(declarado, base))
+        ruta = rutas.resolver(perfil.catalogo, base)
+    except (ErrorFormato, ErrorRutas) as error:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "estaciones.car",
+            f"no se pudo leer el perfil de la CAR ({error}). El inventario se "
+            "construye solo con el IDEAM."))
+        return []
+
+    if not ruta.is_file():
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "estaciones.car",
+            f"se declara el catalogo de la CAR en {perfil.catalogo} y no "
+            "existe. Sus estaciones NO entran al inventario."))
+        return []
+
+    try:
+        registros, _, recuento = ingesta_car.catalogo_como_ideam(
+            ruta, mapa_campos, perfil.entidad or "CAR")
+    except (ErrorFormato, ErrorRutas) as error:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "estaciones.car",
+            f"no se pudo leer el catalogo de la CAR: {error}."))
+        return []
+
+    resultado.catalogo_car = recuento
+    logger.info("CAR: %d estacion(es) del catalogo, %d excluidas por satelital",
+                recuento["admitidas"], recuento["excluidas_por_tipo"])
+
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "estaciones.car",
+        f"entran {recuento['admitidas']} estacion(es) del catalogo de la CAR "
+        f"sobre {recuento['leidas']}. Se excluyen "
+        f"{recuento['excluidas_por_tipo']} SATELITALES: un valor derivado de "
+        "pixel no es una medida de pluviometro, y mezclarlo con las estaciones "
+        "en tierra en la misma interpolacion no seria defendible. La exclusion "
+        "se decide por el campo de tipo y no por la categoria, porque hay "
+        "codigos que delatan el origen pero fiarse de eso es fragil."))
+
+    resultado.hallazgos.append(Hallazgo(
+        ADVERTENCIA, "estaciones.car_estado",
+        "las estaciones de la CAR entran SIN estado declarado: su catalogo trae "
+        "el campo con el mismo valor en las 434, de modo que no distingue "
+        "activa de suspendida. La precedencia por estado no las ordena, y el "
+        "descarte por antiguedad lo decide el M04b sobre el dato."))
+
+    return registros
 
 
 def _ampliar_por_cobertura(

@@ -92,11 +92,36 @@ El campo de entidad operadora viaja con la estación hasta el informe. Sin él n
 se puede responder de qué red salió cada dato, y el M05 no podría separar una
 inconsistencia entre redes de una inconsistencia de una estación.
 
-### Las categorías coinciden
+### Las categorías coinciden, pero no en el campo que parece
 
-La CAR usa la nomenclatura del IDEAM: `PM`, `PG`, `CP`, `CO` para
-precipitación, `LM` y `LG` para nivel. **No hace falta tabla de homologación**,
-salvo declarar que `H` y `HM` quedan fuera.
+Verificado sobre `CNE_CAR.shp`, que trae **tres** campos de categoría:
+
+| Campo | Contenido | Sirve |
+|---|---|---|
+| `CATEGORIA_` | código numérico interno (35, 43, 44...) | no |
+| `CATEGORI_1` | nombre largo ("PLUVIOMETRICAS") | no |
+| **`CATEGORI_2`** | **código corto: `PM`, `PG`, `CP`, `CO`, `LM`, `LG`** | **sí** |
+
+`CATEGORI_2` usa la nomenclatura del IDEAM, de modo que **no hace falta tabla de
+homologación**. Es el campo a mapear, y no el nombre largo.
+
+**Lo satelital se filtra por `TIPO_NOMBR`, no por la categoría.** El catálogo
+distingue Convencional (315), Satelital (100) y Automática (19). Hay categorías
+que ya delatan el origen en su propio código (`CPS` es climatológica principal
+SATELITAL, 54 estaciones), pero fiarse de eso sería frágil: el campo que lo
+declara es `TIPO_NOMBR` y es el que decide.
+
+Si se mapeara `CPS` a `CP` sin mirar el tipo, **entrarían 54 estaciones
+satelitales como si fueran climatológicas convencionales**, y acabarían
+sosteniendo la interpolación de lluvia junto a los pluviómetros. Es exactamente
+lo que la sección 3 descarta.
+
+### El estado no se puede usar
+
+`ESTADO` vale `'0'` en las 434 estaciones. No distingue activa de suspendida,
+que es lo que la precedencia del M03 necesita. Las de la CAR entran sin estado
+declarado, y el descarte por antigüedad lo decide el M04b sobre el dato, que es
+donde `CLAUDE.md` lo sitúa.
 
 ### Lo que la mezcla aporta a este estudio
 
@@ -420,6 +445,27 @@ indirecta. El informe debe decirlo.
 | M14 o módulo nuevo | Verificación de crecientes según la sección 7 |
 | M02 | Delimitar la cuenca de la estación de aguas abajo, para que su área deje de ser estimada |
 | `cadena.yaml` | M14b pasa de `pendiente` a `no viable`, con el motivo |
+
+### Cada análisis lleva su figura
+
+**Ningún ejercicio de comparación se da por programado sin su figura**, y la
+produce el mismo módulo que hace el análisis, en el mismo paso. Una cifra en una
+tabla no permite ver si el desajuste es sistemático o de un solo punto, y el
+informe la necesita de todas formas.
+
+Las que exige este trabajo:
+
+| Figura | Qué debe mostrar | Módulo |
+|---|---|---|
+| Estaciones por operador | IDEAM y CAR distinguidas, sobre la cuenca y su área, con las aforadas marcadas | M03 |
+| Cobertura temporal por fuente | Barras por estación y año, coloreadas por red, para ver de un vistazo qué periodo sostiene cada una | M04 |
+| Dobles masas entre redes | La consistencia contrastando estaciones de un operador contra el otro, que es donde una inconsistencia sistemática se vería | M05 |
+| **Contraste de crecientes** | Frecuencia observada con su **banda de confianza**, y encima los picos modelados por periodo de retorno, en J24 y J29 | verificación |
+| **Iteración de parámetros** | Si hubo ajuste: valor inicial, valor adoptado y **rango admisible** de cada parámetro, para que se vea que no se salió de él | verificación |
+| Transposición | Lo observado en la estación de aguas abajo, lo transpuesto al cierre y el modelado | verificación |
+
+Las dos marcadas en negrita son las que sostienen el capítulo de verificación:
+sin ellas el informe afirma una coincidencia que el lector no puede juzgar.
 
 ### Lo que debe quedar programado como regla general
 

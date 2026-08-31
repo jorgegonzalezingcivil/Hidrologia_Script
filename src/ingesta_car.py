@@ -408,3 +408,109 @@ def leer_catalogo(ruta: str | Path, campos: dict[str, str] | None = None,
             "longitud": round(float(lon), 6),
         }
     return catalogo
+
+
+# Campos del catálogo de la CAR. CATEGORI_2 y no CATEGORI_1: el primero trae el
+# código corto (PM, PG, CP, CO, LM, LG), que es la nomenclatura del IDEAM; el
+# segundo trae el nombre largo, que no sirve para cruzar.
+CAMPOS_CATALOGO = {
+    "codigo": "CODIGO",
+    "nombre": "NOMBRE",
+    "categoria": "CATEGORI_2",
+    "categoria_desc": "CATEGORI_1",
+    "altitud": "ELEVACION",
+    "tipo": "TIPO_NOMBR",
+    "corriente": "CORRIENT_1",
+    "fecha_instalacion": "FECHA_INST",
+    "fecha_suspension": "FECHA_SUSP",
+}
+
+# Tipos de estación que NO entran. Lo satelital se decide por este campo y no
+# por la categoría: hay códigos que delatan el origen (CPS es climatológica
+# principal SATELITAL, 54 estaciones), pero fiarse de eso es frágil.
+TIPOS_EXCLUIDOS = ("SATELITAL",)
+
+
+def catalogo_como_ideam(
+    ruta: str | Path,
+    campos_ideam: dict[str, str],
+    entidad: str,
+    tipos_excluidos: Sequence[str] = TIPOS_EXCLUIDOS,
+) -> tuple[list[dict[str, str]], list[tuple[float, float]], dict[str, int]]:
+    """
+    El catálogo de la CAR con los NOMBRES DE CAMPO del IDEAM.
+
+    Se traduce en el origen y no en cada consumidor: así el M03 cruza las dos
+    redes con el mismo código que ya tenía, y no queda una rama por red que haya
+    que mantener en paralelo y que pueda divergir sin que nadie lo note.
+
+    SE EXCLUYE LO SATELITAL. Un valor derivado de píxel no es una medida de
+    pluviómetro. Si las 54 climatológicas satelitales entraran como CP, acabarían
+    sosteniendo la interpolación de lluvia junto a las estaciones en tierra, que
+    es lo que la especificación descarta de forma expresa.
+
+    EL ESTADO NO SE PUEDE TRASLADAR: vale '0' en las 434 estaciones del catálogo
+    y no distingue activa de suspendida. Se deja vacío, y el descarte por
+    antigüedad lo decide el M04b sobre el dato.
+
+    Devuelve (registros, coordenadas, recuento). Las coordenadas van aparte
+    porque salen de la GEOMETRÍA y no del .dbf, igual que en 'leer_catalogo'.
+
+    Excepciones
+    -----------
+    ErrorRutas
+        No existe el catálogo.
+    ErrorFormato
+        Las geometrías y los registros no se pueden emparejar.
+    """
+    from comun import shapefile
+
+    ruta = Path(ruta)
+    if not ruta.is_file():
+        raise ErrorRutas(f"no se encuentra el catálogo de la CAR en {ruta}.")
+
+    puntos = shapefile.leer_puntos(ruta)
+    registros = list(shapefile.leer_registros(ruta))
+    if len(puntos) != len(registros):
+        raise ErrorFormato(
+            f"{ruta.name} tiene {len(puntos)} geometrías y {len(registros)} "
+            "registros: no se pueden emparejar.")
+
+    excluidos = {_clave(t) for t in tipos_excluidos}
+    salida: list[dict[str, str]] = []
+    coordenadas: list[tuple[float, float]] = []
+    recuento = {"leidas": len(registros), "excluidas_por_tipo": 0,
+                "sin_codigo": 0, "admitidas": 0}
+
+    for (lon, lat), fila in zip(puntos, registros):
+        codigo = str(fila.get(CAMPOS_CATALOGO["codigo"], "")).strip()
+        if not codigo:
+            recuento["sin_codigo"] += 1
+            continue
+        if _clave(fila.get(CAMPOS_CATALOGO["tipo"], "")) in excluidos:
+            recuento["excluidas_por_tipo"] += 1
+            continue
+
+        traducido: dict[str, str] = {}
+        for interno, columna_ideam in campos_ideam.items():
+            origen = CAMPOS_CATALOGO.get(interno)
+            traducido[columna_ideam] = (
+                str(fila.get(origen, "")).strip() if origen else "")
+
+        # La coordenada sale de la geometría, que está en el sistema que declara
+        # el .prj; los campos del .dbf pueden venir en grados y minutos.
+        if campos_ideam.get("latitud"):
+            traducido[campos_ideam["latitud"]] = f"{lat:.6f}"
+        if campos_ideam.get("longitud"):
+            traducido[campos_ideam["longitud"]] = f"{lon:.6f}"
+        # De qué red es la estación. Es lo que permite responder en el informe
+        # de dónde salió cada dato, y separar una inconsistencia entre redes de
+        # una de una estación concreta.
+        if campos_ideam.get("entidad"):
+            traducido[campos_ideam["entidad"]] = entidad
+
+        salida.append(traducido)
+        coordenadas.append((lon, lat))
+        recuento["admitidas"] += 1
+
+    return salida, coordenadas, recuento
