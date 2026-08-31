@@ -97,3 +97,18 @@ migraciones:
           descargar del IDEAM, que no es idempotente: un registro hoy
           Preliminar puede ser Definitivo manana y la serie cambiaria.
         extensiones: [".csv"]
+
+  - desde: 3
+    hasta: 4
+    titulo: "Ventana de simulacion declarada, para la verificacion de crecientes"
+    motivo: >-
+      La ventana de simulacion estaba embebida en el M13 como
+      'duracion_h * 4', es decir 12 horas con la tormenta de 3. Bastan para
+      que el hidrograma se agote, pero la verificacion de crecientes contrasta
+      contra el maximo de los caudales MEDIOS DIARIOS observados y para eso
+      hay que promediar el hidrograma simulado a 24 h, que en una ventana de
+      12 no existe. Pasa a declararse y se adoptan 36 horas.
+
+    claves_nuevas:
+      - clave: "tormenta.ventana_simulacion_h"
+        despues_de: "tormenta.duracion_h"

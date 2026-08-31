@@ -14,7 +14,7 @@
 # configuración vieja se detiene con 'clave ausente', que al menos es ruidoso,
 # pero corregirlo a mano en cada proyecto es trabajo repetido y propenso a que
 # dos estudios acaben con doctrina distinta sin que nadie lo advierta.
-esquema_version: 3
+esquema_version: 4
 
 proyecto:
   nombre: "Estudio Hidrológico - PLANTILLA"
