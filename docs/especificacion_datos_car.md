@@ -58,7 +58,7 @@ Solo lo que algún módulo de la cadena consume.
 
 | Se descarta | Motivo |
 |---|---|
-| **Todo el archivo `.rar`** | Seis años frente a hasta 85 del Excel, y sin caudal después de 2019 |
+| **Todo el archivo `.rar`** como fuente de series | Seis años frente a hasta 85 del Excel, y sin caudal después de 2019. Se conserva para **contrastes puntuales**: su caudal medio diario de 2018 fue lo que permitió resolver qué significa `MAXIMOS ABSOLUTOS` (sección 7) |
 | **Precipitación satelital** | Valor derivado de píxel, no medida de pluviómetro. Sesgo y soporte espacial distintos; mezclarla con pluviómetros en el mismo IDW no es defendible |
 | **NIVELES** (22.063 filas) | Sin curva de gasto no son caudal. Es la misma limitación que ya bloqueaba el uso de las LG y LM del IDEAM |
 | Brillo solar, humedad relativa, punto de rocío, radiación solar, tensión de vapor, viento, temperatura del suelo | Ningún módulo de la cadena los consume (7.970 filas en total) |
@@ -338,14 +338,53 @@ dos ocurrió, y si hubo ajuste, qué parámetro se movió, cuánto y por qué.
 - Tabla y figura del contraste modelado contra observado, con la banda de
   confianza dibujada.
 
-### Un dato pendiente de confirmar
+### Qué es exactamente el dato observado: resuelto y con consecuencia
 
-`CAUDALES / MAXIMOS ABSOLUTOS` debe ser el **caudal instantáneo** máximo para
-compararse con el pico de HEC-HMS. Si fuera el máximo de los medios diarios,
-subestimaría el pico instantáneo y el modelo saldría alto de forma sistemática
-sin que el modelo tuviera la culpa. Se confirma con la CAR, o se deduce
-comparando contra los medios de esas mismas estaciones. **Hasta confirmarlo, la
-verificación se reporta con esa reserva declarada.**
+Quedaba por confirmar si `CAUDALES / MAXIMOS ABSOLUTOS` era el caudal
+instantáneo o el máximo de los medios diarios. **Se resolvió midiendo**, y la
+respuesta obliga a cambiar la comparación.
+
+La prueba: el `.rar` descartado como fuente sí trae **caudal medio diario** de
+2018, de modo que para cada estación y mes se contrastó el máximo mensual del
+Excel contra el máximo de los medios diarios de ese mismo mes.
+
+| Resultado sobre 152 meses comparables | |
+|---|---|
+| Excel **igual** al máximo de los medios diarios | **139 (91,4 %)** |
+| Excel mayor | 2 (1,3 %) |
+| Excel menor | 11 |
+| Razón Excel / diario, mediana | **1,000** |
+
+> `MAXIMOS ABSOLUTOS` es el **máximo de los caudales medios diarios**, no el
+> pico instantáneo.
+
+**Consecuencia:** comparar ese valor contra el pico instantáneo de HEC-HMS
+haría salir el modelo alto de forma sistemática, porque el pico instantáneo es
+siempre mayor o igual que la media diaria que lo contiene. El sesgo no sería del
+modelo sino de la comparación.
+
+### Cómo se corrige: se promedia el modelo, no se escala la observación
+
+Hay dos salidas y no valen lo mismo:
+
+| Opción | Problema |
+|---|---|
+| Convertir la observación a pico con un factor | Introduce un factor **supuesto**, que es justo lo que la sección 7 evita en todo lo demás |
+| **Promediar el modelo a escala diaria** | Es exacto: el hidrograma simulado está completo y su media móvil de 24 h se calcula sin suponer nada |
+
+**Se adopta la segunda.** El contraste es:
+
+> máximo de la media móvil de **24 horas** del hidrograma simulado
+> **contra**
+> análisis de frecuencia del máximo anual de los medios diarios observados
+
+Así se comparan magnitudes homogéneas y no se añade ninguna suposición.
+
+**Limitación que hay que declarar.** Verificar a escala diaria es más débil que
+verificar el pico instantáneo: comprueba el volumen de escorrentía y el tiempo
+grueso de respuesta, pero **no la atenuación del pico**. El caudal instantáneo
+de diseño, que es el que dimensiona la estructura, queda validado solo de forma
+indirecta. El informe debe decirlo.
 
 ---
 
