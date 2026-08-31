@@ -112,3 +112,18 @@ migraciones:
     claves_nuevas:
       - clave: "tormenta.ventana_simulacion_h"
         despues_de: "tormenta.duracion_h"
+
+  - desde: 4
+    hasta: 5
+    titulo: "Verificacion de crecientes contra caudal observado"
+    motivo: >-
+      Entra el M14c, que contrasta el modelo contra las crecientes observadas.
+      Necesita sus propios parametros y el CRS del lienzo del .basin, que NO es
+      el de calculo: en este estudio el canvas viene en EPSG:3116 mientras la
+      cadena calcula en EPSG:9377, y entre los dos hay unos 4.000 km.
+
+    claves_nuevas:
+      - clave: "verificacion"
+        despues_de: "estaciones"
+      - clave: "hec_hms.proyecto.crs_lienzo"
+        despues_de: "hec_hms.proyecto.modelo_cuenca"

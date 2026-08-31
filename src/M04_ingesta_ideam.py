@@ -54,6 +54,7 @@ _DIRECTORIO_SRC = Path(__file__).resolve().parent
 if str(_DIRECTORIO_SRC) not in sys.path:
     sys.path.insert(0, str(_DIRECTORIO_SRC))
 
+import ingesta_car  # noqa: E402
 from comun import dhime, esquema, registro, rutas  # noqa: E402
 from comun.config import Config, cargar, leer_yaml  # noqa: E402
 from comun.errores import (  # noqa: E402

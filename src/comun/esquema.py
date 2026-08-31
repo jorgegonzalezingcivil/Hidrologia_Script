@@ -1193,6 +1193,28 @@ ESQUEMA: dict[str, Campo] = {
         "directorio donde el consultor deposita la salida", no_vacio=True),
     # El área de influencia DEFINITIVA, escrita al importar sobre la
     # delimitación ya asistida. La del M02 es preliminar y solo acota descargas.
+    # --- M14c: verificación de crecientes ------------------------------------
+    "verificacion.confianza": numero(
+        "confianza de la banda del ajuste observado", minimo=0.5, maximo=0.999),
+    "verificacion.repeticiones": entero(
+        "remuestreos del bootstrap", minimo=100, maximo=100000),
+    "verificacion.factor_extrapolacion": numero(
+        "cuántas veces la longitud del registro se admite extrapolar",
+        minimo=0.5, maximo=10),
+    "verificacion.minimo_anios": entero(
+        "años completos mínimos para verificar con una estación", minimo=3),
+    "verificacion.ventana_promedio_h": numero(
+        "ventana sobre la que se promedia el hidrograma", minimo=1, maximo=168),
+    "verificacion.tolerancia_emparejamiento_m": numero(
+        "distancia máxima entre la estación y la unión del modelo",
+        minimo=1, maximo=10000),
+    "verificacion.distribucion": texto(
+        "distribución con que se estima la frecuencia observada", no_vacio=True),
+    "verificacion.metodo": texto(
+        "método de ajuste de esa distribución", no_vacio=True),
+    "hec_hms.proyecto.crs_lienzo": texto(
+        "CRS de las coordenadas de lienzo del .basin", no_vacio=True),
+
     "tormenta.ventana_simulacion_h": numero(
         "ventana de simulación en horas; 24 como mínimo para promediar a "
         "escala diaria en la verificación de crecientes",

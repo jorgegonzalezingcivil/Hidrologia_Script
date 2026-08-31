@@ -230,11 +230,30 @@ pasos:
     estado: disponible
     modos: [detallado]
 
+  # VERIFICACION, que NO es la calibracion. Contrasta el modelo contra las
+  # crecientes observadas en las estaciones que caen dentro de la cuenca.
+  - modulo: M14c
+    nombre: "Verificación de crecientes contra caudal observado"
+    script: "src/M14c_verificacion.py"
+    entorno: venv
+    estado: disponible
+    modos: [detallado]
+
   - modulo: M14b
     nombre: "Calibración"
     script: "src/M14b_calibracion.py"
     entorno: venv
-    estado: pendiente
+    # NO VIABLE CON LOS DATOS DISPONIBLES, y no es lo mismo que pendiente.
+    # Calibrar exige ajustar los parametros contra hidrogramas de tormentas
+    # concretas, y para eso hace falta caudal continuo horario o diario. Lo que
+    # hay es escala MENSUAL: la CAR publica el maximo de los medios diarios de
+    # cada mes, y las estaciones LG y LM del IDEAM en el area registran nivel,
+    # no caudal. Los dos anios de caudal diario del archivo satelital tampoco
+    # alcanzan.
+    #
+    # En su lugar corre el M14c, que verifica sin ajustar. Si un estudio futuro
+    # trae series de caudal utilizables, este paso vuelve a 'pendiente'.
+    estado: no_viable
     modos: [detallado]
     opcional: true
 

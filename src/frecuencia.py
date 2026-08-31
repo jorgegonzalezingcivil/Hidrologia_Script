@@ -651,3 +651,86 @@ def posicion_grafica(n: int, formula: str = "weibull") -> np.ndarray:
     if nombre == "hazen":
         return (i - 0.5) / n
     raise ErrorFrecuencia(f"posición gráfica no reconocida: {formula!r}")
+
+
+def banda_confianza(
+    datos: Iterable[float],
+    distribucion: str,
+    metodo: str,
+    periodos_retorno: Sequence[float],
+    confianza: float = 0.90,
+    repeticiones: int = 1000,
+    semilla: int = 20260831,
+) -> dict[float, dict[str, float]]:
+    """
+    Banda de confianza del cuantil, por remuestreo con reemplazo (bootstrap).
+
+    POR QUE BOOTSTRAP Y NO UNA FORMULA ANALITICA. El error estandar del cuantil
+    tiene expresion cerrada distinta para cada distribucion y cada metodo de
+    ajuste, y la matriz de este proyecto son diez por tres. Derivar treinta
+    formulas para usarlas una vez es mas fragil que remuestrear: el remuestreo
+    usa el MISMO ajuste que el analisis, de modo que la banda corresponde a lo
+    que de verdad se calculo y no a una aproximacion asintotica de otra cosa.
+
+    QUE MIDE Y QUE NO. Mide la incertidumbre por TAMANO DE MUESTRA: cuanto
+    cambiaria el cuantil si la naturaleza hubiera repartido de otro modo los
+    mismos anios. NO mide el error de haber elegido esa distribucion, ni el de
+    que el registro sea corto para el periodo pedido. Con 29 anios, el cuantil
+    de 100 anios es extrapolacion, y una banda estrecha ahi no significa que la
+    cifra sea buena: significa que la muestra es consistente consigo misma.
+
+    LA SEMILLA SE FIJA para que dos corridas del mismo estudio den la misma
+    banda. Una banda que cambia sola entre corridas es indefendible ante una
+    revision, aunque la diferencia sea pequena.
+
+    Devuelve, por periodo de retorno, el cuantil del ajuste completo y los
+    limites inferior y superior. Un periodo sin suficientes remuestreos validos
+    se omite en lugar de devolver una banda inventada.
+
+    Excepciones
+    -----------
+    ErrorFrecuencia
+        Si la confianza no esta entre 0 y 1, o si no hay datos suficientes.
+    """
+    if not 0.0 < confianza < 1.0:
+        raise ErrorFrecuencia(
+            f"la confianza debe estar entre 0 y 1, y vale {confianza}.")
+    x = _limpiar(datos)
+    if x.size < 3:
+        raise ErrorFrecuencia(
+            f"hacen falta al menos 3 valores y hay {x.size}.")
+
+    central = ajustar(x, distribucion, metodo)
+    if not central.valido:
+        return {}
+    referencia = cuantiles(central, periodos_retorno)
+
+    generador = np.random.default_rng(semilla)
+    acumulado: dict[float, list[float]] = {t: [] for t in referencia}
+    for _ in range(int(repeticiones)):
+        muestra = generador.choice(x, size=x.size, replace=True)
+        try:
+            replica = ajustar(muestra, distribucion, metodo)
+        except ErrorFrecuencia:
+            continue
+        if not replica.valido:
+            continue
+        for periodo, valor in cuantiles(replica, periodos_retorno).items():
+            if periodo in acumulado and np.isfinite(valor):
+                acumulado[periodo].append(float(valor))
+
+    alfa = (1.0 - confianza) / 2.0
+    salida: dict[float, dict[str, float]] = {}
+    for periodo, valores in acumulado.items():
+        # Con menos de la mitad de los remuestreos validos la banda no
+        # representa nada: se omite y quien llame lo reporta.
+        if len(valores) < max(30, int(repeticiones) // 2):
+            continue
+        arreglo = np.sort(np.asarray(valores, dtype=float))
+        salida[periodo] = {
+            "cuantil": float(referencia[periodo]),
+            "inferior": float(np.quantile(arreglo, alfa)),
+            "superior": float(np.quantile(arreglo, 1.0 - alfa)),
+            "replicas": len(valores),
+        }
+    return salida

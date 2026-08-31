@@ -14,7 +14,7 @@
 # configuración vieja se detiene con 'clave ausente', que al menos es ruidoso,
 # pero corregirlo a mano en cada proyecto es trabajo repetido y propenso a que
 # dos estudios acaben con doctrina distinta sin que nadie lo advierta.
-esquema_version: 4
+esquema_version: 5
 
 proyecto:
   nombre: "Estudio Hidrológico - PLANTILLA"
@@ -516,6 +516,41 @@ series:
   car:
     libro: "data/00_insumos_usuario/datos CAR/ae (69).xlsx"
     perfil: "config/perfiles_car.yaml"
+
+# -----------------------------------------------------------------------------
+# M14c - VERIFICACION DE CRECIENTES
+# Contrasta el modelo contra el caudal observado. NO es la calibracion del M14b:
+# calibrar exige hidrogramas de tormentas concretas y aqui solo hay escala
+# mensual. La decision y su alcance estan en docs/especificacion_datos_car.md.
+# -----------------------------------------------------------------------------
+verificacion:
+  # Se acepta si el modelo cae dentro de la BANDA del ajuste observado, no
+  # dentro de un porcentaje fijo. Un +/-5% contra un cuantil que arrastra su
+  # propia incertidumbre obligaria a ajustar el modelo contra el ruido.
+  confianza: 0.90
+  # Remuestreos del bootstrap. Mil dan una banda estable y cuestan unos
+  # segundos por estacion; con menos, la banda cambia entre corridas.
+  repeticiones: 1000
+  # Hasta cuantas veces la longitud del registro se admite extrapolar. Con 29
+  # anios y factor 2 se verifica hasta Tr 58: mas alla el cuantil observado es
+  # extrapolacion de la distribucion y contrastarlo compararia dos
+  # extrapolaciones.
+  factor_extrapolacion: 2.0
+  # Por debajo de esto la banda sale tan ancha que aceptaria cualquier cosa, y
+  # una verificacion que no puede fallar no verifica nada.
+  minimo_anios: 15
+  # Ventana sobre la que se promedia el hidrograma. 24 h porque el dato
+  # observado es el maximo de los caudales MEDIOS DIARIOS.
+  ventana_promedio_h: 24.0
+  # Distancia maxima entre la estacion y la union del modelo. Mas lejos se
+  # compararia el modelo en un sitio contra la medida de otro, con areas
+  # drenadas distintas. Medido en este estudio: 127 m y 159 m.
+  tolerancia_emparejamiento_m: 500.0
+  # Ajuste con que se estima la frecuencia observada. Gumbel por momentos-L es
+  # el de referencia para maximos anuales; el M07 corre la matriz completa y
+  # aqui basta uno declarado, porque lo que se contrasta es la BANDA.
+  distribucion: "gumbel_max"
+  metodo: "momentos_l"
 
 ideam:
   # DECISION DEL CONSULTOR, 2026-08-11. La fuente primaria es DHIME, no
@@ -1320,6 +1355,12 @@ hec_hms:
     directorio: ""                # ruta absoluta del proyecto, por estudio
     archivo: ""
     modelo_cuenca: "Basin_1.basin"
+    # CRS de las coordenadas de LIENZO del .basin, que NO es el de
+    # calculo. En este estudio el canvas viene en EPSG:3116 mientras la
+    # cadena calcula en EPSG:9377, y entre los dos hay unos 4.000 km:
+    # emparejar estaciones con uniones sin reproyectar daria distancias
+    # absurdas y ninguna encontraria pareja.
+    crs_lienzo: "EPSG:3116"
     # Se modifica EN SU SITIO. Con esto en true se guarda antes una copia
     # fechada del .basin, porque una escritura equivocada sobre un modelo que
     # costo horas de delimitacion asistida no se deshace.
