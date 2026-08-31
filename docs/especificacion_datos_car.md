@@ -194,6 +194,93 @@ Se exige coincidencia en **las dos a la vez**. Casar en un solo punto se
 consigue moviendo un parámetro global; casar en dos puntos con áreas distintas
 restringe mucho más y hace la verificación creíble.
 
+### Qué fracción de la cuenca queda verificada
+
+Medido sobre la topología del modelo:
+
+| Punto | Área que controla | Fracción |
+|---|---|---|
+| J24 PUENTE LA CALERA | 81,31 km² | 36,9 % |
+| J29 SIMAYA | 64,35 km² | 29,2 % |
+| **Juntas** | **145,66 km²** | **66,1 %** |
+
+**Las dos no están anidadas**: ninguna cae aguas arriba de la otra, de modo que
+son dos afluentes independientes y sus áreas son disjuntas. Cubren 78 de las
+125 subcuencas. Dos ramas separadas restringen mucho más que dos puntos sobre
+el mismo cauce, porque un cambio global que arregle una tiende a estropear la
+otra salvo que sea correcto.
+
+### El tercio no aforado no es igual al aforado
+
+| | Aforada (78 subcuencas) | No aforada (47) |
+|---|---|---|
+| Pendiente de cuenca | 0,22 | 0,20 |
+| Área, mediana | 1,35 km² | 1,26 km² |
+| **Cota media** | **3.010 m** | **2.757 m** |
+| Longitud de cauces | 2,04 km | 2,71 km |
+
+Pendiente y tamaño son comparables. La parte no aforada está **250 m más abajo**
+y con cauces más largos: es la porción baja, hacia el cierre.
+
+### Tres reglas para transferir lo ajustado
+
+1. **Los parámetros fisiográficos se transfieren y se declara que se
+   transfirieron.** El número de curva y el rezago dependen de suelo, cobertura
+   y geometría, y en pendiente y tamaño las dos poblaciones son comparables.
+
+   **No se escalan por área.** Un multiplicador global no es una corrección
+   proporcional: es afirmar que el sesgo es uniforme en toda la cuenca, y con
+   250 m de diferencia de cota esa afirmación no está sostenida. El número de
+   curva es una propiedad física del suelo, no una función del tamaño; y el
+   rezago ya escala por sí solo, porque sale del Tc que el M10 calcula con la
+   geometría propia de cada subcuenca.
+
+2. **Lo que depende de la cota no se transfiere sin comprobarlo.** La
+   precipitación de entrada se distribuye por el gradiente altitudinal del M11.
+   Hay que verificar que la zonificación cubre el rango completo y no extrapola
+   sobre el tercio bajo.
+
+3. **El caudal en el punto de cierre se reporta como NO verificado.** El modelo
+   queda verificado sobre el 66 % aforado. La cifra del cierre es una
+   extrapolación defendible, no un valor comprobado, y el informe lo dice con
+   ese matiz.
+
+### Verificación por transposición de cuencas
+
+Cuando exista una estación de caudal **aguas abajo** cuya cuenca contenga la del
+estudio, se usa como comprobación adicional. Es la única evidencia que puede
+decir algo sobre la porción no aforada, y por eso **se busca siempre**, no solo
+en este estudio.
+
+En Refugio del Valle, la estación es **EL VERGEL** (2120878, 27 años):
+
+| Punto | Tramos de red arriba | Red | Área |
+|---|---|---|---|
+| Cierre del estudio | 245 | 347,5 km | 220,31 km² (delimitada) |
+| EL VERGEL | 401 | 454,9 km | **≈ 288 km² (estimada)** |
+
+Su cuenca **contiene** la del estudio: el 76 % es el área del estudio y el 24 %
+restante son unos 68 km² adicionales aguas abajo.
+
+**El área de EL VERGEL está estimada, no delimitada.** Sale de la relación local
+entre longitud de red y área del propio estudio (347,5 km para 220,31 km²), que
+es preferible a la densidad genérica de 1,14 km/km² porque aquí esa densidad
+sobreestima un 28 %. **Antes de usarla cuantitativamente hay que delimitarla
+sobre el terreno**, que es una operación del M02 y es viable porque el modelo de
+elevación ya cubre esa zona.
+
+El contraste se hace transponiendo por área:
+
+> Q(cierre) ≈ Q(El Vergel) · (A_cierre / A_vergel)^n
+
+El exponente **n se declara**, no se da por supuesto. Para caudales pico suele
+tomarse entre 0,6 y 1,0, y el valor adoptado con su fuente queda escrito en el
+informe.
+
+**Es corroboración, no verificación primaria.** Arrastra tres incertidumbres que
+J24 y J29 no tienen: el área estimada, el exponente de transposición y los
+68 km² que no pertenecen al estudio. Se reporta como tal.
+
 ### El criterio de aceptación
 
 **No es un porcentaje fijo.** El caudal de Tr 100 estimado desde 29 años arrastra
@@ -275,6 +362,10 @@ verificación se reporta con esa reserva declarada.**
    y qué resultó.
 6. Que la calibración del M14b no es viable con estos datos, y por qué.
 7. El resultado de la verificación de crecientes, diciendo si hubo ajuste.
+8. **Qué fracción de la cuenca quedó verificada** (aquí el 66 %), en qué se
+   diferencia el resto, y que la cifra del punto de cierre es extrapolación.
+9. El resultado de la transposición desde la estación de aguas abajo, con el
+   exponente adoptado y las incertidumbres que arrastra.
 
 ---
 
@@ -288,4 +379,20 @@ verificación se reporta con esa reserva declarada.**
 | M04 | Adaptador nuevo para el formato largo de ocho columnas del Excel |
 | M07 | Admite el máximo anual derivado de máximos mensuales, declarando el origen |
 | M14 o módulo nuevo | Verificación de crecientes según la sección 7 |
+| M02 | Delimitar la cuenca de la estación de aguas abajo, para que su área deje de ser estimada |
 | `cadena.yaml` | M14b pasa de `pendiente` a `no viable`, con el motivo |
+
+### Lo que debe quedar programado como regla general
+
+La verificación no es un añadido de este estudio. Al programarla, estas tres
+cosas se resuelven **por búsqueda y no por lista fija**, para que sirvan al
+siguiente proyecto sin tocar código:
+
+1. **Buscar estaciones de caudal dentro de la cuenca** y emparejarlas con la
+   unión del modelo más próxima, declarando la distancia. Si no hay unión
+   cerca, reportarlo y sugerir un punto de quiebre en la delimitación.
+2. **Calcular qué fracción del área queda aforada** y si los puntos están
+   anidados, porque de eso depende cuánto restringe la verificación.
+3. **Buscar la estación de aguas abajo más próxima cuya cuenca contenga la del
+   estudio**, para la transposición. Si no existe, declararlo: significa que la
+   porción baja queda sin ninguna observación.
