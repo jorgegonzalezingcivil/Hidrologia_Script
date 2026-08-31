@@ -809,7 +809,7 @@ def ejecutar(
 
     registro.registrar_cabecera(
         logger, MODULO, DESCRIPCION, config=configuracion,
-        insumos={"series": "data/02_procesado/series/series_ideam.csv"},
+        insumos={"series": str(configuracion.obtener("series.consolidada"))},
         parametros=configuracion.parametros("temperatura"))
 
     etiqueta_max = str(configuracion.obtener("temperatura.etiqueta_maxima"))
@@ -821,7 +821,7 @@ def ejecutar(
     with registro.bloque(logger, "Series diarias"):
         try:
             registros, alturas, nombres = _leer_series(
-                rutas.directorio("procesado_series", base) / "series_ideam.csv",
+                rutas.resolver(configuracion.obtener("series.consolidada"), base),
                 delimitador, (etiqueta_max, etiqueta_min))
         except (ErrorRutas, ErrorFormato) as error:
             resultado.hallazgos.append(Hallazgo(

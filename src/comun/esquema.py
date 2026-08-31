@@ -494,6 +494,14 @@ ESQUEMA: dict[str, Campo] = {
         "fracción de candidatas que llega a la interpolación, medida",
         minimo=0.05, maximo=1.0,
     ),
+    # --- Serie consolidada ---------------------------------------------------
+    "series.consolidada": texto(
+        "serie consolidada que produce el M04, del IDEAM y de la CAR",
+        no_vacio=True),
+    "series.car.libro": texto(
+        "libro de la CAR en formato largo; vacío si el estudio no tiene"),
+    "series.car.perfil": texto("perfil de lectura del libro de la CAR"),
+
     "estaciones.catalogo": ruta("Catálogo Nacional de Estaciones del IDEAM"),
     "estaciones.fecha_catalogo": texto(
         "fecha de descarga del catálogo, para trazabilidad", no_vacio=True,

@@ -14,7 +14,7 @@
 # configuración vieja se detiene con 'clave ausente', que al menos es ruidoso,
 # pero corregirlo a mano en cada proyecto es trabajo repetido y propenso a que
 # dos estudios acaben con doctrina distinta sin que nadie lo advierta.
-esquema_version: 2
+esquema_version: 3
 
 proyecto:
   nombre: "Estudio Hidrológico - PLANTILLA"
@@ -494,6 +494,29 @@ estaciones:
 # -----------------------------------------------------------------------------
 # M04 - INGESTA IDEAM
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# SERIE CONSOLIDADA
+# El producto del M04, y el insumo del M04b, M05, M07 y M18a.
+# -----------------------------------------------------------------------------
+series:
+  # SE LLAMABA 'series_ideam.csv' Y EL NOMBRE PASO A MENTIR. Desde que la
+  # consolidada reune al IDEAM y a la CAR, un archivo que se anuncia como del
+  # IDEAM y contiene las dos redes es justo lo que la seccion 2 de CLAUDE.md
+  # prohibe: algo que dice una cosa y hace otra. Cada registro lleva su campo
+  # 'fuente', que es donde se responde de que red salio el dato.
+  consolidada: "data/02_procesado/series/series.csv"
+
+  # --- FUENTE DE LA CAR ------------------------------------------------------
+  # El libro que entrega la Corporacion, en formato largo. Su perfil de lectura
+  # y la razon de cada descarte estan en config/perfiles_car.yaml, y la decision
+  # de adoptarlo en docs/especificacion_datos_car.md.
+  #
+  # Vacio significa que este estudio no tiene datos de la CAR, que es lo normal
+  # fuera de su jurisdiccion. El M04 lo informa y sigue con el IDEAM.
+  car:
+    libro: "data/00_insumos_usuario/datos CAR/ae (69).xlsx"
+    perfil: "config/perfiles_car.yaml"
+
 ideam:
   # DECISION DEL CONSULTOR, 2026-08-11. La fuente primaria es DHIME, no
   # Socrata, invirtiendo lo que declaraba CLAUDE.md, seccion 6.

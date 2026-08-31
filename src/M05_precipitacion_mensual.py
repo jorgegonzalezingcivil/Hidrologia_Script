@@ -1027,7 +1027,8 @@ def ejecutar(
         "ideam.agregacion_diaria_a_mensual.max_dias_faltantes"))
     completar = bool(configuracion.obtener(
         "ideam.precipitacion_mensual.completar_con_agregacion_diaria"))
-    ruta_serie = rutas.directorio("procesado_series", base) / "series_ideam.csv"
+    ruta_serie = rutas.resolver(
+        configuracion.obtener("series.consolidada"), base)
 
     admitidas, etiqueta_ventana, umbral = estaciones_admitidas(base, configuracion)
     ventana_adoptada = configuracion.obtener("sensibilidad_series.ventana_adoptada")

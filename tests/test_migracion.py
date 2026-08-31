@@ -19,6 +19,12 @@ if str(_RAIZ_REPO) not in sys.path:
 
 import migrar_estudio as mig  # noqa: E402
 
+# La versión a la que se debe llegar es la que declara la herramienta. Escribir
+# aquí una cifra obliga a tocar la prueba cada vez que se añade una migración,
+# y una prueba que hay que retocar en cada cambio deja de vigilar nada.
+_OBJETIVO = mig.leer_version(
+    (_RAIZ_REPO / "config" / "config.yaml").read_text(encoding="utf-8"))
+
 _PLANTILLA = """\
 # Cabecera del archivo.
 esquema_version: 2
@@ -122,7 +128,7 @@ class PruebaMigracionCompleta(unittest.TestCase):
     def test_simular_no_escribe_nada(self) -> None:
         antes = self._config()
         resultado = mig.migrar(self.temporal, _RAIZ_REPO, simular=True)
-        self.assertEqual(resultado.version_final, 2)
+        self.assertEqual(resultado.version_final, _OBJETIVO)
         self.assertEqual(self._config(), antes)
         vector = self.temporal / "data" / "03_SIG" / "vector"
         self.assertTrue((vector / "area_influencia.shp").is_file())
@@ -130,10 +136,10 @@ class PruebaMigracionCompleta(unittest.TestCase):
     def test_migra_claves_valor_y_archivos(self) -> None:
         resultado = mig.migrar(self.temporal, _RAIZ_REPO)
         self.assertEqual((resultado.version_inicial, resultado.version_final),
-                         (1, 2))
+                         (1, _OBJETIVO))
 
         texto = self._config()
-        self.assertIn("esquema_version: 2", texto)
+        self.assertIn(f"esquema_version: {_OBJETIVO}", texto)
         self.assertIn("area_influencia_preliminar.shp", texto)
         self.assertIn("ampliacion:", texto)
         self.assertIn("buffer_area_km", texto)
@@ -155,8 +161,8 @@ class PruebaMigracionCompleta(unittest.TestCase):
         mig.migrar(self.temporal, _RAIZ_REPO)
         primera = self._config()
         segunda_pasada = mig.migrar(self.temporal, _RAIZ_REPO)
-        self.assertEqual(segunda_pasada.version_inicial, 2)
-        self.assertEqual(segunda_pasada.version_final, 2)
+        self.assertEqual(segunda_pasada.version_inicial, _OBJETIVO)
+        self.assertEqual(segunda_pasada.version_final, _OBJETIVO)
         self.assertEqual(self._config(), primera)
 
     def test_no_pisa_un_valor_que_el_consultor_cambio(self) -> None:

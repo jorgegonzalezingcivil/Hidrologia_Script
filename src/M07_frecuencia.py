@@ -373,7 +373,8 @@ def ejecutar(
     if bool(configuracion.obtener("frecuencia.usar_estaciones_del_m05")):
         admitidas = estaciones_del_m05(base, delimitador)
 
-    ruta_serie = rutas.directorio("procesado_series", base) / "series_ideam.csv"
+    ruta_serie = rutas.resolver(
+        configuracion.obtener("series.consolidada"), base)
 
     registro.registrar_cabecera(
         logger, MODULO, DESCRIPCION, config=configuracion,

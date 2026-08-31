@@ -40,7 +40,7 @@ from comun.errores import ErrorFormato, ErrorRutas
 CAMPOS_INTERNOS = (
     "codigo", "nombre", "latitud", "longitud", "altitud", "categoria",
     "parametro", "etiqueta", "frecuencia", "fecha", "valor",
-    "calificador", "nivel_aprobacion",
+    "calificador", "nivel_aprobacion", "fuente",
 )
 
 MOTIVO_SIN_EQUIVALENCIA = "parametro y tipo sin equivalencia declarada"
@@ -329,6 +329,9 @@ def normalizar(
         # conflicto, y un cero se leería como un nivel declarado.
         "calificador": "",
         "nivel_aprobacion": "",
+        # De que red salio el dato. Sin esto el M05 no podria distinguir una
+        # discrepancia ENTRE REDES de una de una estacion concreta.
+        "fuente": perfil.fuente,
     }
     return registro, ""
 

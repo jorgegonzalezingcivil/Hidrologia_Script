@@ -74,3 +74,26 @@ migraciones:
         # atrás produce una capa que se abre sin sistema de referencia.
         extensiones: [".shp", ".shx", ".dbf", ".prj", ".cpg", ".qmd",
                       ".shp.xml", "_campos.csv"]
+
+  - desde: 2
+    hasta: 3
+    titulo: "Serie consolidada de dos redes: IDEAM y CAR"
+    motivo: >-
+      La serie consolidada deja de ser solo del IDEAM y reune tambien las
+      estaciones de la CAR. El archivo se llamaba 'series_ideam.csv' y el
+      nombre pasaba a mentir, que es lo que la seccion 2 de CLAUDE.md prohibe.
+      Cada registro lleva ahora un campo 'fuente' que dice de que red salio.
+
+    claves_nuevas:
+      - clave: "series"
+        despues_de: "estaciones"
+
+    archivos_renombrados:
+      - de: "data/02_procesado/series/series_ideam"
+        a: "data/02_procesado/series/series"
+        motivo: >-
+          Se conserva el producto ya calculado bajo el nombre nuevo. Sin esto
+          habria que volver a ejecutar el M04, y eso significa volver a
+          descargar del IDEAM, que no es idempotente: un registro hoy
+          Preliminar puede ser Definitivo manana y la serie cambiaria.
+        extensiones: [".csv"]

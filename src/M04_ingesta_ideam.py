@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import itertools
 import io
 import json
 import sys
@@ -75,7 +76,17 @@ CAMPOS_INTERNOS = (
     "codigo", "nombre", "latitud", "longitud", "altitud", "categoria",
     "parametro", "etiqueta", "frecuencia", "fecha", "valor",
     "calificador", "nivel_aprobacion",
+    # DE QUE RED SALIO EL DATO. Desde que la serie consolidada reúne al IDEAM y
+    # a la CAR, sin este campo no se puede responder de dónde vino cada cifra, y
+    # el análisis de consistencia del M05 no podría distinguir una discrepancia
+    # ENTRE REDES de una discrepancia de una estación concreta. Va al final para
+    # no alterar el orden de las columnas que ya existían.
+    "fuente",
 )
+
+# Valor de 'fuente' cuando el registro viene del IDEAM. El de la CAR lo pone su
+# propio adaptador, que declara la fuente en su perfil.
+FUENTE_IDEAM = "ideam"
 
 
 @dataclass
@@ -106,6 +117,7 @@ class ResultadoM04:
     series_leidas: dict = field(default_factory=dict)
     perfiles_usados: dict = field(default_factory=dict)
     calificadores: dict = field(default_factory=dict)
+    car: dict = field(default_factory=dict)
     productos: list = field(default_factory=list)
     hallazgos: list = field(default_factory=list)
 
@@ -257,6 +269,7 @@ def normalizar(fila: dict[str, str], perfil: Perfil) -> dict[str, Any]:
         salida[interno] = valor.strip() if (perfil.recortar and valor) else valor
     salida["fecha"] = _fecha(salida.get("fecha", ""), perfil.formato_fecha)
     salida["valor"] = _numero(salida.get("valor", ""))
+    salida["fuente"] = FUENTE_IDEAM
     return salida
 
 
@@ -640,9 +653,21 @@ def ejecutar(
         return _cerrar(logger, resultado, base, ruta_json, inicio,
                        SALIDA_BLOQUEANTE)
 
+    with registro.bloque(logger, "Series de la CAR"):
+        registros_car = _ingerir_car(configuracion, base, resultado, logger)
+
     with registro.bloque(logger, f"Lectura de {len(archivos)} archivo(s)"):
+        # LAS DOS REDES PASAN POR LA MISMA DEDUPLICACION. Los codigos del IDEAM
+        # y de la CAR no se solapan (verificado: cero comunes entre 4.521 y
+        # 434), de modo que no puede haber conflicto entre fuentes; pero
+        # deduplicar juntas es lo que GARANTIZA que si algun dia se solaparan,
+        # el conflicto se resuelva por la precedencia declarada y quede contado,
+        # en lugar de aparecer como una estacion pesada dos veces.
         conservados, leidos, conflictos = deduplicar(
-            _recorrer(archivos, perfiles, patron, resultado, logger), aprobacion
+            itertools.chain(
+                _recorrer(archivos, perfiles, patron, resultado, logger),
+                registros_car),
+            aprobacion
         )
         resultado.archivos = len(archivos)
         resultado.registros_leidos = leidos
@@ -684,6 +709,91 @@ def ejecutar(
     codigo = (SALIDA_BLOQUEANTE if esquema.hay_bloqueantes(resultado.hallazgos)
               else SALIDA_CORRECTA)
     return _cerrar(logger, resultado, base, ruta_json, inicio, codigo)
+
+
+def _ingerir_car(configuracion, base, resultado, logger) -> list[dict]:
+    """
+    Lee el libro de la CAR, si el estudio lo tiene, y lo deja listo para unir.
+
+    UN ESTUDIO SIN DATOS DE LA CAR ES LO NORMAL fuera de su jurisdicción, de
+    modo que la ausencia se informa y se sigue con el IDEAM. Lo que sí se
+    reporta como advertencia es que el libro esté DECLARADO y no exista: eso no
+    es una ausencia, es una ruta equivocada.
+    """
+    declarado = str(configuracion.obtener("series.car.libro", "") or "").strip()
+    if not declarado:
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "car.sin_declarar",
+            "el estudio no declara libro de la CAR. La serie se construye solo "
+            "con el IDEAM, que es lo normal fuera de su jurisdiccion."))
+        return []
+
+    ruta_libro = rutas.resolver(declarado, base)
+    if not ruta_libro.is_file():
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "car.libro",
+            f"se declara el libro de la CAR en {declarado} y no existe. NO se "
+            "ingesta nada de esa red, y el estudio continua solo con el IDEAM: "
+            "revisar la ruta antes de dar la serie por completa."))
+        return []
+
+    try:
+        perfil = ingesta_car.cargar_perfil(
+            rutas.resolver(configuracion.obtener("series.car.perfil"), base))
+        catalogo = ingesta_car.leer_catalogo(
+            rutas.resolver(perfil.catalogo, base))
+        salida = ingesta_car.ingerir(ruta_libro, perfil, catalogo)
+    except (ErrorFormato, ErrorRutas, ImportError, ValueError) as error:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "car.ingesta",
+            f"no se pudo leer el libro de la CAR: {error}. Se detiene en lugar "
+            "de escribir una serie a la que le falta una red entera sin que "
+            "nada lo indique."))
+        return []
+
+    logger.info("CAR: %d fila(s) leidas, %d normalizadas, %d estacion(es)",
+                salida.leidos, len(salida.registros), len(salida.estaciones))
+    resultado.car = {
+        "libro": rutas.relativa(ruta_libro, base),
+        "leidos": salida.leidos,
+        "normalizados": len(salida.registros),
+        "estaciones": len(salida.estaciones),
+        "por_etiqueta": dict(sorted(salida.por_etiqueta.items())),
+        "descartados": dict(salida.descartados),
+    }
+
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "car.ingesta",
+        f"de {salida.leidos} filas del libro de la CAR entraron "
+        f"{len(salida.registros)} de {len(salida.estaciones)} estacion(es), en "
+        f"las series {', '.join(sorted(salida.por_etiqueta))}. El resto son "
+        "descartes declarados en el perfil, no perdidas: "
+        + "; ".join(f"{motivo}: {cuantos}"
+                    for motivo, cuantos in sorted(salida.descartados.items(),
+                                                  key=lambda kv: -kv[1]))))
+
+    sin_consumidor = {e: n for e, n in salida.sin_consumidor.items() if n}
+    if sin_consumidor:
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "car.sin_consumidor",
+            f"entran {sum(sin_consumidor.values())} registro(s) de "
+            f"{', '.join(sorted(sin_consumidor))} que HOY ningun modulo "
+            "consume: la CAR publica media mensual y el M18a construye el campo "
+            "termico con series diarias de maxima y minima, que es otra "
+            "variable. Quedan en la serie para que el informe pueda citarlas."))
+
+    for motivo in (ingesta_car.MOTIVO_UNIDAD, ingesta_car.MOTIVO_SIN_CATALOGO):
+        cuantos = salida.descartados.get(motivo, 0)
+        if not cuantos:
+            continue
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, f"car.{'unidad' if motivo == ingesta_car.MOTIVO_UNIDAD else 'catalogo'}",
+            f"{cuantos} fila(s) rechazadas por '{motivo}'. Ejemplos: "
+            f"{salida.ejemplos.get(motivo, [])[:3]}. No es un descarte "
+            "declarado: o el perfil no describe lo que la CAR entrega, o la "
+            "entrega cambio."))
+
+    return salida.registros
 
 
 def _recorrer(archivos, perfiles, patron, resultado, logger):
@@ -754,8 +864,8 @@ def _resumir(resultado: ResultadoM04, calificadores: dict) -> list[Hallazgo]:
 
 def _escribir(configuracion, base, conservados, resultado, logger) -> None:
     """Escribe la serie consolidada en CSV."""
-    destino = rutas.directorio("procesado_series", base, crear=True) / \
-        "series_ideam.csv"
+    destino = rutas.resolver(configuracion.obtener("series.consolidada"), base)
+    destino.parent.mkdir(parents=True, exist_ok=True)
     delimitador = configuracion.obtener("insumos_usuario.delimitador_csv")
 
     with destino.open("w", encoding="utf-8-sig", newline="") as manejador:

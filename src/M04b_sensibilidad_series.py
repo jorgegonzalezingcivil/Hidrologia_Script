@@ -1216,7 +1216,8 @@ def ejecutar(
     ventanas = {etiqueta_de_ventana(v, anio_estudio):
                 resolver_ventana(v, anio_estudio) for v in declaradas}
 
-    ruta_serie = rutas.directorio("procesado_series", base) / "series_ideam.csv"
+    ruta_serie = rutas.resolver(
+        configuracion.obtener("series.consolidada"), base)
     reporte_m04 = rutas.directorio("procesado", base) / "M04_ingesta.json"
 
     registro.registrar_cabecera(
