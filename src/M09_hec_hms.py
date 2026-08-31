@@ -32,13 +32,17 @@ su subcuenca y la red drene al punto) exige leer geometría vértice a vértice,
 eso pertenece al entorno SIG. Se declara como no verificado en lugar de darlo
 por bueno.
 
-ADVERTENCIA sobre el DEM. Se entrega SIN reacondicionar, por decisión declarada.
-El riesgo es conocido y está medido: con el DEM de radar crudo, el M02 llegó a
+EL DEM SE ENTREGA CRUDO Y SE REACONDICIONA DENTRO DE HEC-HMS, por decisión
+declarada en MANIFIESTO.yaml. No es una carencia de la cadena: lo hace el mismo
+motor que después delimita, y así no se trabaja sobre dos terrenos distintos.
+El INSTRUCTIVO lo pone como paso 3, antes de preprocesar, y no como remedio.
+
+El riesgo de saltárselo está medido: con el DEM de radar crudo, el M02 llegó a
 delimitar una cuenca de 6,59 km² en terreno plano, porque el ruido vertical
 gobierna las direcciones de flujo donde el relieve es de centímetros por
-kilómetro. Por eso el drenaje cartográfico viaja entre los insumos como capa de
-verificación, y la comprobación de área al importar es el control que atrapa esa
-falla si se repite.
+kilómetro. Lo grave es que una cuenca así sale PLAUSIBLE y nada la señala. Por
+eso el drenaje cartográfico viaja entre los insumos, y la comprobación de área
+al importar es el control que atrapa la falla si se repite.
 
 Productos (--preparar):
     data/04_modelos/hec_hms/insumos/    DEM, punto, cuenca, drenaje
@@ -511,42 +515,52 @@ Todo está en {crs}.
 1. Abrir HEC-HMS {version} y crear (o abrir) el proyecto del estudio.
 2. Definir el terreno: `Components > Terrain Data Manager`, y cargar
    `dem_recortado.tif`.
-3. Crear el modelo de cuenca: `Components > Basin Model Manager`.
-4. En el modelo, `GIS > Preprocess Sinks` y luego `GIS > Preprocess Drainage`.
-5. `GIS > Identify Streams` con el umbral de área que corresponda al detalle
+3. **REACONDICIONAR el terreno con la red del IGAC**, rebajando el DEM a lo
+   largo de los cauces de `drenaje_sencillo_area.shp` (AGREE o burn-in).
+
+   **Es el primer paso del procedimiento, no un remedio.** El DEM llega crudo
+   a propósito: la cadena no lo reacondiciona porque este paso lo hace mejor,
+   con el mismo motor que después delimita. Saltárselo no produce un error
+   sino una delimitación plausible y equivocada, que es peor.
+
+4. Crear el modelo de cuenca: `Components > Basin Model Manager`.
+5. En el modelo, `GIS > Preprocess Sinks` y luego `GIS > Preprocess Drainage`.
+6. `GIS > Identify Streams` con el umbral de área que corresponda al detalle
    buscado. Comparar el resultado con `drenaje_sencillo_area.shp`: **si las
-   corrientes trazadas no siguen la red cartográfica, detenerse aquí** y ver la
-   advertencia de más abajo.
-6. `GIS > Break Points` en el punto de `punto_descarga.shp`, y en los sitios
+   corrientes trazadas no siguen la red cartográfica, detenerse aquí** y volver
+   al paso 3, porque el reacondicionamiento no surtió efecto.
+7. `GIS > Break Points` en el punto de `punto_descarga.shp`, y en los sitios
    donde se quiera separar subcuencas.
-7. `GIS > Delineate Elements` para generar subcuencas y tramos.
-8. Comparar el área total obtenida con las dos referencias:
+8. `GIS > Delineate Elements` para generar subcuencas y tramos.
+9. Comparar el área total obtenida con las dos referencias:
 
 {referencia}
-9. Exportar la delimitación a shapefile y depositarla en:
+10. Exportar la delimitación a shapefile y depositarla en:
 
-       {salida}
+        {salida}
 
 {exportar}
-10. Volver a la línea de órdenes y ejecutar:
+11. Volver a la línea de órdenes y ejecutar:
 
         python src/M09_hec_hms.py --importar
 
-## ADVERTENCIA sobre el terreno
+## POR QUE EL PASO 3 NO ES OPCIONAL
 
-El DEM se entrega **sin reacondicionar**, por decisión declarada en
-`MANIFIESTO.yaml`.
+El DEM se entrega **crudo**, y el reacondicionamiento corresponde a este paso
+manual: lo hace el mismo motor que después delimita, y hacerlo aquí evita que
+la cadena y HEC-HMS trabajen sobre dos terrenos distintos.
 
-El riesgo está medido en este mismo estudio: con el DEM de radar crudo, el
-análisis de terreno del M02 llegó a delimitar una cuenca de **6,59 km²** donde
-la cartografía daba órdenes de magnitud más. La causa es que en la sabana el
-relieve cae centímetros por kilómetro mientras el DEM tiene incertidumbre
-vertical de varios metros: el ruido gobierna las direcciones de flujo.
+El riesgo de saltárselo está **medido en este mismo estudio**: con el DEM de
+radar crudo, el análisis de terreno llegó a delimitar una cuenca de
+**6,59 km²** donde la cartografía daba órdenes de magnitud más. La causa es que
+en la sabana el relieve cae centímetros por kilómetro mientras el DEM tiene
+incertidumbre vertical de varios metros, de modo que el ruido gobierna las
+direcciones de flujo.
 
-Si en el paso 5 las corrientes trazadas no siguen la red del IGAC, o si en el
-paso 8 el área se aparta de la cartográfica, el remedio es **reacondicionar el
-DEM** rebajándolo a lo largo de los cauces (AGREE o burn-in) antes de volver a
-delimitar. Los shapefiles de drenaje están en esta carpeta para eso.
+Lo grave no es el tamaño del error sino su apariencia: **una cuenca delimitada
+sobre un DEM ruidoso sale plausible**, con su forma y su red, y nada en
+HEC-HMS la señala. Por eso el paso 3 va antes y no después, y por eso los
+shapefiles de drenaje del IGAC viajan en esta carpeta.
 
 ## Qué queda sin verificar
 
