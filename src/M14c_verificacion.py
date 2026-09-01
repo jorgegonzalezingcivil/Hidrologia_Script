@@ -90,6 +90,7 @@ class Pareja:
     union: str
     distancia_m: float
     anios: int = 0
+    caudal_base: float = 0.0
     maximos: dict[int, float] = field(default_factory=dict)
 
 
@@ -139,6 +140,31 @@ def media_movil_maxima(
         if acumulado > mejor:
             mejor = acumulado
     return mejor / n
+
+
+def cota_inferior_del_pico(
+    media_diaria_observada: float, caudal_base: float = 0.0,
+) -> float:
+    """
+    Cota INFERIOR del pico instantaneo que de verdad ocurrio.
+
+    LA CLAVE DE TODA LA VERIFICACION, y no necesita suponer ningun factor: el
+    pico instantaneo de un dia SIEMPRE es mayor o igual que la media de ese
+    mismo dia, porque una media no puede superar al maximo que la compone. De
+    modo que la media diaria observada es una cota inferior del pico real.
+
+    Con eso se puede probar una cosa y solo una: si el pico del modelo queda por
+    DEBAJO de esa cota, el modelo es demasiado bajo con certeza. Lo contrario no
+    se puede concluir, porque el pico real puede estar muy por encima de su
+    media diaria y no sabemos cuanto.
+
+    SE DESCUENTA EL CAUDAL BASE porque el modelo no lo simula: su hidrograma
+    arranca en cero y vuelve a cero. Cargarle una diferencia que corresponde al
+    caudal ordinario del rio seria culparlo de algo que no pretende reproducir.
+    El descuento hace la prueba MAS conservadora, es decir mas dificil de
+    declarar que el modelo esta bajo.
+    """
+    return max(0.0, float(media_diaria_observada) - float(caudal_base))
 
 
 def periodos_sostenidos(
@@ -297,6 +323,34 @@ def leer_caudal_observado(
     return salida
 
 
+def leer_caudal_medio(
+    ruta_serie: Path, delimitador: str, codigos: Sequence[str],
+) -> dict[str, list[float]]:
+    """
+    Caudal medio mensual de cada estacion, para estimar el caudal base.
+
+    El modelo no simula flujo base: su hidrograma arranca en cero y vuelve a
+    cero. Cargarle la diferencia que corresponde al caudal ordinario del rio
+    seria culparlo de algo que no pretende reproducir.
+    """
+    buscados = {str(c).strip() for c in codigos}
+    salida: dict[str, list[float]] = {}
+    if not Path(ruta_serie).is_file():
+        return salida
+    with Path(ruta_serie).open(encoding="utf-8-sig", newline="") as manejador:
+        for fila in csv.DictReader(manejador, delimiter=delimitador):
+            if fila.get("etiqueta") != "Q_MEDIA_M":
+                continue
+            codigo = (fila.get("codigo") or "").strip()
+            if codigo not in buscados:
+                continue
+            try:
+                salida.setdefault(codigo, []).append(float(fila["valor"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return salida
+
+
 def estaciones_de_caudal_en_la_cuenca(
     ruta_inventario: Path, delimitador: str, ruta_cuenca: Path,
     crs_catalogo: str, crs_lienzo: str,
@@ -356,43 +410,62 @@ def estaciones_de_caudal_en_la_cuenca(
 # =============================================================================
 def _figura_contraste(graficos, estilo, directorio, pareja, filas, base,
                       resultado) -> None:
-    """Frecuencia observada con su banda, y encima los valores del modelo."""
+    """
+    El contraste: pico modelado contra la cota inferior del pico observado.
+
+    Se dibuja la COTA y no la media diaria sin mas, porque la cota es lo que la
+    prueba usa: por debajo de ella el modelo esta bajo con certeza, por encima
+    no se puede concluir nada. La banda del ajuste observado se dibuja detras
+    para que se vea cuanta incertidumbre arrastra el dato.
+    """
     if not filas:
         return
     periodos = [f["periodo_retorno"] for f in filas]
-    observado = [f["observado_m3s"] for f in filas]
-    inferior = [f["banda_inferior_m3s"] for f in filas]
-    superior = [f["banda_superior_m3s"] for f in filas]
-    modelado = [f["modelado_24h_m3s"] for f in filas]
+    cota = [f["cota_inferior_del_pico_m3s"] for f in filas]
+    pico = [f["pico_modelado_m3s"] for f in filas]
+    inferior = [max(0.0, f["banda_inferior_m3s"] - f["caudal_base_m3s"])
+                for f in filas]
+    superior = [max(0.0, f["banda_superior_m3s"] - f["caudal_base_m3s"])
+                for f in filas]
 
     with graficos.figura(
         estilo,
         titulo=(f"Verificacion de crecientes en {pareja.union}\n"
                 f"{pareja.codigo} {pareja.nombre} ({pareja.anios} anios)"),
         etiqueta_x="Periodo de retorno (anios)",
-        etiqueta_y="Caudal medio diario maximo (m3/s)",
+        etiqueta_y="Caudal (m3/s)",
     ) as (fig, ax):
-        ax.fill_between(periodos, inferior, superior, alpha=0.22,
+        ax.fill_between(periodos, inferior, superior, alpha=0.18,
                         color="#1f77b4",
-                        label="Banda de confianza de lo observado")
-        ax.plot(periodos, observado, "-o", color="#1f4e79", ms=5,
-                label="Frecuencia observada")
-        ax.plot(periodos, modelado, "-s", color="#c0392b", ms=5,
-                label="Modelo, media movil de 24 h")
+                        label="Banda del ajuste observado")
+        ax.plot(periodos, cota, "-o", color="#1f4e79", ms=5,
+                label="COTA INFERIOR del pico observado")
+        ax.plot(periodos, pico, "-s", color="#c0392b", ms=5,
+                label="Pico modelado")
         for f in filas:
-            if not f["dentro_de_la_banda"]:
-                ax.plot([f["periodo_retorno"]], [f["modelado_24h_m3s"]], "x",
+            if f["modelo_demasiado_bajo"]:
+                ax.plot([f["periodo_retorno"]], [f["pico_modelado_m3s"]], "x",
                         color="#c0392b", ms=13, mew=2.5)
         ax.set_xscale("log")
         ax.set_xticks(periodos)
-        ax.get_xaxis().set_major_formatter(
-            __import__("matplotlib").ticker.ScalarFormatter())
+        eje = ax.get_xaxis()
+        ticker = __import__("matplotlib").ticker
+        eje.set_major_formatter(ticker.ScalarFormatter())
+        # Sin esto el eje logaritmico anade sus propias marcas menores
+        # (3x10^0, 2x10^1) encima de los periodos declarados, y el lector ve
+        # dos juegos de numeros mezclados.
+        eje.set_minor_formatter(ticker.NullFormatter())
+        eje.set_minor_locator(ticker.NullLocator())
         ax.grid(alpha=0.25, which="both")
         ax.legend(frameon=False, fontsize=9)
-        fig.tight_layout(rect=(0, 0.05, 1, 1))
+        fig.tight_layout(rect=(0, 0.09, 1, 1))
+        fig.text(0.01, 0.045,
+                 "El pico real observado es al menos su media diaria: por DEBAJO "
+                 "de la cota el modelo esta bajo con certeza (aspa).",
+                 fontsize=8, color="#555555")
         fig.text(0.01, 0.012,
-                 "La aspa marca el periodo en que el modelo cae FUERA de la "
-                 "banda. Solo se verifica hasta donde el registro sostiene.",
+                 "Por ENCIMA no se concluye nada: el pico real puede estar muy "
+                 "arriba y este dato no dice cuanto. Ya se descuenta el caudal base.",
                  fontsize=8, color="#555555")
         nombre = f"M14c_verificacion_{pareja.union}"
         for ruta in graficos.guardar(fig, directorio / nombre, estilo):
@@ -522,10 +595,18 @@ def ejecutar(
     with registro.bloque(logger, "Caudal observado"):
         observados = leer_caudal_observado(
             ruta_serie, delimitador, [p.codigo for p in parejas])
+        medios = leer_caudal_medio(
+            ruta_serie, delimitador, [p.codigo for p in parejas])
         for pareja in parejas:
             pareja.maximos = maximos_anuales_de_mensuales(
                 observados.get(pareja.codigo, {}))
             pareja.anios = len(pareja.maximos)
+            # El caudal ordinario del rio, que el modelo NO simula. Se toma la
+            # mediana y no la media para que un solo anio extraordinario no la
+            # desplace.
+            serie_media = sorted(medios.get(pareja.codigo, []))
+            pareja.caudal_base = (serie_media[len(serie_media) // 2]
+                                  if serie_media else 0.0)
             logger.info("  %s %s -> %s a %.0f m | %d anio(s) de caudal",
                         pareja.codigo, pareja.nombre[:22], pareja.union,
                         pareja.distancia_m, pareja.anios)
@@ -635,19 +716,30 @@ def _contrastar(pareja, hidrogramas, periodos_todos, confianza, repeticiones,
                 "y volver a correr el M13 y el M14."))
             return filas
         d = banda[periodo]
-        dentro = dentro_de_la_banda(media, d["inferior"], d["superior"])
+        pico = max(v for _, v in serie)
+        # LA PRUEBA QUE DECIDE es de un solo lado y no supone ningun factor: el
+        # pico real observado es al menos su media diaria, de modo que un pico
+        # modelado por debajo de esa cota es demasiado bajo con certeza.
+        cota = cota_inferior_del_pico(d["cuantil"], pareja.caudal_base)
+        demasiado_bajo = pico < cota
         filas.append({
             "union": pareja.union, "codigo": pareja.codigo,
             "estacion": pareja.nombre, "anios": pareja.anios,
             "periodo_retorno": periodo,
-            "observado_m3s": round(d["cuantil"], 3),
+            "observado_media_diaria_m3s": round(d["cuantil"], 3),
             "banda_inferior_m3s": round(d["inferior"], 3),
             "banda_superior_m3s": round(d["superior"], 3),
+            "caudal_base_m3s": round(pareja.caudal_base, 3),
+            "cota_inferior_del_pico_m3s": round(cota, 3),
+            "pico_modelado_m3s": round(pico, 3),
+            "modelo_demasiado_bajo": demasiado_bajo,
+            "holgura_pct": round(100.0 * (pico - cota) / max(cota, 1e-9), 1),
+            # Se conserva la media de 24 h como CONTEXTO de volumen, no como
+            # veredicto: el modelo simula una tormenta de 3 h elegida para
+            # maximizar el pico, y un dia real de caudal medio maximo tiene
+            # lluvia repartida en muchas mas horas. Las dos cifras comparten
+            # unidad pero no fenomeno.
             "modelado_24h_m3s": round(media, 3),
-            "pico_modelado_m3s": round(max(v for _, v in serie), 3),
-            "dentro_de_la_banda": dentro,
-            "desviacion_pct": round(
-                100.0 * (media - d["cuantil"]) / max(d["cuantil"], 1e-9), 1),
         })
     return filas
 
@@ -704,48 +796,67 @@ def _escribir(configuracion, base, resultado, delimitador, logger) -> None:
 
 
 def _resumir(resultado: ResultadoM14c) -> list[Hallazgo]:
-    """El veredicto, que es lo que el informe tiene que poder declarar."""
+    """
+    El veredicto. Es de UN SOLO LADO y conviene no leerlo como mas de lo que es.
+
+    Se puede demostrar que el modelo es BAJO, porque el pico real observado es
+    al menos su media diaria. No se puede demostrar que sea correcto: el pico
+    real puede estar muy por encima de esa cota y no sabemos cuanto.
+    """
     hallazgos: list[Hallazgo] = []
     if not resultado.contrastes:
         return hallazgos
 
-    dentro = [f for f in resultado.contrastes if f["dentro_de_la_banda"]]
-    fuera = [f for f in resultado.contrastes if not f["dentro_de_la_banda"]]
+    bajos = [f for f in resultado.contrastes if f["modelo_demasiado_bajo"]]
     total = len(resultado.contrastes)
 
-    detalle = "; ".join(
-        f"{f['union']} Tr {f['periodo_retorno']:g}: modelo "
-        f"{f['modelado_24h_m3s']:.2f} contra banda "
-        f"[{f['banda_inferior_m3s']:.2f}, {f['banda_superior_m3s']:.2f}] "
-        f"({f['desviacion_pct']:+.0f} %)" for f in fuera[:6])
-
-    if not fuera:
+    if not bajos:
         hallazgos.append(Hallazgo(
             INFORMATIVO, "verificacion.resultado",
-            f"el modelo cae DENTRO de la banda de confianza observada en los "
-            f"{total} contraste(s), SIN haber ajustado ningun parametro. Eso es "
-            "VERIFICACION y es evidencia de que el modelo representa la cuenca: "
-            "la coincidencia no se busco."))
+            f"en los {total} contraste(s) el pico modelado supera la cota "
+            "inferior del pico observado, de modo que NADA contradice al "
+            "modelo. Atencion a lo que esto significa y a lo que no: es una "
+            "prueba de un solo lado. Demuestra que el modelo no se queda corto, "
+            "NO que acierte. El pico real puede estar muy por encima de su "
+            "media diaria, y con este dato no se puede saber cuanto."))
         return hallazgos
 
-    hallazgos.append(Hallazgo(
-        ADVERTENCIA, "verificacion.resultado",
-        f"el modelo cae fuera de la banda observada en {len(fuera)} de {total} "
-        f"contraste(s). {detalle}. NO se ajusta ningun parametro de forma "
-        "automatica: el ajuste es una decision del consultor y, si se hace, "
-        "deja de ser verificacion y pasa a ser CALIBRACION, con lo que la "
-        "coincidencia posterior ya no es evidencia de que el modelo sea bueno "
-        "sino resultado de haberla buscado. El informe debe declarar cual de "
-        "las dos ocurrio."))
+    detalle = "; ".join(
+        f"{f['union']} Tr {f['periodo_retorno']:g}: pico modelado "
+        f"{f['pico_modelado_m3s']:.2f} contra una cota de "
+        f"{f['cota_inferior_del_pico_m3s']:.2f}" for f in bajos[:6])
+    periodos = sorted({f["periodo_retorno"] for f in bajos})
 
-    if len(dentro) >= len(fuera):
+    hallazgos.append(Hallazgo(
+        ADVERTENCIA, "verificacion.modelo_bajo",
+        f"el modelo es DEMASIADO BAJO con certeza en {len(bajos)} de {total} "
+        f"contraste(s), en los periodos {periodos}. {detalle}. La certeza viene "
+        "de que el pico instantaneo de un dia siempre supera a la media de ese "
+        "dia: si el modelo no alcanza ni la media observada, no puede estar "
+        "reproduciendo el pico. Ya se descuenta el caudal base, que el modelo "
+        "no simula."))
+
+    frecuentes = [p for p in periodos if p <= 10]
+    if frecuentes and len(bajos) < total:
         hallazgos.append(Hallazgo(
-            INFORMATIVO, "verificacion.parcial",
-            f"aun asi, {len(dentro)} de {total} contraste(s) caen dentro. Un "
-            "desajuste en unos periodos y no en otros apunta a la forma de la "
-            "distribucion o a la hipotesis de que la creciente hereda el "
-            "periodo de retorno de la lluvia, mas que a los parametros del "
-            "modelo."))
+            INFORMATIVO, "verificacion.patron",
+            f"el desajuste se concentra en los periodos frecuentes {frecuentes} "
+            "y desaparece en los altos. Es el comportamiento conocido del "
+            "metodo: con tormenta de diseno corta y sin flujo base, los eventos "
+            "frecuentes salen bajos porque en ellos pesan la humedad antecedente "
+            "y el caudal base, mientras que en los extremos domina la tormenta. "
+            "Apunta a la hipotesis de partida antes que a los parametros, y "
+            "conviene mirarlo antes de tocar el numero de curva o el rezago: "
+            "bajar el CN para que casen los frecuentes subiria tambien los "
+            "extremos, que hoy no se contradicen."))
+
+    hallazgos.append(Hallazgo(
+        INFORMATIVO, "verificacion.decision",
+        "NO se ajusta ningun parametro de forma automatica. Ajustar es decision "
+        "del consultor y convierte la verificacion en CALIBRACION: la "
+        "coincidencia posterior deja de ser evidencia de que el modelo sea "
+        "bueno y pasa a ser el resultado de haberla buscado. El informe debe "
+        "declarar cual de las dos ocurrio."))
     return hallazgos
 
 
@@ -753,24 +864,52 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
     """Emite el reporte, escribe el JSON y cierra el log."""
     orden = {BLOQUEANTE: 0, ADVERTENCIA: 1, INFORMATIVO: 2}
     hallazgos = sorted(resultado.hallazgos,
-                   key=lambda h: (orden.get(h.severidad, 9), h.clave))
-    registro.registrar_hallazgos(logger, hallazgos)
+                       key=lambda h: (orden.get(h.severidad, 9), h.clave))
 
-    destino = ruta_json or (rutas.directorio("procesado", base, crear=True)
-                            / "M14c_verificacion.json")
-    Path(destino).parent.mkdir(parents=True, exist_ok=True)
-    Path(destino).write_text(json.dumps({
+    logger.info(registro.SEPARADOR)
+    for severidad, emitir in ((BLOQUEANTE, logger.error),
+                              (ADVERTENCIA, logger.warning),
+                              (INFORMATIVO, logger.info)):
+        grupo = [h for h in hallazgos if h.severidad == severidad]
+        if not grupo:
+            continue
+        emitir("%s (%d)", severidad, len(grupo))
+        for hallazgo in grupo:
+            emitir("  %-44s %s", hallazgo.clave, hallazgo.mensaje)
+
+    conteo = esquema.resumen_por_severidad(hallazgos)
+    logger.info(registro.SEPARADOR)
+    logger.info("RESUMEN: %d bloqueante(s), %d advertencia(s), %d informativo(s)",
+                conteo[BLOQUEANTE], conteo[ADVERTENCIA], conteo[INFORMATIVO])
+
+    if ruta_json is None:
+        ruta_json = (rutas.directorio("procesado", base, crear=True)
+                     / "M14c_verificacion.json")
+    ruta_json = Path(ruta_json)
+    ruta_json.parent.mkdir(parents=True, exist_ok=True)
+    ruta_json.write_text(json.dumps({
         "modulo": MODULO,
         "parejas": resultado.parejas,
         "sin_pareja": resultado.sin_pareja,
         "tr_maximo_verificado": resultado.tr_maximo,
         "contrastes": resultado.contrastes,
+        "productos": resultado.productos,
+        "resumen": conteo,
+        "codigo_salida": codigo,
+        "conforme": codigo == SALIDA_CORRECTA,
         "hallazgos": [h.como_dict() for h in hallazgos],
     }, ensure_ascii=False, indent=2), encoding="utf-8")
-    resultado.productos.append(rutas.relativa(Path(destino), base))
 
-    registro.registrar_productos(logger, resultado.productos)
-    registro.registrar_cierre(logger, MODULO, codigo, time.perf_counter() - inicio)
+    productos = {f"producto {i}": p
+                 for i, p in enumerate(resultado.productos, start=1)}
+    productos["reporte JSON"] = rutas.relativa(ruta_json, base)
+    archivo_log = registro.ruta_log(logger)
+    if archivo_log is not None:
+        productos["log de ejecucion"] = rutas.relativa(archivo_log, base)
+
+    registro.registrar_cierre(
+        logger, MODULO, "CORRECTO" if codigo == SALIDA_CORRECTA else "DETENIDO",
+        segundos=time.perf_counter() - inicio, productos=productos)
     return codigo, hallazgos
 
 
