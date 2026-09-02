@@ -4498,7 +4498,7 @@ def _figuras_de_subcuenca(graficos, configuracion, base, resultado, estilo,
     if con_cn:
         ponderado = resultado.suelos.get("cn_ponderado")
         with graficos.figura(
-                estilo, titulo="Numero de curva por subcuenca",
+                estilo, titulo="Número de curva por subcuenca",
                 etiqueta_x="Subcuenca, ordenada por CN",
                 etiqueta_y="CN (condicion II)") as (fig, ax):
             ordenadas = sorted(con_cn, key=lambda s: s["cn"])
@@ -4507,7 +4507,7 @@ def _figuras_de_subcuenca(graficos, configuracion, base, resultado, estilo,
             if ponderado:
                 ax.axhline(ponderado, color="#b03a2e", linewidth=1.2,
                            linestyle="--",
-                           label=f"ponderado por area: {ponderado:.1f}")
+                           label=f"ponderado por área: {ponderado:.1f}")
                 ax.legend(loc="upper left", frameon=False,
                           fontsize=estilo.tamano_fuente - 1)
             ax.set_xlim(-0.5, len(ordenadas) - 0.5)
@@ -4516,14 +4516,14 @@ def _figuras_de_subcuenca(graficos, configuracion, base, resultado, estilo,
         if entidades:
             registrar(_mapa_de_subcuencas(
                 graficos, estilo, entidades, resultado, "cn",
-                "Numero de curva por subcuenca", "CN (condicion II)",
+                "Número de curva por subcuenca", "CN (condicion II)",
                 directorio / "M10_mapa_cn", base, rampa="YlOrBr"))
 
     con_tc = [s for s in subcuencas if s.get("tc_minutos") is not None]
     if con_tc:
         with graficos.figura(
                 estilo, titulo="Tiempo de concentracion y rezago por subcuenca",
-                etiqueta_x="Area de la subcuenca (km2)",
+                etiqueta_x="Área de la subcuenca (km2)",
                 etiqueta_y="Tiempo (min)") as (fig, ax):
             ax.scatter([s["area_km2"] for s in con_tc],
                        [s["tc_minutos"] for s in con_tc],
@@ -4542,7 +4542,7 @@ def _figuras_de_subcuenca(graficos, configuracion, base, resultado, estilo,
                            label=f"fuera del rango de la formula ({len(sin_tc)})")
             ax.axhline(intervalo, color="#b03a2e", linewidth=1.0,
                        linestyle=":",
-                       label=f"intervalo de calculo, {intervalo:.0f} min")
+                       label=f"intervalo de cálculo, {intervalo:.0f} min")
             ax.set_xscale("log")
             ax.legend(loc="upper left", frameon=False,
                       fontsize=estilo.tamano_fuente - 1)
@@ -4558,8 +4558,8 @@ def _figuras_de_subcuenca(graficos, configuracion, base, resultado, estilo,
     if areas:
         pequenas = [a for a in areas if a < minimo_area]
         with graficos.figura(
-                estilo, titulo="Distribucion de areas de subcuenca",
-                etiqueta_x="Area (km2)",
+                estilo, titulo="Distribución de áreas de subcuenca",
+                etiqueta_x="Área (km2)",
                 etiqueta_y="Subcuencas acumuladas") as (fig, ax):
             ax.step(areas, range(1, len(areas) + 1), where="post",
                     color=estilo.color(0), linewidth=1.4)
@@ -4574,7 +4574,7 @@ def _figuras_de_subcuenca(graficos, configuracion, base, resultado, estilo,
         if entidades:
             registrar(_mapa_de_subcuencas(
                 graficos, estilo, entidades, resultado, "area_km2",
-                "Area de las subcuencas", "Area (km2)",
+                "Area de las subcuencas", "Área (km2)",
                 directorio / "M10_mapa_areas", base, rampa="Greens"))
 
     # Dos calculos que no comparten una linea de codigo sobre el mismo DEM. En
@@ -4587,7 +4587,7 @@ def _figuras_de_subcuenca(graficos, configuracion, base, resultado, estilo,
         with graficos.figura(
                 estilo,
                 titulo="Pendiente por subcuenca frente al valor de la cuenca",
-                etiqueta_x="Area de la subcuenca (km2)",
+                etiqueta_x="Área de la subcuenca (km2)",
                 etiqueta_y="Pendiente media (%)") as (fig, ax):
             ax.scatter([s["area_km2"] for s in con_pendiente],
                        [100.0 * s["pendiente_cuenca"] for s in con_pendiente],

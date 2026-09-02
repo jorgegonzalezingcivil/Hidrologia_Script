@@ -1194,6 +1194,43 @@ ESQUEMA: dict[str, Campo] = {
     # El área de influencia DEFINITIVA, escrita al importar sobre la
     # delimitación ya asistida. La del M02 es preliminar y solo acota descargas.
     # --- M14c: verificación de crecientes ------------------------------------
+    "verificacion.minimo_anios_indicativo": entero(
+        "anios por debajo de los cuales la estacion no entra ni como referencia",
+        minimo=3, maximo=30,
+    ),
+    "numero_curva.factor_calibracion": numero(
+        "factor de calibracion sobre el CN de suelos y coberturas; 1,00 es sin "
+        "tocar y cualquier otro valor es calibracion que el informe debe "
+        "declarar",
+        minimo=0.5, maximo=1.2,
+    ),
+    "numero_curva.abstraccion_inicial_lambda": numero(
+        "cociente Ia/S; 0,20 el clasico y 0,05 el revisado, unicos con "
+        "conversion de S publicada",
+        minimo=0.05, maximo=0.20,
+    ),
+    "hec_hms.flujo_base.metodo": texto(
+        "metodo de flujo base del modelo", opciones=("ninguno", "recesion"),
+    ),
+    "hec_hms.flujo_base.caudal_especifico_m3s_km2": numero(
+        "caudal base antecedente por unidad de area, en m3/s por km2",
+        minimo=0.0, maximo=1.0,
+    ),
+    "hec_hms.flujo_base.factor_recesion": numero(
+        "razon entre el flujo base de un dia y el del dia anterior",
+        minimo=0.1, maximo=0.999,
+    ),
+    "hec_hms.flujo_base.umbral_pico": numero(
+        "fraccion del pico en que la recesion vuelve a mandar",
+        minimo=0.01, maximo=0.9,
+    ),
+    "hec_hms.transito.muskingum.x": numero(
+        "ponderacion del almacenamiento en Muskingum; 0,5 es traslacion "
+        "pura y valores bajos mas atenuacion. NO puede ser 0: eso es un "
+        "embalse de nivel horizontal, no un cauce. En cauces naturales "
+        "va de 0,1 a 0,3",
+        minimo=0.1, maximo=0.499,
+    ),
     "verificacion.confianza": numero(
         "confianza de la banda del ajuste observado", minimo=0.5, maximo=0.999),
     "verificacion.repeticiones": entero(

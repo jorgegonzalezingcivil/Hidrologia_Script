@@ -19,6 +19,7 @@ if str(_DIRECTORIO_SRC) not in sys.path:
 
 import M14c_verificacion as m14c  # noqa: E402
 import frecuencia as fr  # noqa: E402
+import M13_hec_hms as m13  # noqa: E402
 
 
 class PruebaMediaMovil(unittest.TestCase):
@@ -127,6 +128,18 @@ class PruebaEmparejamiento(unittest.TestCase):
 
 class PruebaMaximosAnualesDeCaudal(unittest.TestCase):
 
+    def test_un_anio_sin_un_mes_seco_sigue_sirviendo(self) -> None:
+        # La creciente anual no ocurre en un mes seco: descartar el anio por esa
+        # ausencia tira registro utilizable. Medido en SIMAYA, la regla de doce
+        # meses dejaba 5 anios y la de temporada humeda deja 9.
+        humedos = {4: 3.0, 5: 9.0, 10: 4.0, 11: 2.0}
+        sin_enero = {**humedos, **{m: 1.0 for m in (2, 3, 6, 7, 8, 9, 12)}}
+        sin_abril = {m: 1.0 for m in range(1, 13) if m != 4}
+        maximos = m14c.maximos_anuales_de_mensuales(
+            {2019: sin_enero, 2020: sin_abril},
+            meses_exigidos=(4, 5, 10, 11))
+        self.assertEqual(maximos, {2019: 9.0})
+
     def test_exige_los_doce_meses(self) -> None:
         # Un anio al que le falta la temporada de lluvias daria un maximo que no
         # es comparable con los demas de la muestra.
@@ -179,6 +192,142 @@ class PruebaBandaDeConfianza(unittest.TestCase):
     def test_rechaza_una_muestra_insuficiente(self) -> None:
         with self.assertRaises(fr.ErrorFrecuencia):
             fr.banda_confianza([1.0, 2.0], "gumbel_max", "momentos_l", [10.0])
+
+
+
+class PruebaFlujoBase(unittest.TestCase):
+    """
+    El bloque de flujo base que se le escribe a HEC-HMS.
+
+    La sintaxis sale de los proyectos de muestra de HEC-HMS 4.13, que es la
+    unica fuente con autoridad: el formato del .basin no esta publicado.
+    """
+
+    DECLARADO = {"metodo": "recesion", "factor_recesion": 0.8,
+                 "caudal_especifico_m3s_km2": 0.00455, "umbral_pico": 0.1}
+
+    def test_sin_declarar_no_se_inventa_un_metodo(self) -> None:
+        # Un 'Recession' sin parametros seria un metodo declarado y vacio.
+        for vacio in (None, {}, {"metodo": "ninguno"}):
+            grupo, valor, campos = m13.grupo_de_flujo_base(vacio)
+            self.assertEqual((grupo, valor, campos), ("Baseflow", "None", ()))
+
+    def test_escribe_los_cuatro_campos_de_la_recesion(self) -> None:
+        grupo, valor, campos = m13.grupo_de_flujo_base(self.DECLARADO)
+        self.assertEqual((grupo, valor), ("Baseflow", "Recession"))
+        claves = dict(campos)
+        self.assertEqual(claves["Recession Factor"], "0.800")
+        self.assertEqual(claves["Threshold Flow to Peak Ratio"], "0.100")
+        self.assertEqual(claves["Initial Variable"], "Combined Inflow")
+
+    def test_el_caudal_especifico_no_se_redondea_a_cero(self) -> None:
+        # Con dos decimales, 0,00455 m3/s/km2 se escribiria como 0,00 y el
+        # modelo quedaria sin flujo base sin que nada lo dijera.
+        claves = dict(m13.grupo_de_flujo_base(self.DECLARADO)[2])
+        self.assertEqual(float(claves["Initial Flow/Area Ratio"]), 0.00455)
+
+
+
+class PruebaConsistenciaInterna(unittest.TestCase):
+    """
+    Las comprobaciones que no necesitan estaciones de caudal.
+
+    En este estudio las cuatro detectaron un error real antes de que ninguna
+    estacion dijera nada, y son lo unico que un estudio sin limnimetria puede
+    oponerle a los resultados del modelo.
+    """
+
+    def test_la_creciente_debe_crecer_mas_que_su_lluvia(self) -> None:
+        # Cota FISICA por abajo: el coeficiente de escorrentia sube con la
+        # magnitud del evento. Fue lo que delato a EL VERGEL como regulada.
+        regulada = m14c.crecimiento_relativo(16.2, 36.1, 21.9, 49.9)
+        self.assertLess(regulada, 1.05)
+        natural = m14c.crecimiento_relativo(6.5, 30.9, 21.9, 49.9)
+        self.assertGreater(natural, 1.5)
+
+    def test_delata_el_umbral_de_perdidas(self) -> None:
+        # Con Ia = 0,2*S el modelo crecia 13,6 veces contra 2,28 de la lluvia.
+        con_umbral = m14c.crecimiento_relativo(6.6, 89.7, 21.9, 49.9)
+        self.assertGreater(con_umbral, 3.0)
+
+    def test_sin_datos_no_devuelve_un_cero_que_parece_medida(self) -> None:
+        for caso in ((0.0, 10.0, 21.9, 49.9), (1.0, 2.0, 0.0, 49.9),
+                     (None, 2.0, 21.9, 49.9)):
+            with self.subTest(caso=caso):
+                self.assertIsNone(m14c.crecimiento_relativo(*caso))
+
+    def test_el_exponente_de_area_sale_de_dos_puntos_anidados(self) -> None:
+        # Q proporcional a A^n: con n = 1 el caudal escala como el area.
+        self.assertAlmostEqual(
+            m14c.exponente_de_area(10.0, 50.0, 20.0, 100.0), 1.0, places=6)
+        n = m14c.exponente_de_area(45.3, 81.31, 97.3, 220.60)
+        self.assertGreater(n, 0.6)
+        self.assertLess(n, 0.9)
+
+    def test_un_area_que_no_crece_no_define_exponente(self) -> None:
+        self.assertIsNone(m14c.exponente_de_area(10.0, 100.0, 20.0, 100.0))
+        self.assertIsNone(m14c.exponente_de_area(0.0, 50.0, 20.0, 100.0))
+
+    def test_la_banda_dice_por_que_lado_se_sale(self) -> None:
+        self.assertEqual(m14c.fuera_de_banda(0.5, [1.0, 3.0]),
+                         "por debajo de 1")
+        self.assertEqual(m14c.fuera_de_banda(5.96, [1.0, 3.0]),
+                         "por encima de 3")
+        self.assertEqual(m14c.fuera_de_banda(2.32, [1.0, 3.0]), "")
+
+    def test_la_ausencia_de_medida_no_es_incumplimiento(self) -> None:
+        self.assertEqual(m14c.fuera_de_banda(None, [1.0, 3.0]), "")
+
+
+
+class PruebaAreasAcumuladas(unittest.TestCase):
+    """
+    Area drenada por elemento y cuales llevan un embalse en su cuenca.
+
+    LO QUE INVALIDA EL EXPONENTE es que el caudal del punto de aguas abajo
+    llegue laminado. Ese es el de ABAJO, no el de arriba: en este estudio el
+    embalse recorta 50 m3/s a 5,5, y una pareja que lo cruce mide el embalse.
+    """
+
+    MODELO = """Subbasin: SB1
+     Area: 10.0
+     Downstream: J1
+End:
+
+Subbasin: SB2
+     Area: 30.0
+     Downstream: E1
+End:
+
+Reservoir: E1
+     Downstream: J1
+End:
+
+Junction: J1
+     Downstream: Sink-1
+End:
+
+Sink: Sink-1
+End:
+"""
+
+    def test_acumula_hacia_aguas_abajo(self) -> None:
+        areas, _ = m14c.areas_acumuladas(self.MODELO)
+        self.assertAlmostEqual(areas["J1"], 40.0)
+        self.assertAlmostEqual(areas["E1"], 30.0)
+
+    def test_afectado_es_el_que_tiene_el_embalse_encima(self) -> None:
+        _, afectados = m14c.areas_acumuladas(self.MODELO)
+        self.assertIn("J1", afectados)
+        self.assertIn("Sink-1", afectados)
+        # SB2 esta AGUAS ARRIBA del embalse: su caudal no llega laminado.
+        self.assertNotIn("SB2", afectados)
+        self.assertNotIn("SB1", afectados)
+
+    def test_un_modelo_sin_embalses_no_aparta_nada(self) -> None:
+        sin_embalse = self.MODELO.replace("Reservoir: E1", "Junction: E1")
+        _, afectados = m14c.areas_acumuladas(sin_embalse)
+        self.assertEqual(afectados, set())
 
 
 if __name__ == "__main__":

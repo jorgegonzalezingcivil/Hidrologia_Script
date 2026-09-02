@@ -127,3 +127,195 @@ migraciones:
         despues_de: "estaciones"
       - clave: "hec_hms.proyecto.crs_lienzo"
         despues_de: "hec_hms.proyecto.modelo_cuenca"
+
+  - desde: 5
+    hasta: 6
+    titulo: "Muskingum clasico como metodo de transito elegible"
+    motivo: >-
+      La configuracion declaraba hec_hms.transito.metodo_adoptado como si fuera
+      elegible y el M13 escribia Muskingum-Cunge siempre, sin leer esa clave.
+      Ahora la honra, y el Muskingum clasico necesita declarar su X, que no se
+      deriva de la hidraulica sino que se adopta.
+
+      Entra tambien caudal_referencia_tr, que el M14 ya leia con un valor por
+      omision embebido. Un estudio no puede quedar dependiendo de un valor que
+      no aparece en su configuracion: pasa a estar escrito.
+
+    claves_nuevas:
+      - clave: "hec_hms.transito.muskingum.caudal_referencia_tr"
+        despues_de: "hec_hms.transito.muskingum.celeridad_ms"
+      - clave: "hec_hms.transito.muskingum.x"
+        despues_de: "hec_hms.transito.muskingum.caudal_referencia_tr"
+
+  - desde: 6
+    hasta: 7
+    titulo: "Flujo base dentro del modelo"
+    motivo: >-
+      El modelo se escribia con 'Baseflow: None' y el hidrograma arrancaba en
+      cero y volvia a cero. Para poder contrastarlo contra una creciente medida
+      habia que descontarle al DATO OBSERVADO un caudal base estimado, es decir,
+      meter una hipotesis en el lado de la evidencia. Con el flujo base dentro
+      del modelo la comparacion es directa y la resta desaparece.
+
+      El caudal antecedente se toma de la serie de MINIMOS mensuales y no de la
+      de medios: el caudal medio mensual incluye la escorrentia de las tormentas
+      del mes, y usarlo como flujo base la contaria dos veces. En PUENTE LA
+      CALERA la diferencia entre uno y otro es de tres veces.
+
+    claves_nuevas:
+      - clave: "hec_hms.flujo_base"
+        despues_de: "hec_hms.baseflow"
+
+  - desde: 7
+    hasta: 8
+    titulo: "Contraste indicativo con series cortas"
+    motivo: >-
+      Descartar en seco una serie de caudal corta deja sin contraste partes
+      enteras de la cuenca. En este estudio SIMAYA drena una rama distinta de la
+      de PUENTE LA CALERA, y admitirla como INDICATIVA lleva la superficie
+      contrastada del 37 % al 66 %. Lo que una serie corta no sostiene son los
+      periodos altos, y de eso ya se encargaba factor_extrapolacion.
+
+      Entra tambien la temporada humeda declarada. Exigir los doce meses para
+      dar por bueno un maximo anual descarta anos a los que solo les falta un
+      mes SECO, y en un mes seco no ocurre la creciente anual: en SIMAYA la
+      regla de doce meses dejaba 5 anos y la de temporada humeda deja 9.
+
+    claves_nuevas:
+      - clave: "verificacion.minimo_anios_indicativo"
+        despues_de: "verificacion.minimo_anios"
+      - clave: "verificacion.meses_temporada_humeda"
+        despues_de: "verificacion.minimo_anios_indicativo"
+
+  - desde: 8
+    hasta: 9
+    titulo: "Celeridad y X de Muskingum por clase de pendiente"
+    motivo: >-
+      La celeridad se linealizaba en un caudal tomado de la salida del propio
+      modelo, de modo que K y caudal se perseguian: medido, la iteracion
+      recorria 185,6 / 125,3 / 79,1 / 112,1 / 120,9 antes de asentarse, y el
+      resultado dependia de cuantas veces se iterara. Y la X que devolvia la
+      linealizacion de Cunge sobre la geometria disponible era 0,497 de mediana
+      en los 62 tramos, es decir traslacion pura, con dos tramos negativos que
+      habia que recortar.
+
+      Las dos pasan a declararse por clase de pendiente. No dependen ya ni de
+      una seccion que no se levanto ni de la salida del modelo, a cambio de ser
+      un criterio del consultor que el informe debe sustentar.
+
+    claves_nuevas:
+      - clave: "hec_hms.transito.muskingum.clases_pendiente"
+        despues_de: "hec_hms.transito.muskingum.x"
+
+  - desde: 9
+    hasta: 10
+    titulo: "Abstraccion inicial revisada, Ia = 0,05*S"
+    motivo: >-
+      Con lambda = 0,2 el modelo asignaba un coeficiente de escorrentia del
+      1,4 % a una tormenta de 21,9 mm en una cuenca de paramo y pastos que
+      mantiene caudal base todo el anio, y el volumen de escorrentia crecia
+      30,6 veces entre Tr 2,33 y Tr 100 mientras la lluvia crecia 2,28 y la
+      unica estacion no regulada del estudio crecia 4,75.
+
+      Se adopta 0,05, con la conversion de S de Hawkins y otros (2009), que NO
+      es opcional: las tablas de CN estan calibradas con 0,2 y bajar la
+      abstraccion sin convertir S seria quedarse con el beneficio sin el costo.
+      Al modelo va el CN equivalente; el de suelos y coberturas no cambia y el
+      informe presenta los dos.
+
+    claves_nuevas:
+      - clave: "numero_curva.abstraccion_inicial_lambda"
+        despues_de: "numero_curva.condicion_humedad"
+
+  - desde: 10
+    hasta: 11
+    titulo: "Consistencia interna sin estaciones de caudal"
+    motivo: >-
+      El contraste externo solo es posible donde hay limnimetria utilizable, y
+      en la mayoria de los estudios no la hay o esta comprometida. Entran cuatro
+      comprobaciones que salen de lo que la cadena ya calculo y no necesitan
+      ningun dato de caudal. En este estudio las cuatro detectaron un error real
+      antes de que ninguna estacion dijera nada: el crecimiento de la creciente
+      frente al de su lluvia delato el umbral de perdidas, y esa misma medida
+      identifico a EL VERGEL como registro regulado.
+
+    claves_nuevas:
+      - clave: "verificacion.consistencia"
+        despues_de: "verificacion.repeticiones"
+
+  - desde: 11
+    hasta: 12
+    titulo: "Exponente de area y tiempo al pico en la consistencia interna"
+    motivo: >-
+      Entran las dos comprobaciones que faltaban de la bateria, y las dos
+      detectaron un error real en este estudio antes de que ninguna estacion
+      dijera nada. El exponente de area entre puntos anidados derivaba de 0,586
+      a 0,858 entre la creciente frecuente y la de diseno, que era el desajuste
+      de las perdidas expresado en geometria. Y el modelo picaba a 1 h contra un
+      tiempo de concentracion de 10,67 h, que era la senal de que el transito no
+      transportaba la onda.
+
+    claves_nuevas:
+      - clave: "verificacion.consistencia.exponente_area"
+        despues_de: "verificacion.consistencia.coef_escorrentia_diseno"
+      - clave: "verificacion.consistencia.deriva_exponente"
+        despues_de: "verificacion.consistencia.exponente_area"
+      - clave: "verificacion.consistencia.fraccion_area_minima"
+        despues_de: "verificacion.consistencia.deriva_exponente"
+      - clave: "verificacion.consistencia.tp_sobre_tc"
+        despues_de: "verificacion.consistencia.fraccion_area_minima"
+
+  - desde: 12
+    hasta: 13
+    titulo: "Embalses declarados en la configuracion"
+    motivo: >-
+      El embalse de San Rafael se habia insertado a mano en el .basin, en el
+      .pdata y en el DSS, de modo que el estudio no podia reproducir su propio
+      caudal de diseno a partir de sus insumos declarados: la cadena lo habria
+      calculado en 185 m3/s en lugar de 82,5, sin ninguna senal de que faltaba
+      la regulacion.
+
+      Pasan a declararse. El M13 escribe el elemento, reconecta la topologia,
+      guarda la curva en el DSS y la anota en el .pdata. La delimitacion
+      asistida no los crea porque el DEM solo ve una superficie plana, y la
+      cobertura tampoco basta: Corine clasifica San Rafael como laguna natural.
+
+    claves_nuevas:
+      - clave: "hec_hms.embalses"
+        despues_de: "hec_hms.proyecto"
+
+  - desde: 13
+    hasta: 14
+    titulo: "Factor de calibracion sobre el numero de curva"
+    motivo: >-
+      El consultor decide ajustar el numero de curva como ultima variable de
+      calibracion. Se declara como factor y no editando la tabla de
+      homologacion, que es doctrina compartida por todos los estudios: asi la
+      decision viaja en la configuracion de ESTE estudio y el M13 deja las dos
+      columnas para que el informe muestre el CN de suelos al lado del que
+      recibe el modelo.
+
+      Con 1.00 nada cambia, que es el valor por omision.
+
+    claves_nuevas:
+      - clave: "numero_curva.factor_calibracion"
+        despues_de: "numero_curva.abstraccion_inicial_lambda"
+
+  - desde: 14
+    hasta: 15
+    titulo: "Los dos escenarios de cambio climatico en una sola corrida"
+    motivo: >-
+      El factor de cambio climatico se declaraba y se aplicaba, pero el informe
+      no podia mostrar cuanto del caudal procedia de la proyeccion y cuanto del
+      dato: habia que correr la cadena dos veces cambiando la clave a mano y
+      archivar los productos por separado.
+
+      Ahora el M13 escribe los dos juegos de pluviometros, meteorologias y
+      corridas, HEC-HMS los resuelve en la misma sesion y el M14 entrega la
+      tabla comparativa. El de diseno es el que lleva el factor; el de
+      referencia representa la lluvia registrada y no es una alternativa de
+      diseno.
+
+    claves_nuevas:
+      - clave: "cambio_climatico.comparar_escenarios"
+        despues_de: "cambio_climatico.aplicar"

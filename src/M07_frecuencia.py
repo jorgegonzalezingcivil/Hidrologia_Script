@@ -853,7 +853,7 @@ def _figuras(configuracion, base, resultado, maximos_por_estacion, periodos,
         ax.plot(anios, [float(np.mean(todos[a])) for a in anios],
                 color="#c00000", linewidth=2.0,
                 label="promedio de las estaciones")
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        graficos.leyenda(ax, estilo)
         fig.tight_layout()
         for ruta in graficos.guardar(fig, directorio / "M07_series_pmax",
                                      estilo):
@@ -932,7 +932,7 @@ def _figuras(configuracion, base, resultado, maximos_por_estacion, periodos,
                         marker="o", markersize=4, label="mediana")
             ax.set_xticks(periodos)
             ax.set_xticklabels([f"{p:g}" for p in periodos])
-            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            graficos.leyenda(ax, estilo)
             fig.tight_layout()
             for ruta in graficos.guardar(fig, directorio / "M07_cuantiles",
                                          estilo):

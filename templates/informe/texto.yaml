@@ -1978,7 +1978,142 @@ transito_de_crecientes:
     respectivamente del área de influencia, para el Caño Calatrava por su 
     tamaño de cuenca se toma como una creciente instantánea.
 
+  - >
+    Los dos parámetros del método se declaran por clase de pendiente del
+    tramo y no se derivan de la hidráulica de la sección. La razón es que la
+    sección transversal no está levantada: su ancho de fondo procede de una
+    regionalización de geometría hidráulica y el coeficiente de Manning es un
+    valor adoptado, de modo que el calado normal que resulta al caudal
+    ordinario es de apenas 0,18 m y toda la celeridad colgaría de ese
+    supuesto. La linealización de Cunge sobre esa misma geometría devuelve
+    además un valor de X de 0,497 como mediana de los 62 tramos, es decir
+    traslación pura sin atenuación alguna, con dos tramos que exigen recorte
+    por resultar negativos.
+  - >
+    Se adoptan por tanto los valores de la Tabla adjunta, que el consultor
+    declara y que el informe sustenta: 0,7 m/s y X de 0,15 en los tramos de
+    valle con pendiente menor al 0,5 %; 1,2 m/s y 0,20 entre el 0,5 y el 2 %;
+    2,0 m/s y 0,30 entre el 2 y el 5 %; y 3,0 m/s y 0,40 por encima del 5 %.
+    El recorrido resultante por el cauce principal es de 7,89 horas sobre
+    35,3 km, coherente con el tiempo de concentración de la cuenca.
+  - >
+    Once tramos resultan con una constante K inferior a la que el intervalo
+    de cálculo de cinco minutos puede representar, por ser tramos cuya onda
+    los cruza dentro de un solo paso. En ellos K se eleva al mínimo admisible
+    y su tránsito queda sobrestimado en menos de un intervalo. Reducir el
+    intervalo los resolvería, pero alteraría el tiempo de rezago de todas las
+    subcuencas, que por el criterio adoptado depende de él.
+
+
+verificacion_de_crecientes:
+  - >
+    Los caudales del modelo se contrastan contra los registros de caudal de
+    las estaciones que la Corporación Autónoma Regional opera dentro de la
+    cuenca. El contraste se realiza sobre el ajuste de frecuencia de los
+    máximos anuales de cada estación y se limita a los periodos de retorno
+    que la longitud de su registro sostiene, para no comparar dos
+    extrapolaciones entre sí.
+  - >
+    LA PRUEBA ES DE UN SOLO LADO Y ASÍ DEBE LEERSE. Los registros que la
+    Corporación entrega son máximos absolutos de caudales medios diarios, y
+    el pico instantáneo de una creciente supera siempre a la media del día
+    en que ocurre, en un factor que estos datos no permiten conocer. En
+    consecuencia, un caudal modelado por debajo del valor observado
+    demuestra que el modelo se queda corto, mientras que un caudal por
+    encima no demuestra nada: el pico real puede estar tanto o más arriba.
+    Se comprobó que las estaciones limnigráficas no presentan máximos más
+    agudos que las limnimétricas, lo que indica que la entidad reporta el
+    mismo estadístico para ambas clases.
+  - >
+    De las tres estaciones emparejadas con nodos del modelo, Puente Francis
+    no dispone de serie de máximos de caudal. Puente La Calera cuenta con
+    dieciocho años de registro, pero se encuentra cuatro kilómetros aguas
+    abajo del embalse de San Rafael y su serie no es homogénea: el caudal
+    medio mensual desciende de 2,2 m³/s en el periodo 1991-2002 a 0,02 m³/s
+    en 2013 y 2014, y los máximos anuales siguen el mismo quiebre. Lo que
+    esa estación mide es la operación del embalse y no la respuesta de su
+    área aferente, de modo que se presenta como contexto y no se emplea como
+    criterio de calibración.
+  - >
+    Simaya es la única estación del estudio situada sobre una rama no
+    regulada, con 64,35 km² aferentes. Su registro es de nueve años
+    utilizables, por debajo de los quince que el estudio exige para
+    verificar, de manera que se contrasta como INDICATIVA: aporta cobertura
+    sobre una parte de la cuenca que de otro modo quedaría sin contraste
+    alguno, pero no sostiene por sí sola ninguna decisión de parámetros,
+    porque con tan pocos años el ajuste lo decide un solo año extremo.
+  - >
+    Frente a Simaya el modelo supera la cota inferior en todos los periodos
+    contrastados, de manera que nada en el registro lo contradice. La
+    diferencia entre el pico modelado y el máximo diario observado no puede
+    interpretarse como error, por la razón expuesta: son dos magnitudes
+    distintas y su cociente es desconocido.
+  - >
+    Se examinó igualmente la estación El Vergel, situada aguas abajo del
+    sitio de proyecto y con mayor área aferente, como referencia por
+    transposición. Su serie presenta un comportamiento que impide usarla como
+    criterio: los caudales crecen 2,23 veces entre los periodos de retorno de
+    2,33 y 100 años, mientras que la precipitación de diseño crece 2,28 veces
+    en ese mismo intervalo. Una distribución de crecientes que no crece más
+    rápido que su propia lluvia no corresponde a una cuenca en régimen
+    natural, puesto que el coeficiente de escorrentía aumenta con la
+    magnitud del evento y las crecientes deben crecer más que la
+    precipitación que las produce. El comportamiento observado se explica por
+    la regulación del embalse situado aguas arriba, por saturación de la
+    curva de gasto o por truncamiento de la cola superior del registro.
+    Ajustar el modelo hasta reproducir esa serie equivaldría a obligarlo a
+    imitar un régimen regulado.
+  - >
+    En consecuencia, la verificación disponible acota el resultado por
+    debajo y no permite fijar un factor de corrección. El caudal de diseño
+    adoptado descansa sobre los criterios declarados en los apartados
+    anteriores, cada uno sustentado, y satisface la cota inferior que los
+    registros imponen. La comprobación definitiva de su magnitud corresponde
+    a la modelación hidráulica del tramo de interés, donde se verificará que
+    la sección admita el caudal estimado.
+  - >
+    Se recomienda solicitar a la Corporación los registros sub-diarios de la
+    estación limnigráfica El Vergel para los años de los máximos anuales.
+    Conocida la relación entre el pico instantáneo y la media diaria en este
+    río, el contraste dejaría de ser una cota y pasaría a ser una
+    verificación directa.
+
 construccion_del_modelo:
+  - >
+    El modelo incorpora el embalse de San Rafael como elemento de
+    almacenamiento en el nodo que reúne los 76,21 km² que drenan a él, es
+    decir el 35 % del área de la cuenca. La cartografía de cobertura empleada
+    lo clasifica como laguna natural y no como embalse, de modo que su
+    condición de cuerpo regulado no procede de los insumos sino del
+    conocimiento del sitio.
+  - >
+    No se dispone de la curva de embalse, de la geometría del vertedero ni
+    del registro de operación. Se adopta en consecuencia la hipótesis
+    desfavorable aguas abajo: el embalse se encuentra lleno a la cota de la
+    cresta, no queda almacenamiento útil y lo único que ocurre durante la
+    creciente es su tránsito sobre el vertedero. Un embalse con volumen
+    disponible amortiguaría más, de manera que el supuesto no puede quedarse
+    corto. La relación almacenamiento-descarga se construye con el espejo de
+    agua medido sobre la cobertura, de 2,30 km², y una cresta de 8 m
+    declarada por el consultor.
+  - >
+    Con esa parametrización el embalse reduce el caudal de 50,02 a
+    5,52 m³/s para el periodo de retorno de 100 años y desplaza su punta muy
+    por detrás del pico de la cuenca, de modo que su aporte deja de
+    coincidir con la creciente. El caudal en el sitio de proyecto resulta
+    insensible a la longitud de cresta adoptada, porque el efecto del
+    embalse consiste en retirar esos 76 km² de la formación del pico y no en
+    aportar un caudal determinado.
+  - >
+    Debe advertirse una incoherencia que los datos disponibles no resuelven.
+    Con la cresta declarada el embalse no puede descargar más de 5,5 m³/s en
+    la creciente de cien años, mientras que la estación Puente La Calera,
+    situada cuatro kilómetros aguas abajo, registró 51,5 m³/s en 2012. Para
+    evacuar ese caudal por la cresta harían falta 2,2 m de lámina sobre el
+    vertedero, que la lluvia local no puede producir. La explicación
+    plausible es la descarga de fondo o el trasvase desde otra cuenca, y en
+    cualquiera de los dos casos confirma que esa estación registra operación
+    del embalse y no respuesta natural de su área aferente.
   - >
     Para la ejecución de este modelo lluvia-escorrentía, se utiliza el 
     programa Hydrologic Modelling System (HEC-HMS), el cual mediante una 

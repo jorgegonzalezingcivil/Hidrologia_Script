@@ -17,8 +17,12 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 
 ## Figuras disponibles
 
-78 figuras en `data/05_resultados/graficos`.
+89 figuras en `data/05_resultados/graficos`.
 
+
+### M03
+
+- `{{figura: M03_estaciones_por_red | }}`
 
 ### M04b
 
@@ -64,14 +68,19 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 - `{{figura: M10_areas_subcuencas | }}`
 - `{{figura: M10_cn_subcuencas | }}`
 - `{{figura: M10_curva_hipsometrica | }}`
+- `{{figura: M10_delimitacion_cuenca | }}`
+- `{{figura: M10_delimitacion_subcuencas | }}`
 - `{{figura: M10_distribucion_altimetrica | }}`
 - `{{figura: M10_mapa_areas | }}`
 - `{{figura: M10_mapa_cn | }}`
+- `{{figura: M10_mapa_cobertura | }}`
 - `{{figura: M10_mapa_pendiente | }}`
 - `{{figura: M10_mapa_rezago | }}`
 - `{{figura: M10_pendiente_contraste | }}`
 - `{{figura: M10_pendiente_por_resolucion | }}`
 - `{{figura: M10_tiempos_subcuencas | }}`
+- `{{figura: M10_tiposuelohidrologico | }}`
+- `{{figura: M10_zonificacionhidrografica | }}`
 
 ### M11
 
@@ -87,19 +96,24 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 ### M12a
 
 - `{{figura: M12a_cambio_climatico | }}`
+- `{{figura: M12a_cambio_departamental | }}`
 - `{{figura: M12a_idf_comparacion | }}`
 - `{{figura: M12a_idf_invias | }}`
 - `{{figura: M12a_idf_silva | }}`
 
-### M12b
-
-- `{{figura: M12b_hietograma_T500 | }}`
-
 ### M14
 
+- `{{figura: M14_hidrograma_J24 | }}`
+- `{{figura: M14_hidrograma_J29 | }}`
 - `{{figura: M14_hidrograma_Sink-1 | }}`
 - `{{figura: M14_qmax_vs_periodo | }}`
 - `{{figura: M14_sensibilidad_hipotesis | }}`
+
+### M14c
+
+- `{{figura: M14c_media_movil_24h | }}`
+- `{{figura: M14c_verificacion_J24 | }}`
+- `{{figura: M14c_verificacion_J29 | }}`
 
 ### M18
 
@@ -148,7 +162,7 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 
 ## Tablas disponibles
 
-63 tablas bajo `data/02_procesado`. La ruta del marcador es la relativa a ese directorio, sin extensión.
+69 tablas bajo `data/02_procesado`. La ruta del marcador es la relativa a ese directorio, sin extensión.
 
 - `{{tabla: M09_subcuencas_pequenas | }}`
 - `{{tabla: balance/balance_mensual | }}`
@@ -171,10 +185,14 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 - `{{tabla: frecuencia/atipicos_bajos | }}`
 - `{{tabla: frecuencia/cuantiles | }}`
 - `{{tabla: frecuencia/pmax24h_anual | }}`
+- `{{tabla: frecuencia/pmax24h_serie | }}`
+- `{{tabla: hidrologia/abstraccion_inicial | }}`
 - `{{tabla: hidrologia/balance_subcuencas | }}`
 - `{{tabla: hidrologia/hidrogramas | }}`
 - `{{tabla: hidrologia/qmax_por_periodo | }}`
 - `{{tabla: hidrologia/resultados_por_elemento | }}`
+- `{{tabla: hidrologia/transito | }}`
+- `{{tabla: hidrologia/verificacion_crecientes | }}`
 - `{{tabla: infiltracion/coeficientes_por_subcuenca | }}`
 - `{{tabla: infiltracion/infiltracion_mensual | }}`
 - `{{tabla: morfometria/curva_hipsometrica | }}`
@@ -183,6 +201,7 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 - `{{tabla: morfometria/pendiente_por_escala | }}`
 - `{{tabla: morfometria/subcuencas | }}`
 - `{{tabla: morfometria/tiempo_concentracion | }}`
+- `{{tabla: morfometria/tiempo_concentracion_por_subcuenca | }}`
 - `{{tabla: precipitacion/arf | }}`
 - `{{tabla: precipitacion/campos_promediados | }}`
 - `{{tabla: precipitacion/estaciones_del_balance | }}`
@@ -197,7 +216,7 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 - `{{tabla: series/precipitacion_mensual_anomalos | }}`
 - `{{tabla: series/precipitacion_mensual_complementada | }}`
 - `{{tabla: series/precipitacion_mensual_origen | }}`
-- `{{tabla: series/series_ideam | }}`
+- `{{tabla: series/series | }}`
 - `{{tabla: temperatura/gradiente | }}`
 - `{{tabla: temperatura/gradiente_mensual | }}`
 - `{{tabla: temperatura/isotermas | }}`
@@ -212,65 +231,71 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 - `{{tabla: tormenta/hietograma_resumen | }}`
 - `{{tabla: tormenta/hietogramas | }}`
 - `{{tabla: tormenta/idf | }}`
+- `{{tabla: tormenta/idf_silva_hoja | }}`
 - `{{tabla: tormenta/verificacion_idf_24h | }}`
 
 ## Familias de hallazgos
 
-276 hallazgos en 24 módulos, agrupados en 51 familias. El prefijo del marcador puede ser la familia entera o una clave concreta.
+366 hallazgos en 27 módulos, agrupados en 56 familias. El prefijo del marcador puede ser la familia entera o una clave concreta.
 
 | familia | hallazgos |
 |---|---|
-| `{{hallazgos: descarga}}` | 101 |
-| `{{hallazgos: isoyetas}}` | 20 |
+| `{{hallazgos: descarga}}` | 159 |
+| `{{hallazgos: isoyetas}}` | 22 |
+| `{{hallazgos: estaciones}}` | 10 |
 | `{{hallazgos: calificador}}` | 10 |
+| `{{hallazgos: sensibilidad}}` | 9 |
 | `{{hallazgos: temperatura}}` | 9 |
+| `{{hallazgos: importar}}` | 8 |
+| `{{hallazgos: verificacion}}` | 8 |
 | `{{hallazgos: balance}}` | 8 |
-| `{{hallazgos: sensibilidad}}` | 7 |
-| `{{hallazgos: importar}}` | 7 |
-| `{{hallazgos: estaciones}}` | 6 |
+| `{{hallazgos: adoptado}}` | 6 |
 | `{{hallazgos: consistencia}}` | 6 |
 | `{{hallazgos: regimen}}` | 6 |
-| `{{hallazgos: adoptado}}` | 5 |
 | `{{hallazgos: frecuencia}}` | 5 |
 | `{{hallazgos: subcuencas}}` | 5 |
-| `{{hallazgos: informe}}` | 5 |
+| `{{hallazgos: idf}}` | 5 |
 | `{{hallazgos: red}}` | 4 |
-| `{{hallazgos: enso}}` | 4 |
 | `{{hallazgos: drenaje}}` | 4 |
+| `{{hallazgos: morfometria}}` | 4 |
+| `{{hallazgos: cambio_climatico}}` | 4 |
 | `{{hallazgos: hietograma}}` | 4 |
+| `{{hallazgos: modelo}}` | 4 |
+| `{{hallazgos: informe}}` | 4 |
 | `{{hallazgos: infiltracion}}` | 4 |
 | `{{hallazgos: dem}}` | 3 |
 | `{{hallazgos: calibracion}}` | 3 |
+| `{{hallazgos: enso}}` | 3 |
 | `{{hallazgos: numero_curva}}` | 3 |
 | `{{hallazgos: relieve}}` | 3 |
-| `{{hallazgos: cambio_climatico}}` | 3 |
-| `{{hallazgos: idf}}` | 3 |
 | `{{hallazgos: desagregacion}}` | 3 |
 | `{{hallazgos: resultados}}` | 3 |
+| `{{hallazgos: car}}` | 2 |
 | `{{hallazgos: ideam}}` | 2 |
 | `{{hallazgos: cobertura}}` | 2 |
 | `{{hallazgos: complemento}}` | 2 |
+| `{{hallazgos: maximos}}` | 2 |
 | `{{hallazgos: tiempo_concentracion}}` | 2 |
 | `{{hallazgos: arf}}` | 2 |
-| `{{hallazgos: modelo}}` | 2 |
+| `{{hallazgos: transito}}` | 2 |
 | `{{hallazgos: computo}}` | 2 |
+| `{{hallazgos: anexos}}` | 2 |
 | `{{hallazgos: etp}}` | 2 |
 | `{{hallazgos: punto_descarga}}` | 1 |
 | `{{hallazgos: catalogo}}` | 1 |
+| `{{hallazgos: graficos}}` | 1 |
 | `{{hallazgos: m04}}` | 1 |
 | `{{hallazgos: agregacion}}` | 1 |
 | `{{hallazgos: anomalos}}` | 1 |
 | `{{hallazgos: m05}}` | 1 |
-| `{{hallazgos: maximos}}` | 1 |
 | `{{hallazgos: tiempo_rezago}}` | 1 |
 | `{{hallazgos: tiempo_viaje}}` | 1 |
-| `{{hallazgos: morfometria}}` | 1 |
 | `{{hallazgos: altitud}}` | 1 |
 | `{{hallazgos: gradiente}}` | 1 |
 | `{{hallazgos: zonificacion}}` | 1 |
-| `{{hallazgos: transito}}` | 1 |
 | `{{hallazgos: escenarios}}` | 1 |
 | `{{hallazgos: meteorologia}}` | 1 |
+| `{{hallazgos: planchas}}` | 1 |
 
 ## Cosas que tener en cuenta
 

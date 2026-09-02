@@ -696,10 +696,10 @@ def _resolver_extrapolacion(configuracion, base, ruta_dem, entidades,
         f"{cota_min:.0f} a {cota_max:.0f} m que cubren las estaciones, de modo "
         "que ahi el campo interpolado EXTRAPOLA y su promedio no es "
         f"observacion. {len(afectadas)} subcuenca(s) tienen mas de la mitad de "
-        "su area fuera"
+        "su área fuera"
         + (f": {[s['subcuenca'] for s in afectadas[:6]]}" if afectadas else "")
-        + ". Debe declararse junto a la tabla de precipitacion, no en una nota "
-        "al pie: es el limite de lo que la red mide.",
+        + ". Debe declararse junto a la tabla de precipitación, no en una nota "
+        "al pie: es el límite de lo que la red mide.",
     ))
 
 
@@ -787,8 +787,8 @@ def _escribir_figuras(configuracion, base, resultado, ruta_subcuencas,
     if resultado.campos:
         with graficos.figura(
                 estilo,
-                titulo="Precipitacion maxima en 24 h, promedio areal por subcuenca",
-                etiqueta_x="Periodo de retorno (anos)",
+                titulo="Precipitación máxima en 24 h, promedio areal por subcuenca",
+                etiqueta_x="Periodo de retorno (años)",
                 etiqueta_y="Pmax 24 h (mm)") as (fig, ax):
             equis = [float(c["periodo_retorno"]) for c in resultado.campos]
             ax.fill_between(
@@ -798,7 +798,7 @@ def _escribir_figuras(configuracion, base, resultado, ruta_subcuencas,
                 label="rango entre las 125 subcuencas")
             ax.plot(equis, [c["media_ponderada_mm"] for c in resultado.campos],
                     color=estilo.color(0), linewidth=1.6, marker="o",
-                    markersize=4, label="media ponderada por area")
+                    markersize=4, label="media ponderada por área")
             ax.set_xscale("log")
             ax.set_xticks(equis)
             ax.set_xticklabels([f"{e:g}" for e in equis])
@@ -836,7 +836,7 @@ def _escribir_figuras(configuracion, base, resultado, ruta_subcuencas,
         with graficos.figura(
                 estilo, titulo="Zonas pluviometricas",
                 etiqueta_x="Zona",
-                etiqueta_y="Precipitacion media (mm)") as (fig, ax):
+                etiqueta_y="Precipitación media (mm)") as (fig, ax):
             numeros = [z["zona"] for z in resultado.zonas]
             colores = graficos.rampa(len(resultado.zonas), estilo)
             barras = ax.bar(numeros,

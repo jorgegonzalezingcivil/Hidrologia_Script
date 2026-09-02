@@ -431,5 +431,156 @@ class PruebaParametrosMuskingum(unittest.TestCase):
         with self.assertRaises(ErrorHidrologia):
             self._calcular(longitud=0.0)
 
+
+class PruebaLogViejo(unittest.TestCase):
+    """
+    Un log de la vez anterior no puede pasar por una corrida buena.
+
+    Cuando HEC-HMS aborta al abrir el proyecto, por ejemplo porque un elemento
+    del .basin esta mal escrito, no llega a tocar los logs de corrida: quedan
+    los de la ejecucion previa, con su 'Finished' y sin errores, y el DSS
+    conserva aquellos resultados. Sin mirar la fecha, el modulo devolvia
+    CORRECTO sobre un modelo que ya no existe. Ocurrio de verdad.
+    """
+
+    CONTENIDO = ('NOTE 15301:  Began computing simulation run "TR_100".\n'
+                 'NOTE 15302:  Finished computing simulation run "TR_100".\n')
+
+    def setUp(self) -> None:
+        self.temporal = Path(tempfile.mkdtemp())
+        self.log = self.temporal / "TR_100.log"
+        self.log.write_text(self.CONTENIDO, encoding="utf-8")
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self.temporal, ignore_errors=True)
+
+    def _envejecer(self, segundos: float) -> None:
+        import os
+        viejo = self.log.stat().st_mtime - segundos
+        os.utime(self.log, (viejo, viejo))
+
+    def test_sin_fecha_minima_se_lee_como_siempre(self) -> None:
+        self._envejecer(86400)
+        estado = hms.leer_log_de_corrida(self.log, "TR_100")
+        self.assertTrue(estado.terminada)
+
+    def test_un_log_anterior_al_lanzamiento_es_error(self) -> None:
+        self._envejecer(86400)
+        import time
+        with self.assertRaises(hms.ErrorHms) as caso:
+            hms.leer_log_de_corrida(self.log, "TR_100", desde=time.time())
+        self.assertIn("ejecución anterior", str(caso.exception))
+
+    def test_un_log_recien_escrito_pasa(self) -> None:
+        import time
+        estado = hms.leer_log_de_corrida(self.log, "TR_100",
+                                         desde=time.time() - 60)
+        self.assertTrue(estado.terminada)
+
+
+
+class PruebaClasePorPendiente(unittest.TestCase):
+    """
+    Vive en el adaptador 'hms', que comparten el M13 y el M14.
+
+    Estuvo en el M14, pero el M13 tambien la necesita para no depender de que
+    el M14 haya corrido antes, y duplicarla era pedir que las dos copias se
+    separaran con el tiempo.
+
+    La celeridad y la X se declaran por clase de tramo.
+
+    NO SALEN DE LA HIDRAULICA por dos razones medidas en este estudio: la
+    linealizacion de Cunge devuelve X de 0,497 de mediana en los 62 tramos, es
+    decir traslacion pura, y la celeridad que deriva cuelga de un calado de
+    18 cm calculado sobre una seccion que nadie levanto. Ademas obligaba a
+    linealizar en el caudal que el propio modelo produce, con lo que K y caudal
+    se perseguian entre corridas.
+    """
+
+    CLASES = [
+        {"nombre": "valle", "pendiente_min_pct": 0.0, "celeridad_ms": 0.7,
+         "x": 0.15},
+        {"nombre": "ladera", "pendiente_min_pct": 2.0, "celeridad_ms": 2.0,
+         "x": 0.30},
+        {"nombre": "montana", "pendiente_min_pct": 5.0, "celeridad_ms": 3.0,
+         "x": 0.40},
+    ]
+
+    def test_elige_la_ultima_que_no_supera_la_pendiente(self) -> None:
+        for pendiente, nombre in ((0.0, "valle"), (1.9, "valle"),
+                                  (2.0, "ladera"), (4.9, "ladera"),
+                                  (5.0, "montana")):
+            with self.subTest(pendiente=pendiente):
+                self.assertEqual(
+                    hms.clase_por_pendiente(pendiente, self.CLASES)["nombre"],
+                    nombre)
+
+    def test_la_ultima_recoge_todo_lo_de_arriba(self) -> None:
+        # Un tramo al 40 % no puede quedarse sin clase y sin parametros.
+        self.assertEqual(
+            hms.clase_por_pendiente(40.0, self.CLASES)["nombre"], "montana")
+
+    def test_sin_clases_declaradas_no_se_inventa_una(self) -> None:
+        self.assertIsNone(hms.clase_por_pendiente(3.0, []))
+
+    def test_una_pendiente_por_debajo_de_la_primera_no_encaja(self) -> None:
+        # Con la primera clase arrancando por encima de cero, una pendiente
+        # menor no pertenece a ninguna y hay que decirlo, no asignarla a ojo.
+        self.assertIsNone(hms.clase_por_pendiente(0.1, self.CLASES[1:]))
+
+
+class PruebaEscenariosDeCambioClimatico(unittest.TestCase):
+    """
+    Los dos escenarios salen de una sola sesion de HEC-HMS y hay que separarlos.
+    """
+
+    def test_el_sufijo_dice_el_escenario(self) -> None:
+        self.assertEqual(m14.escenario_de_meteorologia("T100"), "diseno")
+        self.assertEqual(m14.escenario_de_meteorologia("T100_SF"), "referencia")
+
+    def test_el_sufijo_no_entra_en_el_periodo_de_retorno(self) -> None:
+        """
+        'T100' y 'T100_SF' son el MISMO periodo con dos lluvias.
+
+        Si el sufijo entrara en el periodo, el modulo veria dieciseis periodos
+        de retorno en lugar de ocho y la tabla de caudales del informe quedaria
+        sin sentido. Ocurrio: la extraccion cayo al graficar Qmax contra Tr.
+        """
+        self.assertEqual(m14.periodo_de_meteorologia("T2_33"), "2.33")
+        self.assertEqual(m14.periodo_de_meteorologia("T2_33_SF"), "2.33")
+        self.assertEqual(m14.periodo_de_meteorologia("T100_SF"), "100")
+
+    def test_la_comparacion_da_el_aporte_del_factor(self) -> None:
+        filas = m14.comparar_escenarios(
+            {"Sink-1": {"100": 73.666}}, {"Sink-1": {"100": 60.279}}, "Sink-1")
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0]["q_diseno_m3s"], 73.666)
+        self.assertEqual(filas[0]["q_referencia_m3s"], 60.279)
+        self.assertAlmostEqual(filas[0]["aporte_factor_m3s"], 13.387)
+        self.assertAlmostEqual(filas[0]["aporte_factor_pct"], 22.2)
+
+    def test_el_aporte_no_es_el_factor(self) -> None:
+        """
+        Las perdidas del SCS no son lineales y el segundo escenario hay que
+        correrlo, no deducirlo escalando el primero: en este estudio un 10,6 %
+        mas de lluvia da un 22 % mas de caudal.
+        """
+        filas = m14.comparar_escenarios(
+            {"S": {"100": 73.666}}, {"S": {"100": 60.279}}, "S")
+        self.assertGreater(filas[0]["aporte_factor_pct"], 2 * 10.58)
+
+    def test_solo_compara_los_periodos_que_tienen_los_dos(self) -> None:
+        # Una corrida que no converge deja su periodo sin pareja, y restar
+        # contra el que no esta daria un aporte inventado.
+        filas = m14.comparar_escenarios(
+            {"S": {"50": 57.7, "100": 73.7}}, {"S": {"100": 60.3}}, "S")
+        self.assertEqual([f["periodo_retorno"] for f in filas], ["100"])
+
+    def test_un_punto_que_no_esta_no_es_error(self) -> None:
+        # Significa que ese elemento no lleva hidrograma, no que falte algo.
+        self.assertEqual(m14.comparar_escenarios({}, {}, "Sink-1"), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

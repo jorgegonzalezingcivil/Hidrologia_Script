@@ -618,7 +618,7 @@ def _escribir(configuracion, base, delimitador, resultado, logger) -> None:
                     label=f"{nombre} = "
                           f"{f'{valor:.4f}'.replace('.', ',')} m³/s")
         ax.set_xlim(0, 100)
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        graficos.leyenda(ax, estilo)
         fig.text(0.01, -0.06,
                  f"{resultado.resumen['meses']} meses de la serie reescalada. "
                  f"Posición de graficación de Weibull, m/(n+1). Índice de "
@@ -674,7 +674,7 @@ def _figuras_de_regimen(configuracion, base, resultado, estilo, directorio,
                    label=f"caudal medio, {_coma(medio, 3)} m³/s")
         ax.set_xlim(0, 100)
         ax.set_ylim(bottom=0)
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        graficos.leyenda(ax, estilo)
         indice = _coma(resultado.irh["irh"], 4)
         fig.text(0.01, -0.08,
                  f"IRH = área inferior / área total = {indice}"
@@ -717,7 +717,7 @@ def _figuras_de_regimen(configuracion, base, resultado, estilo, directorio,
                        label=f"{etiqueta} = {_coma(valor, 4)} m³/s")
         ax.set_xlim(0, 100)
         ax.set_ylim(0, medio * 2.2)
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        graficos.leyenda(ax, estilo)
         margen = abs(ambiental["irh"] - ambiental["umbral_irh"])
         indice = _coma(ambiental["irh"], 4)
         umbral = _coma(ambiental["umbral_irh"], 2)

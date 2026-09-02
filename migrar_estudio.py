@@ -153,6 +153,10 @@ class Cambio:
     detalle: str
     aplicado: bool = True
     motivo_omision: str = ""
+    # Un cambio que no se aplico PORQUE YA ESTABA HECHO no es un fallo: el
+    # estudio tiene lo que la receta pedia. Solo bloquea el que exige una
+    # decision, como un ancla ausente o un valor que el consultor cambio.
+    bloquea: bool = True
 
 
 @dataclass
@@ -164,7 +168,7 @@ class ResultadoMigracion:
 
     @property
     def requieren_decision(self) -> list[Cambio]:
-        return [c for c in self.cambios if not c.aplicado]
+        return [c for c in self.cambios if not c.aplicado and c.bloquea]
 
 
 # =============================================================================
@@ -184,7 +188,8 @@ def insertar_clave(
 ) -> Cambio:
     """Copia el bloque de una clave desde la plantilla al archivo del estudio."""
     if linea_de_clave(lineas, clave) is not None:
-        return Cambio("clave_nueva", clave, False, "ya estaba presente")
+        return Cambio("clave_nueva", clave, False, "ya estaba presente",
+                      bloquea=False)
 
     origen = bloque_de_clave(plantilla, clave)
     if origen is None:
@@ -305,6 +310,7 @@ def migrar(
     for receta in pendientes:
         if int(receta["desde"]) != resultado.version_final:
             continue                       # no hay camino continuo hasta ella
+        desde_aqui = len(resultado.cambios)
         for entrada in receta.get("claves_nuevas", []) or []:
             resultado.cambios.append(insertar_clave(
                 lineas, plantilla, entrada["clave"], entrada["despues_de"]))
@@ -316,6 +322,13 @@ def migrar(
             resultado.cambios.extend(renombrar_archivos(
                 Path(raiz_estudio), entrada["de"], entrada["a"],
                 entrada.get("extensiones") or [".shp"], simular))
+        # Una receta a medias NO sube la version. Si se marcara igual, el
+        # estudio quedaria diciendo que esta al dia sin tener la clave, y la
+        # siguiente corrida no volveria a intentarlo: el faltante se vuelve
+        # invisible y el modulo que lo lea caera en su valor por omision.
+        if any(not c.aplicado and c.bloquea
+               for c in resultado.cambios[desde_aqui:]):
+            break
         resultado.version_final = int(receta["hasta"])
 
     if resultado.version_final == resultado.version_inicial:

@@ -104,6 +104,7 @@ class ResultadoM14:
     resultados: list[dict[str, Any]] = field(default_factory=list)
     balance: list[dict[str, Any]] = field(default_factory=list)
     hidrogramas: list[dict[str, Any]] = field(default_factory=list)
+    escenarios: list[dict[str, Any]] = field(default_factory=list)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -298,17 +299,40 @@ def ordenar_periodos(periodos: Sequence[str]) -> list[str]:
     return sorted(dict.fromkeys(periodos), key=clave)
 
 
+SUFIJO_SIN_FACTOR = "_SF"
+
+
 def periodo_de_meteorologia(nombre: str) -> str:
     """
     Periodo de retorno que representa un modelo meteorológico ('T2_33' -> '2.33').
 
     El nombre lo escribió el M13 sustituyendo el punto decimal, porque HEC-HMS no
     lo admite en un identificador. Aquí se deshace esa sustitución.
+
+    EL SUFIJO DEL ESCENARIO SE QUITA ANTES. Con dos escenarios, 'T100' y
+    'T100_SF' son el MISMO periodo de retorno calculado con dos lluvias; si el
+    sufijo entrara en el periodo, el modulo veria dieciseis periodos en lugar de
+    ocho y la tabla de caudales quedaria sin sentido.
     """
     limpio = nombre.strip()
+    if limpio.upper().endswith(SUFIJO_SIN_FACTOR):
+        limpio = limpio[: -len(SUFIJO_SIN_FACTOR)]
     if limpio.upper().startswith("T"):
         limpio = limpio[1:]
     return limpio.replace("_", ".")
+
+
+def escenario_de_meteorologia(nombre: str) -> str:
+    """
+    A que escenario pertenece un modelo meteorologico.
+
+    'diseno' lleva el factor de cambio climatico y 'referencia' es la lluvia
+    registrada. El de diseno es el que alimenta la tabla de caudales del
+    informe; el otro se presenta al lado para mostrar cuanto del caudal procede
+    de la proyeccion y cuanto del dato.
+    """
+    return ("referencia" if nombre.strip().upper().endswith(SUFIJO_SIN_FACTOR)
+            else "diseno")
 
 
 # =============================================================================
@@ -565,9 +589,11 @@ def _extraer(configuracion, proyecto, corridas, resultado, logger) -> None:
     truncados: list[str] = []
     fuera_de_balance: list[str] = []
     por_elemento: dict[str, dict[str, float]] = {}
+    por_elemento_ref: dict[str, dict[str, float]] = {}
 
     for corrida, meteorologia in corridas:
         periodo = periodo_de_meteorologia(meteorologia)
+        escenario = escenario_de_meteorologia(meteorologia)
         origen = proyecto / f"{corrida}.dss"
         series = dss.leer_series(origen, parametros=PARAMETROS)
         agrupadas: dict[str, dict[str, Any]] = {}
@@ -580,6 +606,15 @@ def _extraer(configuracion, proyecto, corridas, resultado, logger) -> None:
             if caudal is None:
                 continue
             resumen = resumir_hidrograma(caudal.instantes, caudal.valores)
+            # DEL ESCENARIO DE REFERENCIA SOLO SE GUARDA EL PICO. No alimenta la
+            # tabla de caudales, ni el balance, ni las figuras, ni la
+            # comprobacion de monotonia: el informe se construye sobre el de
+            # diseno, y este va al lado para mostrar cuanto aporta el factor.
+            # Mezclarlos daria dieciseis periodos de retorno donde hay ocho.
+            if escenario == "referencia":
+                por_elemento_ref.setdefault(
+                    elemento, {})[periodo] = resumen["qmax_m3s"]
+                continue
             ficha = resultado.elementos.get(elemento, {})
             fila = {
                 "elemento": elemento,
@@ -624,8 +659,42 @@ def _extraer(configuracion, proyecto, corridas, resultado, logger) -> None:
                 fuera_de_balance.append(
                     f"{elemento} (T{periodo}, {desviacion:+.1f} %)")
 
+    if por_elemento_ref:
+        resultado.escenarios = comparar_escenarios(
+            por_elemento, por_elemento_ref, resultado.punto_de_proyecto)
+
     _hallazgos_de_extraccion(resultado, por_elemento, corridas, truncados,
                              fuera_de_balance, tolerancia, puntos)
+
+
+def comparar_escenarios(diseno: dict, referencia: dict,
+                        punto: str) -> list[dict[str, Any]]:
+    """
+    Los dos escenarios de cambio climatico en el punto de proyecto.
+
+    EL DE DISENO ES EL QUE LLEVA EL FACTOR. El de referencia representa la
+    lluvia registrada y no es una alternativa entre la que elegir: la doctrina
+    aplica el factor cuando es de incremento, y este contraste sirve para
+    mostrar cuanto del caudal procede de la proyeccion y cuanto del dato.
+
+    El aporte NO es igual al factor. Medido en este estudio, un 10,6 % mas de
+    lluvia produce entre un 21 y un 27 % mas de caudal, mas en las crecientes
+    frecuentes, porque el umbral de perdidas amplifica mas cuando la lluvia es
+    pequena.
+    """
+    con = diseno.get(punto) or {}
+    sin = referencia.get(punto) or {}
+    filas: list[dict[str, Any]] = []
+    for periodo in ordenar_periodos(set(con) & set(sin)):
+        a, b = float(sin[periodo]), float(con[periodo])
+        filas.append({
+            "periodo_retorno": periodo,
+            "q_diseno_m3s": round(b, 3),
+            "q_referencia_m3s": round(a, 3),
+            "aporte_factor_m3s": round(b - a, 3),
+            "aporte_factor_pct": round(100.0 * (b - a) / a, 1) if a else None,
+        })
+    return filas
 
 
 def _puntos_con_hidrograma(configuracion, resultado) -> list[str]:
@@ -656,7 +725,9 @@ def _puntos_con_hidrograma(configuracion, resultado) -> list[str]:
 def _hallazgos_de_extraccion(resultado, por_elemento, corridas, truncados,
                              fuera_de_balance, tolerancia, puntos) -> None:
     """Convierte lo medido durante la extraccion en hallazgos del reporte."""
-    orden = ordenar_periodos([periodo_de_meteorologia(m) for _, m in corridas])
+    orden = ordenar_periodos([
+        periodo_de_meteorologia(m) for _, m in corridas
+        if escenario_de_meteorologia(m) == "diseno"])
     cierre = por_elemento.get(resultado.punto_de_proyecto, {})
     if cierre:
         caudales = ", ".join(f"T{p} = {cierre[p]:.1f}"
@@ -724,7 +795,8 @@ def _escribir_tablas(configuracion, base, resultado, logger) -> None:
 
     for nombre, filas in (("resultados_por_elemento", resultado.resultados),
                           ("balance_subcuencas", resultado.balance),
-                          ("hidrogramas", resultado.hidrogramas)):
+                          ("hidrogramas", resultado.hidrogramas),
+                          ("escenarios_cc", resultado.escenarios)):
         ruta = destino / f"{nombre}.csv"
         _escribir_csv(ruta, filas, delimitador)
         resultado.productos.append(rutas.relativa(ruta, base))
@@ -924,6 +996,10 @@ def _completar_transito(configuracion, base, resultado, delimitador,
         "hec_hms.transito.muskingum.caudal_referencia_tr", "2.33"))
     declarada = configuracion.obtener(
         "hec_hms.transito.muskingum.celeridad_ms", None)
+    import hms
+
+    clases = configuracion.obtener(
+        "hec_hms.transito.muskingum.clases_pendiente", []) or []
     n_manning = float(configuracion.obtener(
         "hec_hms.transito.muskingum_cunge.n_manning"))
     talud = float(configuracion.obtener(
@@ -953,15 +1029,25 @@ def _completar_transito(configuracion, base, resultado, delimitador,
         if caudal is None:
             sin_pico.append(tramo)
             continue
+        clase = hms.clase_por_pendiente(
+            float(fila["pendiente_pct"]), clases)
+        celeridad = (float(clase["celeridad_ms"]) if clase
+                     else (float(declarada) if declarada else None))
         try:
             parametros = parametros_muskingum(
                 caudal, n_manning, float(fila["ancho_fondo_m"]), talud,
                 float(fila["pendiente_pct"]) / 100.0,
-                float(fila["longitud_m"]),
-                float(declarada) if declarada else None)
+                float(fila["longitud_m"]), celeridad)
         except (ErrorHidrologia, KeyError, TypeError, ValueError) as error:
             fallidos.append(f"{tramo} ({error})")
             continue
+        if clase:
+            # La X de la clase SUSTITUYE a la de Cunge, que sobre esta
+            # geometria devuelve 0,497 de mediana, es decir traslacion pura.
+            parametros["x_cunge"] = parametros["x"]
+            parametros["x"] = float(clase["x"])
+            parametros["x_recortado"] = False
+            parametros["clase_pendiente"] = str(clase.get("nombre", ""))
         if parametros["x_recortado"]:
             recortados.append(tramo)
         fila["n_manning"] = n_manning
@@ -1061,8 +1147,8 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
             series[punto] = ([x for x, _ in pares], [y for _, y in pares])
     if series:
         with graficos.figura(
-                estilo, titulo="Caudal maximo contra periodo de retorno",
-                etiqueta_x="Periodo de retorno (anos)",
+                estilo, titulo="Caudal máximo contra periodo de retorno",
+                etiqueta_x="Periodo de retorno (años)",
                 etiqueta_y="Caudal pico (m3/s)") as (fig, ax):
             graficos.lineas(ax, series, estilo)
             ax.set_xscale("log")
@@ -1072,7 +1158,7 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
             fig.text(0.01, -0.04,
                      f"Sitio de proyecto: {resultado.punto_de_proyecto}. "
                      "Modelo HEC-HMS, SCS Curve Number y SCS Unit Hydrograph, "
-                     "transito Muskingum-Cunge.",
+                     "tránsito Muskingum-Cunge.",
                      fontsize=estilo.tamano_fuente - 2, color="#555555")
             for ruta in graficos.guardar(
                     fig, directorio / "M14_qmax_vs_periodo", estilo):
@@ -1104,7 +1190,7 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
                 etiqueta_y="Caudal (m3/s)") as (fig, ax):
             for color, (nombre, (x, y)) in zip(colores, curvas.items()):
                 ax.plot(x, y, color=color, linewidth=1.5, label=nombre)
-            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            graficos.leyenda(ax, estilo)
             ax.set_ylim(bottom=0)
             ax.set_xlim(left=0)
             for ruta in graficos.guardar(

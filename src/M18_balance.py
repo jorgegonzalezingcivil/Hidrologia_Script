@@ -1003,7 +1003,7 @@ def _figuras(configuracion, base, resultado, logger) -> None:
                     color="#7d3c98", linewidth=1.6, marker="s", markersize=4,
                     label="ETR, Budyko")
             ax.set_xticks(meses)
-            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            graficos.leyenda(ax, estilo)
             for ruta in graficos.guardar(
                     fig, directorio / "M18_balance_mensual", estilo):
                 resultado.productos.append(rutas.relativa(ruta, base))
@@ -1027,7 +1027,7 @@ def _figuras(configuracion, base, resultado, logger) -> None:
                     ax.axhline(largo, color="#555555", linestyle=":",
                                linewidth=1.3,
                                label="largo plazo, por subcuenca")
-                    ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+                    graficos.leyenda(ax, estilo)
                 ax.set_xticks(meses)
                 ax.set_ylim(bottom=0)
                 fig.text(0.01, -0.04,
@@ -1059,7 +1059,7 @@ def _figuras(configuracion, base, resultado, logger) -> None:
                 ax.axhline(media, color="#555555", linestyle=":", linewidth=1.2,
                            label=f"media {media:.1f} mm")
                 ax.set_xticks(meses)
-                ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+                graficos.leyenda(ax, estilo)
                 fig.text(0.01, -0.04,
                          f"Máximo {max(valores):.1f} mm y mínimo "
                          f"{min(valores):.1f} mm. Total anual "
@@ -1147,7 +1147,7 @@ def _figuras_de_contraste(configuracion, base, resultado, estilo, directorio,
                        label=etiquetas[metodo])
         medias = {m: sum(f[f"etr_{m}_mm"] for f in filas) / len(filas)
                   for m in metodos}
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        graficos.leyenda(ax, estilo)
         fig.text(0.01, -0.04,
                  "Media por subcuenca: "
                  + ", ".join(f"{etiquetas[m]} {medias[m]:.0f}" for m in metodos)
@@ -1185,7 +1185,7 @@ def _figuras_de_contraste(configuracion, base, resultado, estilo, directorio,
                    label="subcuencas")
         ax.set_xlim(0, tope)
         ax.set_ylim(0, 1.15)
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        graficos.leyenda(ax, estilo)
         fig.text(0.01, -0.06,
                  f"Las {len(filas)} subcuencas caen entre índices de aridez de "
                  f"{min(aridez):.2f} y {max(aridez):.2f}, en el CODO de la "
@@ -1256,7 +1256,7 @@ def _figuras_de_contraste(configuracion, base, resultado, estilo, directorio,
             extremos = [min(base_x) * 0.9, max(base_x) * 1.1]
             ax.plot(extremos, extremos, color="#555555", linestyle=":",
                     linewidth=1.2, label="igualdad")
-            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            graficos.leyenda(ax, estilo)
             for ruta in graficos.guardar(
                     fig, directorio / "M18_etr_dispersion", estilo):
                 resultado.productos.append(rutas.relativa(ruta, base))
@@ -1272,7 +1272,7 @@ def _figuras_de_contraste(configuracion, base, resultado, estilo, directorio,
                        [f[f"etr_{metodo}_mm"] for f in filas],
                        s=16, alpha=0.75, color=estilo.color(indice),
                        label=etiquetas[metodo])
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        graficos.leyenda(ax, estilo)
         for ruta in graficos.guardar(fig, directorio / "M18_etr_elevacion",
                                      estilo):
             resultado.productos.append(rutas.relativa(ruta, base))
@@ -1366,7 +1366,7 @@ def _figura_ena(configuracion, base, resultado, estilo, directorio, graficos,
         ax.axvline(referencia, color="#b03a2e", linestyle="--", linewidth=1.8,
                    label=f"ENA {configuracion.obtener('balance_hidrico.ena_anio')} "
                          f"año medio, {referencia:.1f}")
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        graficos.leyenda(ax, estilo)
         diferencia = 100.0 * (propio - referencia) / referencia if referencia else 0.0
         dentro = (banda and banda["seco"] <= propio <= banda["humedo"])
         fig.text(0.01, -0.14,
@@ -1495,7 +1495,7 @@ def _figura_por_franja(base, resultado, estilo, directorio, graficos,
         ax.set_xticklabels([f"{int(c)}" for c in ordenadas],
                            rotation=45, ha="right",
                            fontsize=estilo.tamano_fuente - 2)
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        graficos.leyenda(ax, estilo)
         fig.text(0.01, -0.06,
                  "La suma de cada barra es la precipitación de esa franja. "
                  "Ponderado por área dentro de cada una, de modo que compara "

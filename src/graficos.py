@@ -408,8 +408,10 @@ def lineas(
             marker="" if nombre in partidas else marcador,
             markersize=3.5, linewidth=1.4, label=nombre,
         )
+    # 'leyenda' es aqui el parametro booleano y tapa a la funcion del mismo
+    # nombre, de modo que se llama por el alias.
     if leyenda and series:
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        _colocar_leyenda(ax, estilo)
 
 
 def barras_horizontales(
@@ -474,7 +476,7 @@ def histograma(
         # parciales, que es justamente lo que el umbral recorta.
         ax.set_yscale("log")
     if grupos:
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        leyenda(ax, estilo)
 
 
 def marco_geografico(
@@ -802,13 +804,62 @@ def curva_doble_masa(
                         fontsize=estilo.tamano_fuente - 2, color="#c00000")
 
 
+def leyenda(ax: Any, estilo: Estilo, manijas: Sequence[Any] | None = None,
+            etiquetas: Sequence[str] | None = None, titulo: str = "",
+            columnas: int | None = None) -> Any:
+    """
+    Leyenda DEBAJO del eje, fuera del area de dibujo.
+
+    POR QUE NO SE DEJA EN AUTOMATICO. El modo 'best' de matplotlib busca el
+    hueco mirando lineas, parches y colecciones, pero NO mira los textos que se
+    anotan sobre la figura. En estas graficas se rotulan estaciones, subcuencas
+    y periodos de retorno, de modo que 'best' encuentra un hueco en los datos y
+    aterriza justo encima de los rotulos. Ese es el defecto que el consultor
+    encontro repetido en el informe.
+
+    POR QUE AL COSTADO Y NO DEBAJO. Debajo del eje tampoco hay sitio: muchas de
+    estas figuras llevan una nota al pie con la procedencia del dato y los
+    parametros adoptados, y esa nota se dibuja DESPUES de la leyenda, de modo
+    que no hay forma de detectarla a tiempo para esquivarla. Se comprobo sobre
+    la curva de duracion del M19: la leyenda aterrizaba encima de la nota.
+
+    El costado derecho es el unico espacio que ninguna otra cosa ocupa, y la
+    figura se guarda con bbox_inches='tight', asi que lo que sobresale ensancha
+    el lienzo en lugar de recortarse.
+    """
+    if manijas is None:
+        manijas, etiquetas_reales = ax.get_legend_handles_labels()
+    else:
+        etiquetas_reales = list(etiquetas or
+                                [getattr(m, "get_label", lambda: "")()
+                                 for m in manijas])
+    if not manijas:
+        return None
+    if columnas is None:
+        # Una columna, salvo que sean tantas entradas que la leyenda quede mas
+        # alta que el propio dibujo.
+        columnas = 2 if len(manijas) > 12 else 1
+    return ax.legend(
+        manijas, etiquetas_reales,
+        loc="upper left", bbox_to_anchor=(1.01, 1.0),
+        ncol=columnas, frameon=False, borderaxespad=0.0,
+        fontsize=estilo.tamano_fuente - 1,
+        title=titulo or None,
+    )
+
+
+# Alias para las funciones que reciben un parametro llamado 'leyenda', que de
+# otro modo tapa a la funcion dentro de su cuerpo.
+_colocar_leyenda = leyenda
+
+
 def leyenda_manual(
     ax: Any, entradas: Sequence[tuple[str, str]], estilo: Estilo,
 ) -> None:
     """Leyenda construida a mano, para figuras cuyas marcas no la generan."""
     manijas = [Line2D([0], [0], color=color, linewidth=2.0, label=texto)
                for texto, color in entradas]
-    ax.legend(handles=manijas, fontsize=estilo.tamano_fuente - 1, frameon=False)
+    leyenda(ax, estilo, manijas, [texto for texto, _ in entradas])
 
 
 def tramos_consecutivos(valores: Iterable[int]) -> list[tuple[float, float]]:

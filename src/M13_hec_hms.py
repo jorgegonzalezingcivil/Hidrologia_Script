@@ -331,7 +331,408 @@ def geometria_de_tramos(
 # =============================================================================
 # Escritura
 # =============================================================================
-def actualizar_subcuenca(bloque: str, parametros: dict) -> tuple[str, str]:
+def curva_de_embalse(elevacion_volumen, cota_cresta: float,
+                     longitud_cresta_m: float, coeficiente: float,
+                     descarga_fondo_m3s: float,
+                     lamina_maxima_m: float = 3.0,
+                     pasos_sobre_cresta: int = 12,
+                     ) -> tuple[list[float], list[float], list[float]]:
+    """
+    Curvas de elevacion contra almacenamiento y contra descarga de un embalse.
+
+    POR QUE POR ELEVACION Y NO POR ALMACENAMIENTO. La forma almacenamiento
+    contra descarga resuelve el mismo transito con una sola tabla, pero colapsa
+    dos relaciones en una: no deja leer el nivel, no separa la geometria del
+    vaso de la hidraulica de sus salidas, y sobre todo no permite declarar el
+    ESTADO DE OPERACION del que se parte. Un embalse no llega a la creciente en
+    un estado hidraulico sino en uno operativo, y esa es la decision que el
+    informe tiene que declarar.
+
+    DOS SALIDAS INDEPENDIENTES, como opera el embalse real:
+
+      - La descarga de fondo, por valvulas, que opera de continuo.
+      - El vertedero libre, que solo actua por encima de su cresta:
+        Q = C * L * H^1.5, con H la lamina sobre ella.
+
+    La curva de elevacion contra volumen es un DATO del operador y no se
+    inventa. La de descarga se compone con las dos salidas.
+
+    Devuelve tres listas alineadas: cotas, volumen en miles de m3 y descarga en
+    m3/s. El almacenamiento va en 'THOU M3', que es la unidad con que HEC-HMS
+    lee una tabla emparejada en sistema metrico; con '1000 M3', que vale en los
+    parametros de las subcuencas, rechaza la tabla.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si la curva no trae al menos dos puntos, si no es creciente, o si
+        alguna magnitud de las salidas es imposible.
+    """
+    puntos = sorted((float(z), float(v)) for z, v in elevacion_volumen)
+    if len(puntos) < 2:
+        raise ErrorHidrologia(
+            "la curva de elevacion contra volumen necesita al menos dos "
+            f"puntos; llegaron {len(puntos)}.")
+    for (z0, v0), (z1, v1) in zip(puntos, puntos[1:]):
+        if v1 < v0:
+            raise ErrorHidrologia(
+                f"la curva del embalse no es creciente: en {z1} m el volumen "
+                f"({v1}) es menor que en {z0} m ({v0}).")
+    if longitud_cresta_m <= 0 or coeficiente <= 0:
+        raise ErrorHidrologia(
+            f"el vertedero necesita longitud y coeficiente positivos; "
+            f"llegaron {longitud_cresta_m} y {coeficiente}.")
+    if descarga_fondo_m3s < 0:
+        raise ErrorHidrologia(
+            f"la descarga de fondo no puede ser negativa: {descarga_fondo_m3s}.")
+
+    # La pendiente de la ultima franja, en miles de m3 por metro, sirve para
+    # prolongar el vaso por encima de la cresta, que es donde la curva del
+    # operador suele terminar. NO es un area: es dV/dz ya en las unidades de la
+    # tabla, y tratarla como area metia un factor de mil.
+    (z0, v0), (z1, v1) = puntos[-2], puntos[-1]
+    pendiente_vol = (v1 - v0) * 1000.0 / (z1 - z0) if z1 > z0 else 0.0
+
+    cotas = [z for z, _ in puntos]
+    for i in range(1, int(pasos_sobre_cresta) + 1):
+        cota = cota_cresta + lamina_maxima_m * i / float(pasos_sobre_cresta)
+        if cota > cotas[-1]:
+            cotas.append(cota)
+    if cota_cresta not in cotas:
+        cotas.append(cota_cresta)
+    cotas = sorted(set(cotas))
+
+    volumenes, descargas = [], []
+    for cota in cotas:
+        volumenes.append(_volumen_interpolado(puntos, cota, pendiente_vol))
+        salida = float(descarga_fondo_m3s)
+        if cota > cota_cresta:
+            salida += (float(coeficiente) * float(longitud_cresta_m)
+                       * (cota - cota_cresta) ** 1.5)
+        descargas.append(salida)
+    return cotas, volumenes, descargas
+
+
+def _volumen_interpolado(puntos, cota: float, pendiente_vol: float) -> float:
+    """
+    Volumen en miles de m3 a una cota, prolongando por encima del ultimo dato.
+
+    'pendiente_vol' es dV/dz en miles de m3 por metro, no un area.
+    """
+    if cota <= puntos[0][0]:
+        return puntos[0][1] * 1000.0
+    if cota >= puntos[-1][0]:
+        return (puntos[-1][1] * 1000.0
+                + pendiente_vol * (cota - puntos[-1][0]))
+    for (z0, v0), (z1, v1) in zip(puntos, puntos[1:]):
+        if z0 <= cota <= z1:
+            fraccion = (cota - z0) / (z1 - z0) if z1 > z0 else 0.0
+            return (v0 + (v1 - v0) * fraccion) * 1000.0
+    return puntos[-1][1] * 1000.0
+
+
+def bloque_de_embalse(nombre: str, tabla_volumen: str, tabla_descarga: str,
+                      volumen_inicial: float, aguas_abajo: str,
+                      canvas: tuple[float, float] | None = None) -> str:
+    """
+    Bloque 'Reservoir' del .basin, en la forma por elevacion.
+
+    LA SINTAXIS NO ES LA DE LA INTERFAZ. En pantalla el metodo se llama
+    'Outflow Curve', pero el token que el archivo espera es 'Modified Puls': con
+    la etiqueta de la interfaz HEC-HMS aborta al abrir el proyecto con
+    'Unknown route method in createRouteElement: Unspecified', y NO escribe nada
+    en los logs de corrida, de modo que quedan los de la vez anterior. Se
+    obtuvo de las clases del propio programa, porque el formato del .basin no
+    esta publicado como especificacion.
+
+    'Initial Storage' es lo que hace declarable el ESTADO DE OPERACION del que
+    se parte, que es la decision con mas peso de todo el elemento: entre partir
+    del nivel normal y partir de la cresta, el caudal de salida cambia por un
+    factor de treinta. Se da en miles de m3, y la curva del operador dice a que
+    cota corresponde.
+    """
+    ahora = _dt.datetime.now()
+    posicion = ""
+    if canvas is not None:
+        posicion = (f"     Canvas X: {float(canvas[0])}\n"
+                    f"     Canvas Y: {float(canvas[1])}\n")
+    return (
+        f"Reservoir: {nombre}\n"
+        f"     Last Modified Date: {ahora.strftime('%d %B %Y')}\n"
+        f"     Last Modified Time: {ahora.strftime('%H:%M:%S')}\n"
+        + posicion
+        + f"     Downstream: {aguas_abajo}\n"
+        "\n"
+        "     Route: Modified Puls\n"
+        # POR QUE ALMACENAMIENTO Y NO ELEVACION, HABIENDO CURVA DEL OPERADOR.
+        # Se intento la forma por elevacion, que seria la preferible porque deja
+        # leer el nivel y separa la geometria del vaso de la hidraulica de sus
+        # salidas. HEC-HMS 4.13 NO la admite con Puls modificado: reescribe el
+        # .basin al abrirlo, borra en silencio 'Primary Table' y
+        # 'Elevation-Outflow Table', y aborta con 'No storage table type
+        # selected for reservoir'. Medido sobre el modelo de este estudio.
+        #
+        # La tabla que se escribe SI sale de la curva del operador y de las dos
+        # salidas reales, de modo que el transito es el mismo. Lo que se pierde
+        # es poder leer la cota: el estado inicial se declara como volumen en
+        # lugar de como nivel, y la equivalencia entre ambos es la propia curva.
+        "     Routing Curve: Storage-Outflow\n"
+        f"     Storage-Outflow Table: {tabla_descarga}\n"
+        f"     Initial Storage: {float(volumen_inicial):.1f}\n"
+        "End:\n\n"
+    )
+
+
+def enlazar_embalse(texto: str, nombre: str, aguas_arriba: str,
+                    aguas_abajo: str, bloque: str) -> tuple[str, str]:
+    """
+    Mete el embalse entre dos elementos y reconecta el enlace.
+
+    ES IDEMPOTENTE, que aqui no es un lujo: el M13 se ejecuta muchas veces sobre
+    el mismo modelo, y duplicar el elemento o dejar dos enlaces produciria un
+    .basin que HEC-HMS rechaza sin decir por que.
+
+    SE COMPRUEBA LA TOPOLOGIA DECLARADA. Si el elemento de aguas arriba descarga
+    en otro sitio, se reporta y no se toca nada: reconectar a ciegas moveria el
+    embalse a una rama que no es la suya y laminaria area que no le corresponde.
+
+    Devuelve el texto y el motivo si no se pudo, nunca un modelo a medias.
+    """
+    ya_esta = f"Reservoir: {nombre}\n" in texto
+    patron = re.compile(
+        r"(^(?:Junction|Reach|Subbasin): " + re.escape(aguas_arriba)
+        + r"\s*$.*?)^(     Downstream: )(.+?)\s*$", re.M | re.S)
+    encaje = patron.search(texto)
+    if encaje is None:
+        return texto, f"no existe el elemento {aguas_arriba!r} o no descarga"
+    destino = encaje.group(3).strip()
+    if destino not in (aguas_abajo, nombre):
+        return texto, (f"{aguas_arriba} descarga en {destino!r} y no en "
+                       f"{aguas_abajo!r}: la topologia no es la declarada")
+    if destino != nombre:
+        texto = patron.sub(lambda m: m.group(1) + m.group(2) + nombre,
+                           texto, count=1)
+    if ya_esta:
+        # Se sustituye el bloque entero, para que un cambio de la curva o de la
+        # cresta llegue al modelo en lugar de quedarse en la configuracion.
+        viejo = re.compile(r"^Reservoir: " + re.escape(nombre)
+                           + r"\s*$.*?^End:\s*$\n?\n?", re.M | re.S)
+        return viejo.sub(lambda _: bloque, texto, count=1), ""
+    marca = ""
+    for clase in ("Reach", "Junction", "Reservoir", "Sink"):
+        if f"{clase}: {aguas_abajo}\n" in texto:
+            marca = f"{clase}: {aguas_abajo}\n"
+            break
+    if not marca:
+        return texto, f"no existe el elemento de aguas abajo {aguas_abajo!r}"
+    return texto.replace(marca, bloque + marca, 1), ""
+
+
+def escribir_embalses(declarados, ruta_basin, proyecto, archivo_dss,
+                      texto, logger) -> tuple[str, list[str], list[str]]:
+    """
+    Deja en el modelo los embalses que la configuracion declara.
+
+    CUATRO SITIOS Y NO UNO. HEC-HMS reparte un embalse entre el .basin, que
+    lleva el elemento; DOS tablas emparejadas declaradas en el .pdata, la de
+    elevacion contra almacenamiento y la de elevacion contra descarga; y el DSS,
+    que guarda los numeros de ambas. Escribir solo el elemento produce un modelo
+    que abre y falla al computar, sin decir donde.
+
+    Devuelve el texto del .basin, los embalses escritos y los que no se pudieron
+    con su motivo.
+    """
+    import dss as adaptador_dss
+
+    escritos: list[str] = []
+    fallidos: list[str] = []
+    curvas: list[dict] = []
+    for declarado in declarados:
+        nombre = str(declarado.get("nombre", "")).strip()
+        if not nombre:
+            fallidos.append("un embalse sin nombre")
+            continue
+        tabla_volumen = f"{nombre} Elevacion-Almacenamiento"
+        tabla_descarga = f"{nombre} Elevacion-Descarga"
+        try:
+            cotas, volumenes, descargas = curva_de_embalse(
+                declarado["curva_elevacion_volumen_hm3"],
+                float(declarado["cota_cresta_msnm"]),
+                float(declarado["longitud_cresta_m"]),
+                float(declarado.get("coeficiente_vertedero", 2.0)),
+                float(declarado.get("descarga_fondo_m3s", 0.0)),
+                float(declarado.get("lamina_maxima_m", 3.0)))
+        except (ErrorHidrologia, KeyError, TypeError, ValueError) as error:
+            fallidos.append(f"{nombre} ({error})")
+            continue
+
+        try:
+            # La curva de elevacion se conserva como PRODUCTO, porque el
+            # informe la tabula y porque es la que traduce el estado de
+            # operacion a volumen; el modelo consume la de almacenamiento.
+            ruta_volumen = adaptador_dss.escribir_tabla_emparejada(
+                archivo_dss, tabla_volumen, cotas, volumenes,
+                parte_c="ELEVATION-STORAGE", unidades_x="M",
+                unidades_y="THOU M3", tipo_x="ELEV", tipo_y="STORAGE")
+            ruta_descarga = adaptador_dss.escribir_tabla_emparejada(
+                archivo_dss, tabla_descarga, volumenes, descargas,
+                parte_c="STORAGE-FLOW", unidades_x="THOU M3",
+                unidades_y="M3/S", tipo_x="STORAGE", tipo_y="FLOW")
+        except Exception as error:                       # noqa: BLE001
+            fallidos.append(f"{nombre} (no se pudo escribir el DSS: {error})")
+            continue
+
+        declarar_tabla_emparejada(
+            proyecto, tabla_volumen, "Elevation-Storage", ruta_volumen,
+            archivo_dss.name, "M", "THOU M3",
+            f"curva del operador, {len(cotas)} puntos hasta la cresta en "
+            f"{float(declarado['cota_cresta_msnm']):.1f} m")
+        declarar_tabla_emparejada(
+            proyecto, tabla_descarga, "Storage-Outflow", ruta_descarga,
+            archivo_dss.name, "THOU M3", "M3/S",
+            f"descarga de fondo {float(declarado.get('descarga_fondo_m3s', 0.0)):.2f} "
+            f"m3/s mas vertedero libre de {float(declarado['longitud_cresta_m']):.0f} m")
+
+        canvas = None
+        if declarado.get("canvas_x") is not None:
+            canvas = (float(declarado["canvas_x"]),
+                      float(declarado["canvas_y"]))
+        # El estado de operacion declarado como cota se traduce a volumen con
+        # la propia curva del operador, que es la unica equivalencia valida.
+        volumen_inicial = _volumen_interpolado(
+            sorted((float(z), float(v))
+                   for z, v in declarado["curva_elevacion_volumen_hm3"]),
+            float(declarado["cota_inicial_msnm"]), 0.0)
+        bloque = bloque_de_embalse(
+            nombre, tabla_volumen, tabla_descarga, volumen_inicial,
+            str(declarado["aguas_abajo"]), canvas)
+        texto, motivo = enlazar_embalse(
+            texto, nombre, str(declarado["aguas_arriba"]),
+            str(declarado["aguas_abajo"]), bloque)
+        if motivo:
+            fallidos.append(f"{nombre} ({motivo})")
+            continue
+        escritos.append(nombre)
+        # LA CURVA ENTRA AL INFORME. El modelo la consume en volumen, pero lo
+        # que el consultor tiene que poder mostrar es la cota, porque es donde
+        # se lee el estado de operacion y la lamina sobre el vertedero.
+        for cota, volumen, salida in zip(cotas, volumenes, descargas):
+            curvas.append({
+                "embalse": nombre,
+                "cota_msnm": round(cota, 2),
+                "volumen_miles_m3": round(volumen, 1),
+                "volumen_hm3": round(volumen / 1000.0, 3),
+                "lamina_sobre_cresta_m": round(
+                    max(0.0, cota - float(declarado["cota_cresta_msnm"])), 2),
+                "descarga_m3s": round(salida, 3),
+            })
+        logger.info(
+            "Embalse %s: %s -> %s -> %s, arranca en %.1f msnm, cresta %.1f de "
+            "%.0f m, fondo %.2f m3/s",
+            nombre, declarado["aguas_arriba"], nombre, declarado["aguas_abajo"],
+            float(declarado["cota_inicial_msnm"]),
+            float(declarado["cota_cresta_msnm"]),
+            float(declarado["longitud_cresta_m"]),
+            float(declarado.get("descarga_fondo_m3s", 0.0)))
+    return texto, escritos, fallidos, curvas
+
+
+def declarar_tabla_emparejada(proyecto: Path, tabla: str, tipo: str,
+                              pathname: str, archivo_dss: str,
+                              unidades_x: str, unidades_y: str,
+                              descripcion: str) -> None:
+    """
+    Anota una tabla emparejada en el .pdata del proyecto, o actualiza la que ya
+    estaba.
+
+    El .pdata no guarda los numeros: guarda el pathname donde el DSS los tiene.
+    Sin esta entrada HEC-HMS no encuentra la curva aunque este escrita.
+    """
+    ruta = next(proyecto.glob("*.pdata"), None)
+    if ruta is None:
+        return
+    texto = ruta.read_text(encoding="latin-1")
+    ahora = _dt.datetime.now()
+    bloque = (
+        f"Table: {tabla}\n"
+        f"     Table Type: {tipo}\n"
+        f"     Description: {descripcion}\n"
+        f"     Last Modified Date: {ahora.strftime('%d %B %Y')}\n"
+        f"     Last Modified Time: {ahora.strftime('%H:%M:%S')}\n"
+        f"     X-Units: {unidades_x}\n"
+        f"     Y-Units: {unidades_y}\n"
+        "     Use External DSS File: NO\n"
+        f"     DSS File: {archivo_dss}\n"
+        f"     Pathname: {pathname}\n"
+        "     Interpolation: Linear Interpolation\n"
+        "End:\n\n"
+    )
+    viejo = re.compile(r"^Table: " + re.escape(tabla) + r"\s*$.*?^End:\s*$\n?\n?",
+                       re.M | re.S)
+    if viejo.search(texto):
+        texto = viejo.sub(lambda _: bloque, texto, count=1)
+    else:
+        texto = texto.rstrip("\n") + "\n\n" + bloque
+    ruta.write_text(texto, encoding="latin-1")
+
+
+def abstraccion_inicial(cn: float, lam: float) -> dict[str, float]:
+    """
+    Retencion, abstraccion inicial y CN equivalente para el lambda adoptado.
+
+    QUE ES LAMBDA. La relacion Ia = 0,2*S no es fisica: salio de un ajuste del
+    SCS en los anios cincuenta sobre pocas cuencas y con dispersion grande, y el
+    propio NEH-630 capitulo 10 reconoce esa dispersion. Woodward y otros (2003)
+    la reexaminaron sobre unas 300 cuencas y encontraron la mediana cerca de
+    0,05; Hawkins y otros (2009) lo recogen como practica recomendada.
+
+    LA CONVERSION DE S NO ES OPCIONAL. Las tablas de numero de curva estan
+    calibradas CON lambda = 0,2. Bajar la abstraccion conservando la misma S
+    seria quedarse con el beneficio sin el costo y produciria una cuenca mucho
+    mas reactiva de lo que los datos respaldan. Por eso se convierte:
+
+        S(0,05) = 1,33 * S(0,2)^1,15     con S en pulgadas
+
+    Medido en esta cuenca con CN 75,3: la creciente frecuente se multiplica por
+    5,1 y la de diseno sube solo un 12 %, y en Tr 500 baja. Corrige un umbral
+    que desactivaba los eventos pequenos, no infla el caudal de diseno.
+
+    EL CN DEL INFORME NO CAMBIA. El que sale de suelos y coberturas sigue
+    siendo el de la tabla; lo que el modelo recibe es el equivalente, mas bajo,
+    junto con la Ia explicita. El informe debe presentar los dos, o parecera que
+    se bajo el numero de curva a conveniencia.
+
+    Excepciones
+    -----------
+    ErrorHidrologia
+        Si el CN esta fuera de rango, o si se pide un lambda distinto de 0,20 y
+        0,05: la relacion de conversion esta publicada para esos dos y no para
+        un valor cualquiera, e interpolarla seria inventar.
+    """
+    if not 0.0 < float(cn) <= 100.0:
+        raise ErrorHidrologia(
+            f"el numero de curva ({cn}) esta fuera de (0, 100].")
+    s_02 = 25400.0 / float(cn) - 254.0
+    if abs(float(lam) - 0.20) < 1e-9:
+        s = s_02
+    elif abs(float(lam) - 0.05) < 1e-9:
+        s = 1.33 * (s_02 / 25.4) ** 1.15 * 25.4
+    else:
+        raise ErrorHidrologia(
+            f"lambda = {lam} no tiene conversion publicada de S. Solo se "
+            "admiten 0.20, el clasico, y 0.05, el de Hawkins y otros (2009).")
+    return {
+        "s_lambda_020_mm": round(s_02, 2),
+        "s_adoptada_mm": round(s, 2),
+        "ia_mm": round(float(lam) * s, 2),
+        "cn_equivalente": round(25400.0 / (s + 254.0), 1),
+    }
+
+
+def actualizar_subcuenca(bloque: str, parametros: dict,
+                         flujo_base: dict | None = None,
+                         lam: float = 0.20,
+                         factor_cn: float = 1.0) -> tuple[str, str]:
     """
     Reescribe un bloque de subcuenca al método SCS con sus parámetros.
 
@@ -343,21 +744,66 @@ def actualizar_subcuenca(bloque: str, parametros: dict) -> tuple[str, str]:
     if faltan:
         return bloque, f"sin {', '.join(faltan)}"
 
-    bloque = fijar_grupo(bloque, "LossRate", "SCS", (
+    # Con lambda distinto de 0,2 el modelo NO recibe el CN de la tabla sino su
+    # equivalente, junto con la Ia explicita. Escribir el CN de la tabla y
+    # ademas la Ia dejaria la abstraccion baja sobre la S sin convertir, que es
+    # justamente el atajo que hace indefendible el cambio.
+    # EL FACTOR ES CALIBRACION Y SE APLICA ANTES DE CONVERTIR. El CN de suelos y
+    # coberturas no cambia: es el que el informe tabula al lado de este.
+    conversion = abstraccion_inicial(
+        parametros["cn"] * float(factor_cn), lam)
+    campos_perdida = [
         ("Percent Impervious Area", "0.0"),
-        ("Curve Number", f"{parametros['cn']:.1f}"),
-    ))
+        ("Curve Number", f"{conversion['cn_equivalente']:.1f}"),
+    ]
+    if abs(float(lam) - 0.20) > 1e-9:
+        campos_perdida.append(("Initial Abstraction",
+                               f"{conversion['ia_mm']:.2f}"))
+    bloque = fijar_grupo(bloque, "LossRate", "SCS", tuple(campos_perdida))
     # 'Unitgraph Type: STANDARD' acompana siempre al hidrograma unitario del
     # SCS en los modelos de ejemplo de HEC-HMS 4.13.
     bloque = fijar_grupo(bloque, "Transform", "SCS", (
         ("Lag", f"{parametros['tlag_min']:.2f}"),
         ("Unitgraph Type", "STANDARD"),
     ))
-    # SIN FLUJO BASE, por decision del consultor: la tormenta de diseno es un
-    # evento aislado y lo que interesa es el hidrograma de escorrentia directa.
-    # Dejar 'Recession' sin sus parametros daria un metodo declarado y vacio.
-    bloque = fijar_grupo(bloque, "Baseflow", "None", ())
+    bloque = fijar_grupo(bloque, *grupo_de_flujo_base(flujo_base))
     return bloque, ""
+
+
+def grupo_de_flujo_base(flujo_base: dict | None) -> tuple[str, str, tuple]:
+    """
+    Bloque de flujo base de una subcuenca, segun lo declarado.
+
+    POR QUE IMPORTA. El hidrograma de una tormenta de diseno sin flujo base
+    arranca en cero y vuelve a cero, y el rio no hace eso: lleva su caudal
+    ordinario antes de que llueva. Comparar ese hidrograma contra una creciente
+    medida obliga a descontarle al dato observado un caudal base estimado, y esa
+    resta mete una hipotesis en el lado de la EVIDENCIA, que es justo donde no
+    debe haberla. Con el flujo base dentro del modelo la comparacion es directa.
+
+    RECESION Y NO CONSTANTE. La recesion arranca en el caudal antecedente, cede
+    durante el evento y vuelve a mandar en la rama de agotamiento cuando el
+    caudal directo baja del umbral. Los tres parametros se DECLARAN: ninguno
+    sale de la cadena.
+
+    El caudal inicial se da por unidad de area, de modo que cada subcuenca
+    recibe el que le corresponde por su tamano sin repartir nada a mano.
+
+    La sintaxis esta tomada de los proyectos de muestra que HEC-HMS 4.13
+    distribuye en samples.zip, que es la unica fuente con autoridad: el formato
+    del .basin no esta publicado como especificacion.
+    """
+    if not flujo_base or str(flujo_base.get("metodo", "ninguno")) == "ninguno":
+        # Dejar 'Recession' sin sus parametros daria un metodo declarado y vacio.
+        return "Baseflow", "None", ()
+    return "Baseflow", "Recession", (
+        ("Recession Factor", f"{float(flujo_base['factor_recesion']):.3f}"),
+        ("Initial Flow/Area Ratio",
+         f"{float(flujo_base['caudal_especifico_m3s_km2']):.6f}"),
+        ("Threshold Flow to Peak Ratio",
+         f"{float(flujo_base['umbral_pico']):.3f}"),
+        ("Initial Variable", "Combined Inflow"),
+    )
 
 
 def topologia_del_basin(
@@ -486,6 +932,43 @@ def leer_geometria_hidraulica(ruta: Path, delimitador: str,
     raise ErrorFormato(f"{ruta.name} no trae la variable {variable!r}.")
 
 
+def parametros_por_clase(geometrias: dict[str, dict], tipo: dict[str, str],
+                         clases: Sequence[dict]) -> dict[str, dict]:
+    """
+    K y X de cada tramo a partir de su clase de pendiente, sin datos de caudal.
+
+    POR QUE SE CALCULAN AQUI Y NO SE LEEN DEL M14. Dependen SOLO de la geometria
+    del tramo: la longitud y la pendiente, que este modulo ya tiene. Leerlas de
+    la tabla que escribe el M14 metia una dependencia de orden que la cadena no
+    cumple, porque el M13 corre ANTES: en la primera pasada el modelo salia con
+    los parametros de la corrida anterior y la tabla con los nuevos, y las dos
+    cosas no coincidian. Medido sobre el estudio entregado, eso dejo el modelo
+    con X de 0,497, el valor de Cunge, en lugar del 0,250 de las clases, y un
+    caudal de diseno un 26,5 % mas alto en los 251 elementos.
+    """
+    import hms
+
+    salida: dict[str, dict] = {}
+    for tramo, geometria in geometrias.items():
+        if tipo.get(tramo) != "Reach":
+            continue
+        longitud_m = float(geometria.get("longitud_m") or 0.0)
+        pendiente_pct = float(geometria.get("pendiente") or 0.0) * 100.0
+        clase = hms.clase_por_pendiente(pendiente_pct, clases)
+        if clase is None or longitud_m <= 0:
+            continue
+        celeridad = float(clase["celeridad_ms"])
+        if celeridad <= 0:
+            continue
+        salida[tramo] = {
+            "clase": str(clase.get("nombre", "")),
+            "celeridad_ms": celeridad,
+            "k_min": longitud_m / celeridad / 60.0,
+            "x": float(clase["x"]),
+        }
+    return salida
+
+
 def parametros_de_transito(geometrias: dict[str, dict],
                            aguas_abajo: dict[str, str],
                            tipo: dict[str, str], anchos: dict[str, float],
@@ -554,6 +1037,168 @@ def parametros_de_transito(geometrias: dict[str, dict],
     return filas
 
 
+def fusionar_transito(ruta: Path, filas: list[dict],
+                      delimitador: str) -> list[dict]:
+    """
+    Conserva de la tabla anterior las columnas que este modulo no escribe.
+
+    La tabla de transito la llenan DOS modulos: el M13 pone la geometria y el
+    M14 le anade despues la parametrizacion de Muskingum. El M13 la lee en la
+    corrida siguiente para escribir el modelo, de modo que si al reescribirla
+    borra lo que el M14 puso, se queda sin lo que necesita y cae en los valores
+    por omision. Ese fallo no da error: produce un modelo que corre y una tabla
+    de informe que no coincide con el.
+    """
+    if not Path(ruta).is_file():
+        return filas
+    try:
+        with Path(ruta).open(encoding="utf-8-sig", newline="") as manejador:
+            previas = {str(f.get("tramo", "")).strip(): f
+                       for f in csv.DictReader(manejador, delimiter=delimitador)}
+    except OSError:
+        return filas
+    propias = set(filas[0]) if filas else set()
+    # LA CELERIDAD Y LA K LAS CALCULAN LOS DOS MODULOS, con criterios distintos:
+    # aqui con la celeridad unica de la configuracion, y en el M14 con la que
+    # corresponde a la clase de pendiente del tramo. Cuando el M14 ya ha pasado,
+    # lo suyo manda: recalcularlas aqui las devolvia a 1 m/s y dejaba la tabla
+    # del informe diciendo una cosa y el modelo otra, sin ninguna senal.
+    del_m14 = {"celeridad_ms", "k_s", "k_min", "k_h", "celeridad_origen"}
+    for fila in filas:
+        anterior = previas.get(str(fila.get("tramo", "")).strip())
+        if not anterior:
+            continue
+        manda_el_m14 = bool(str(anterior.get("clase_pendiente", "")).strip())
+        for clave, valor in anterior.items():
+            if valor in (None, ""):
+                continue
+            if clave not in propias or (manda_el_m14 and clave in del_m14):
+                fila[clave] = valor
+    return filas
+
+
+def leer_x_muskingum(ruta: Path, delimitador: str) -> dict[str, float]:
+    """
+    X de cada tramo, del transito.csv que deja el M14.
+
+    NO SE RECALCULA AQUI, por lo mismo que la K: si el valor viviera en dos
+    sitios, la tabla del informe y el modelo podrian dejar de coincidir sin que
+    nada avisara.
+    """
+    salida: dict[str, float] = {}
+    if not Path(ruta).is_file():
+        return salida
+    with Path(ruta).open(encoding="utf-8-sig", newline="") as manejador:
+        for fila in csv.DictReader(manejador, delimiter=delimitador):
+            try:
+                salida[str(fila["tramo"]).strip()] = float(
+                    str(fila["x"]).replace(",", "."))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return salida
+
+
+def leer_k_muskingum(ruta: Path, delimitador: str) -> dict[str, float]:
+    """
+    K de Muskingum por tramo, del transito.csv que deja el M14.
+
+    Se lee de un archivo y no se recalcula aqui: la K sale de la hidraulica del
+    tramo (longitud sobre celeridad) y el M14 ya la resuelve con la geometria y
+    el caudal de referencia declarados. Recalcularla en dos sitios es la manera
+    de que un dia dejen de coincidir.
+    """
+    if not Path(ruta).is_file():
+        return {}
+    salida: dict[str, float] = {}
+    with Path(ruta).open(encoding="utf-8-sig", newline="") as manejador:
+        for fila in csv.DictReader(manejador, delimiter=delimitador):
+            try:
+                salida[fila["tramo"].strip()] = float(fila["k_min"])
+            except (KeyError, TypeError, ValueError):
+                continue
+    return salida
+
+
+def subtramos_estables(k_min: float, x: float, dt_min: float) -> int:
+    """
+    Subtramos que hace falta partir para que Muskingum sea estable.
+
+    LA CONDICION ES 2*K*X <= dt <= 2*K*(1-X), y con K grande frente al intervalo
+    de calculo el limite inferior se incumple: la solucion oscila y puede dar
+    caudales NEGATIVOS, que HEC-HMS calcula sin protestar. Partir el tramo en n
+    subtramos divide la K de cada uno y devuelve la estabilidad.
+
+    Se devuelve al menos 1, y se redondea hacia arriba porque quedarse corto es
+    justo lo que hay que evitar.
+    """
+    if dt_min <= 0 or k_min <= 0 or not 0 <= x < 0.5:
+        return 1
+    return max(1, int(-(-2.0 * k_min * x // dt_min)))
+
+
+def k_minima_representable(x: float, dt_min: float) -> float:
+    """
+    K por debajo de la cual el intervalo de calculo no puede transitar nada.
+
+    Es el OTRO extremo de 2*K*X <= dt <= 2*K*(1-X): despejando, K >= dt/(2*(1-X)).
+    Partir en subtramos no lo arregla, porque cada subtramo recibe K/n y el
+    incumplimiento empeora. HEC-HMS lo rechaza con 'Invalid Muskingum K'.
+
+    Un tramo con K por debajo de este limite es tan corto que la onda lo cruza
+    dentro de un solo paso de calculo: no hay transito que resolver a esa escala.
+    """
+    return dt_min / (2.0 * (1.0 - x)) if 0.0 <= x < 1.0 and dt_min > 0 else 0.0
+
+
+def actualizar_tramo_muskingum(bloque: str, k_min: float, x: float,
+                               dt_min: float) -> tuple[str, str, str]:
+    """
+    Reescribe un bloque de tramo al Muskingum CLASICO, con K y X declarados.
+
+    POR QUE EXISTE ESTA ALTERNATIVA. Muskingum-Cunge deriva la atenuacion de la
+    geometria que se le entrega, y la que este estudio puede entregar es un
+    TRAPECIO PRISMATICO: sin pozos, sin meandros y sin zonas de desborde. Medido
+    sobre este modelo, la atenuacion que resulta es del 0,0 % en los 62 tramos,
+    y ninguna combinacion de rugosidad y ancho la mueve.
+
+    Esa respuesta no dice que el rio no atenue: dice que un canal prismatico con
+    esta pendiente no atenua. El almacenamiento que de verdad aplana la creciente
+    esta en la irregularidad del cauce y en el desborde, que la seccion idealizada
+    no representa y que sin secciones levantadas no se puede representar.
+
+    Con Muskingum clasico la atenuacion se DECLARA en X en lugar de derivarse. Es
+    una decision del consultor y hay que decirlo: X no sale de la hidraulica del
+    tramo sino de un valor adoptado, y el informe debe declararlo junto con el
+    contraste contra el caudal observado que lo respalde.
+    """
+    if k_min is None or k_min <= 0:
+        return bloque, "sin K de Muskingum", ""
+    if not 0.0 <= x < 0.5:
+        return bloque, f"X fuera del rango fisico admisible: {x}", ""
+
+    # Un tramo mas rapido que el paso de calculo se lleva a la K minima que ese
+    # paso puede representar. NO se hace en silencio: se devuelve el aviso para
+    # que quede en el log y en el reporte. El error que introduce esta acotado
+    # por el propio intervalo, y la alternativa (bajar el dt de todo el modelo)
+    # cambiaria el tiempo de rezago de TODAS las subcuencas, porque el criterio
+    # adoptado es dt/2 + 0,6*Tc.
+    aviso = ""
+    admisible = k_minima_representable(x, dt_min)
+    if k_min < admisible:
+        aviso = (f"K = {k_min:.2f} min por debajo de lo representable con un "
+                 f"paso de {dt_min:.0f} min; se eleva a {admisible:.2f} min")
+        k_min = admisible
+
+    pasos = subtramos_estables(k_min, x, dt_min)
+    bloque = fijar_grupo(bloque, "Route", "Muskingum", (
+        # HEC-HMS pide la K en HORAS.
+        ("Muskingum K", f"{k_min / 60.0:.4f}"),
+        ("Muskingum X", f"{x:.3f}"),
+        ("Muskingum Steps", str(pasos)),
+    ))
+    return bloque, "", aviso
+
+
 def actualizar_tramo(bloque: str, geometria: dict, n_manning: float,
                      ancho_fondo: float, talud: float,
                      celeridad: float = 1.0) -> tuple[str, str]:
@@ -589,6 +1234,92 @@ def actualizar_tramo(bloque: str, geometria: dict, n_manning: float,
         ("Channel Loss", "None"),
     ))
     return bloque, ""
+
+
+SUFIJO_SIN_FACTOR = "_SF"
+
+
+def duplicar_sin_factor(hietogramas, factor: float) -> list[dict]:
+    """
+    El mismo hietograma sin el factor de cambio climatico, para el segundo
+    escenario.
+
+    POR QUE SE DIVIDE Y NO SE VUELVE A CALCULAR. El factor es un multiplicador
+    UNICO sobre la lamina de diseno: no toca la distribucion de Huff ni el
+    factor de reduccion por area, de modo que dividir por el devuelve
+    exactamente el hietograma que el M12b produciria con la clave en falso.
+    Comprobado sobre este estudio: la lluvia areal de Tr 100 pasa de 53,68 a
+    48,54 mm, que es 53,68 / 1,1058.
+
+    POR QUE SE COMPUTA Y NO SE ESCALA EL RESULTADO. Las perdidas del SCS no son
+    lineales: un 9,6 % menos de lluvia da un 18,7 % menos de escorrentia. El
+    segundo escenario hay que correrlo, no deducirlo del primero.
+
+    Los pluviometros del escenario sin factor llevan sufijo para que HEC-HMS los
+    distinga: dos series con el mismo nombre en el DSS se pisan.
+    """
+    if factor is None or float(factor) <= 0:
+        return []
+    copia = []
+    for paso in hietogramas:
+        nuevo = dict(paso)
+        nuevo["pluviometro"] = f"{paso['pluviometro']}{SUFIJO_SIN_FACTOR}"
+        nuevo["lamina_mm"] = float(paso["lamina_mm"]) / float(factor)
+        copia.append(nuevo)
+    return copia
+
+
+def escenario_de_referencia(hietogramas, comparar: bool,
+                            ) -> tuple[list[dict], Hallazgo | None]:
+    """
+    Decide si se escribe el segundo escenario y lo dice siempre.
+
+    POR QUE DEVUELVE UN HALLAZGO Y NO SOLO LA COPIA. Cuando la configuracion
+    pide los dos escenarios y aqui sale uno, el estudio queda afirmando algo
+    que sus productos no contienen y el informe compararia el escenario de
+    diseno consigo mismo. Ocurrio de verdad: los hietogramas del estudio
+    entregado eran de una version anterior del M12b, sin la columna
+    'factor_cc', y el M13 escribio ocho corridas en lugar de dieciseis sin una
+    sola linea de aviso. Es exactamente el resultado incorrecto en silencio que
+    la seccion 2 de CLAUDE.md prohibe.
+
+    Devuelve el juego de hietogramas de referencia (vacio si no se escribe) y
+    el hallazgo que explica cual de los cuatro casos se dio.
+    """
+    if not comparar:
+        return [], None
+    factores = {str(h.get("factor_cc") or "") for h in hietogramas}
+    factores.discard("")
+    if not factores:
+        return [], Hallazgo(
+            BLOQUEANTE, "escenarios.sin_factor_en_hietogramas",
+            "se piden los dos escenarios de cambio climatico pero los "
+            "hietogramas no traen la columna 'factor_cc': son de una version "
+            "anterior del M12b. Volver a ejecutarlo; sin ella no hay con que "
+            "deshacer el factor y solo se escribiria el escenario de diseno.")
+    if len(factores) > 1:
+        return [], Hallazgo(
+            BLOQUEANTE, "escenarios.factor_no_unico",
+            f"se piden dos escenarios pero los hietogramas traen "
+            f"{len(factores)} factores de cambio climatico distintos: "
+            f"{sorted(factores)}. NO se puede deshacer uno solo, de modo que "
+            "solo se escribiria el escenario de diseno.")
+    factor_cc = float(next(iter(factores)))
+    if factor_cc <= 1.0:
+        # No es un fallo: la regla condicional manda no aplicar el factor
+        # cuando la proyeccion es a la baja. Pero entonces los dos escenarios
+        # serian el mismo, y correr el segundo no anadiria nada.
+        return [], Hallazgo(
+            INFORMATIVO, "escenarios.factor_no_aplicado",
+            f"el factor de cambio climatico es {factor_cc} y no incrementa la "
+            "lluvia, de modo que los dos escenarios serian identicos. Se "
+            "escribe uno solo y el informe no lleva la comparacion.")
+    return duplicar_sin_factor(hietogramas, factor_cc), Hallazgo(
+        INFORMATIVO, "escenarios.dos_escenarios",
+        f"se escriben los dos escenarios de cambio climatico con factor "
+        f"{factor_cc}: el de diseno lo lleva y el de referencia representa la "
+        f"lluvia registrada, con sufijo '{SUFIJO_SIN_FACTOR}'. HEC-HMS los "
+        "resuelve en la misma sesion y el M14 entrega la comparacion.")
 
 
 def escribir_gage(destino_gage: Path, destino_dss: Path, hietogramas,
@@ -911,6 +1642,62 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
     celeridad = float(configuracion.obtener(
         "hec_hms.transito.muskingum_cunge.celeridad_indice_ms", 1.0))
 
+    # QUE METODO DE TRANSITO SE ESCRIBE. La configuracion lo declaraba y el
+    # modulo lo ignoraba: escribia Muskingum-Cunge siempre. Un config que dice
+    # una cosa y un codigo que hace otra es lo que la seccion 2 prohibe.
+    lam = float(configuracion.obtener(
+        "numero_curva.abstraccion_inicial_lambda", 0.20))
+    factor_cn = float(configuracion.obtener(
+        "numero_curva.factor_calibracion", 1.0))
+
+    metodo_flujo_base = str(configuracion.obtener(
+        "hec_hms.flujo_base.metodo", "ninguno")).strip().lower()
+    flujo_base = None
+    if metodo_flujo_base != "ninguno":
+        flujo_base = {
+            "metodo": metodo_flujo_base,
+            "factor_recesion": configuracion.obtener(
+                "hec_hms.flujo_base.factor_recesion"),
+            "caudal_especifico_m3s_km2": configuracion.obtener(
+                "hec_hms.flujo_base.caudal_especifico_m3s_km2"),
+            "umbral_pico": configuracion.obtener(
+                "hec_hms.flujo_base.umbral_pico"),
+        }
+
+    metodo_transito = str(configuracion.obtener(
+        "hec_hms.transito.metodo_adoptado", "muskingum_cunge")).strip().lower()
+    x_muskingum = float(configuracion.obtener(
+        "hec_hms.transito.muskingum.x", 0.2))
+    dt_min = float(configuracion.obtener("hec_hms.control.intervalo_min", 5.0))
+    k_muskingum: dict[str, float] = {}
+    x_por_tramo: dict[str, float] = {}
+    if metodo_transito == "muskingum":
+        ruta_transito = (rutas.directorio("procesado", base) / "hidrologia"
+                         / "transito.csv")
+        delimitador_transito = str(
+            configuracion.obtener("insumos_usuario.delimitador_csv"))
+        k_muskingum = leer_k_muskingum(ruta_transito, delimitador_transito)
+        x_por_tramo = leer_x_muskingum(ruta_transito, delimitador_transito)
+
+        # LAS CLASES MANDAN SOBRE LA TABLA. Salen de la geometria, que este
+        # modulo ya tiene, de modo que no dependen de que el M14 haya corrido
+        # antes. Sin esto el modelo quedaba con los parametros de la corrida
+        # anterior mientras la tabla llevaba los nuevos.
+        clases_transito = configuracion.obtener(
+            "hec_hms.transito.muskingum.clases_pendiente", []) or []
+        if clases_transito:
+            tipos_de = topologia_del_basin(texto)[0]
+            por_clase = parametros_por_clase(
+                geometrias, tipos_de, clases_transito)
+            k_muskingum.update({n: d["k_min"] for n, d in por_clase.items()})
+            x_por_tramo.update({n: d["x"] for n, d in por_clase.items()})
+        if not k_muskingum:
+            resultado.hallazgos.append(Hallazgo(
+                BLOQUEANTE, "transito.sin_k",
+                "se declara Muskingum clasico pero no hay transito.csv con la K "
+                "de cada tramo. La produce el M14: ejecutarlo antes, o volver a "
+                "muskingum_cunge."))
+
     criterio_ancho = str(configuracion.obtener(
         "hec_hms.transito.muskingum_cunge.criterio_ancho", "fijo")).strip()
     relacion, acumuladas = None, {}
@@ -926,11 +1713,21 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
     nuevos: list[str] = []
     sin_parametros: list[str] = []
     sin_geometria: list[str] = []
+    tramos_elevados: list[str] = []
+    tabla_abstraccion: list[dict] = []
     actualizadas = tramos_ok = 0
     for tipo, nombre, bloque in separar_bloques(texto):
         if tipo == "Subbasin":
             bloque, motivo = actualizar_subcuenca(
-                bloque, parametros.get(nombre, {}))
+                bloque, parametros.get(nombre, {}), flujo_base, lam, factor_cn)
+            datos = parametros.get(nombre, {})
+            if not motivo and datos.get("cn") is not None:
+                tabla_abstraccion.append(
+                    {"subcuenca": nombre, "cn_suelos_cobertura": datos["cn"],
+                     "factor_calibracion": factor_cn,
+                     "cn_calibrado": round(datos["cn"] * factor_cn, 1),
+                     "lambda": lam,
+                     **abstraccion_inicial(datos["cn"] * factor_cn, lam)})
             if motivo:
                 sin_parametros.append(f"{nombre} ({motivo})")
             else:
@@ -941,9 +1738,21 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
                 del_tramo = ancho_por_geometria_hidraulica(
                     acumuladas.get(nombre, 0.0), relacion["coeficiente"],
                     relacion["exponente"], minimo_m=ancho)
-            bloque, motivo = actualizar_tramo(
-                bloque, geometrias.get(nombre, {}), n_manning, del_tramo, talud,
-                celeridad)
+            if metodo_transito == "muskingum":
+                # La K sale de la hidraulica del tramo, igual que en
+                # Muskingum-Cunge; lo que se declara es la X.
+                # La X del tramo manda sobre la declarada: la fija el M14
+                # por clase de pendiente, y un cauce plano con llanura no
+                # almacena como uno encanonado.
+                bloque, motivo, aviso = actualizar_tramo_muskingum(
+                    bloque, k_muskingum.get(nombre),
+                    x_por_tramo.get(nombre, x_muskingum), dt_min)
+                if aviso:
+                    tramos_elevados.append(f"{nombre} ({aviso})")
+            else:
+                bloque, motivo = actualizar_tramo(
+                    bloque, geometrias.get(nombre, {}), n_manning, del_tramo,
+                    talud, celeridad)
             if motivo:
                 sin_geometria.append(f"{nombre} ({motivo})")
             else:
@@ -951,12 +1760,72 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
                 anchos[nombre] = del_tramo
         nuevos.append(bloque)
 
-    ruta_basin.write_text("".join(nuevos), encoding="utf-8")
+    texto_final = "".join(nuevos)
+
+    # LOS EMBALSES VAN DESPUES de reescribir subcuencas y tramos, porque
+    # insertan un elemento nuevo y reconectan un enlace: hacerlo antes obligaria
+    # al bucle a tratar un bloque que la delimitacion no produjo.
+    embalses = configuracion.obtener("hec_hms.embalses", []) or []
+    embalses_escritos: list[str] = []
+    embalses_fallidos: list[str] = []
+    curvas_embalse: list[dict] = []
+    if embalses:
+        (texto_final, embalses_escritos, embalses_fallidos,
+         curvas_embalse) = escribir_embalses(
+            embalses, ruta_basin, ruta_basin.parent,
+            Path(str(configuracion.obtener("hec_hms.proyecto.directorio")))
+            / f"{Path(str(configuracion.obtener('hec_hms.proyecto.archivo'))).stem}.dss",
+            texto_final, logger)
+
+    ruta_basin.write_text(texto_final, encoding="utf-8")
     resultado.productos.append(str(ruta_basin))
+
+    # LA CURVA DEL EMBALSE, PARA EL INFORME. El modelo la consume en volumen y
+    # el consultor la necesita en cota, que es donde se lee el estado de
+    # operacion adoptado y la lamina sobre el vertedero.
+    if curvas_embalse:
+        destino = (rutas.directorio("procesado", base) / "hidrologia"
+                   / "embalses.csv")
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        with destino.open("w", encoding="utf-8-sig", newline="") as manejador:
+            escritor = csv.DictWriter(
+                manejador, fieldnames=list(curvas_embalse[0]),
+                delimiter=str(configuracion.obtener(
+                    "insumos_usuario.delimitador_csv")))
+            escritor.writeheader()
+            escritor.writerows(curvas_embalse)
+        resultado.productos.append(rutas.relativa(destino, base))
+        logger.info("Curva de %d embalse(s) en %s",
+                    len(embalses_escritos), destino.name)
+
+    # LAS DOS TABLAS, JUNTAS Y EN EL MISMO ARCHIVO. El informe tiene que poder
+    # mostrar el CN que sale de suelos y coberturas al lado del que recibe el
+    # modelo. Un revisor que vea solo el segundo concluira que se bajo el numero
+    # de curva para obtener un resultado, y tendria razon en preguntarlo.
+    if tabla_abstraccion:
+        destino = (rutas.directorio("procesado", base) / "hidrologia"
+                   / "abstraccion_inicial.csv")
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        columnas = list(tabla_abstraccion[0])
+        with destino.open("w", encoding="utf-8-sig", newline="") as manejador:
+            escritor = csv.DictWriter(
+                manejador, fieldnames=columnas,
+                delimiter=str(configuracion.obtener(
+                    "insumos_usuario.delimitador_csv")))
+            escritor.writeheader()
+            escritor.writerows(tabla_abstraccion)
+        resultado.productos.append(rutas.relativa(destino, base))
+        logger.info("Abstraccion inicial (lambda = %.2f) en %s",
+                    lam, destino.name)
     resultado.subcuencas = {"actualizadas": actualizadas,
-                            "sin_parametros": sin_parametros}
+                            "sin_parametros": sin_parametros,
+                            "flujo_base": flujo_base or {"metodo": "ninguno"},
+                            "abstraccion_inicial_lambda": lam,
+                            "factor_calibracion_cn": factor_cn,
+                            "embalses": embalses_escritos}
     resultado.tramos = {"actualizados": tramos_ok,
                         "sin_geometria": sin_geometria,
+                        "k_elevada_al_minimo": tramos_elevados,
                         "n_manning": n_manning, "ancho_fondo_m": ancho,
                         "talud_h_por_v": talud,
                         "criterio_ancho": criterio_ancho,
@@ -977,6 +1846,15 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
         destino = destino / "transito.csv"
         delimitador = configuracion.obtener(
             "insumos_usuario.delimitador_csv", ";")
+
+        # SE CONSERVA LO QUE ESTE MODULO NO ESCRIBE. La tabla la comparten dos
+        # modulos: aqui salen la geometria y la longitud, y el M14 le anade
+        # despues la K, la X y la clase de pendiente, que son las que el propio
+        # M13 lee en la corrida siguiente para escribir el modelo. Sobrescribir
+        # el archivo entero borraba esas columnas, y la corrida siguiente caia
+        # en la X por omision con una celeridad de 1 m/s, sin que nada avisara:
+        # el modelo y la tabla del informe quedaban diciendo cosas distintas.
+        filas = fusionar_transito(destino, filas, str(delimitador))
         with destino.open("w", encoding="utf-8-sig", newline="") as manejador:
             escritor = csv.DictWriter(manejador, fieldnames=list(filas[0]),
                                       delimiter=delimitador, restval="")
@@ -1037,6 +1915,49 @@ def _actualizar_modelo(configuracion, ruta_basin, parametros, geometrias,
             f"{len(sin_geometria)} tramo(s) sin geometria utilizable: "
             f"{sin_geometria[:6]}.",
         ))
+    if tramos_elevados:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "modelo.k_elevada_al_minimo",
+            f"{len(tramos_elevados)} tramo(s) con K por debajo de lo que el "
+            f"paso de calculo puede representar: {tramos_elevados[:6]}. Se "
+            "elevan a la K minima admisible y el transito de esos tramos queda "
+            "sobrestimado en menos de un intervalo. Bajar el paso de calculo "
+            "los resolveria, pero cambiaria el tiempo de rezago de TODAS las "
+            "subcuencas, porque el criterio adoptado lo hace depender de el. "
+            "El informe debe declararlo.",
+        ))
+    if embalses_fallidos:
+        resultado.hallazgos.append(Hallazgo(
+            BLOQUEANTE, "modelo.embalse_no_escrito",
+            f"{len(embalses_fallidos)} embalse(s) declarado(s) no se pudieron "
+            f"escribir: {embalses_fallidos}. NO se continua: el modelo correria "
+            "sin ellos y entregaria un caudal de diseno mas alto, con formato "
+            "correcto y sin ninguna senal de que falta la regulacion."))
+    if embalses_escritos:
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "modelo.embalses",
+            f"{len(embalses_escritos)} embalse(s) escritos: "
+            f"{embalses_escritos}. Se transitan por Puls modificado sobre la "
+            "curva de elevacion contra almacenamiento del operador, con dos "
+            "salidas independientes: la descarga de fondo, que opera de "
+            "continuo, y el vertedero libre, que solo actua por encima de su "
+            "cresta. LA COTA INICIAL ES EL ESTADO DE OPERACION DEL QUE SE "
+            "PARTE y es la decision con mas peso del elemento: entre el nivel "
+            "normal y la cresta el caudal de salida cambia por un factor de "
+            "treinta. El informe debe declararla, junto con que las curvas son "
+            "informacion secundaria del operador tomada para la modelacion "
+            "hidrologica y no un estudio de operacion del embalse."))
+    if abs(factor_cn - 1.0) > 1e-9:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "modelo.cn_calibrado",
+            f"el numero de curva se afecto por un factor de {factor_cn:.3f}: "
+            "el modelo NO corre con el CN que salen de suelos y coberturas. "
+            "Esto es CALIBRACION y no verificacion, de modo que la coincidencia "
+            "posterior con el caudal observado deja de ser evidencia de que el "
+            "modelo sea bueno y pasa a ser el resultado de haberla buscado. El "
+            "informe debe declarar el factor, su motivo y contra que se ajusto, "
+            "y presentar las dos columnas de CN que deja "
+            "hidrologia/abstraccion_inicial.csv."))
     resultado.hallazgos.append(Hallazgo(
         ADVERTENCIA, "modelo.validacion_pendiente",
         "la sintaxis de los archivos de HEC-HMS no esta publicada como "
@@ -1057,6 +1978,18 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
     # El archivo de pluviometros se llama COMO EL PROYECTO: es asi como HEC-HMS
     # lo encuentra, sin declararlo en el .hms.
     gage = proyecto / f"{Path(str(configuracion.obtener('hec_hms.proyecto.archivo'))).stem}.gage"
+    # EL SEGUNDO ESCENARIO, sin el factor de cambio climatico. Se escribe como
+    # un juego paralelo de pluviometros, meteorologias y corridas, de modo que
+    # HEC-HMS resuelva los dos en la misma sesion. El de diseno es el que lleva
+    # el factor; el otro representa la lluvia registrada y va como referencia.
+    comparar = bool(configuracion.obtener(
+        "cambio_climatico.comparar_escenarios", False))
+    hietogramas_sf, hallazgo = escenario_de_referencia(hietogramas, comparar)
+    if hallazgo is not None:
+        resultado.hallazgos.append(hallazgo)
+    if hietogramas_sf:
+        hietogramas = list(hietogramas) + hietogramas_sf
+
     resumen = escribir_gage(
         gage, proyecto / str(configuracion.obtener(
             "hec_hms.proyecto.dss", "") or f"{gage.stem}.dss"),
@@ -1071,13 +2004,19 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
     def pluviometro_de_zona(pluviometro: str, periodo: str) -> str:
         return f"{pluviometro}_T{periodo.replace('.', '_')}"
 
-    for periodo in periodos:
-        nombre = f"T{periodo.replace('.', '_')}"
-        destino = proyecto / f"{nombre}.met"
-        escribir_met(destino, nombre, periodo, asignacion, pluviometro_de_zona,
-                     modelo_cuenca)
-        resultado.productos.append(str(destino))
-        resultado.escenarios.append(nombre)
+    sufijos = [""] + ([SUFIJO_SIN_FACTOR] if hietogramas_sf else [])
+    for sufijo in sufijos:
+        def pluviometro_del_escenario(pluviometro: str, periodo: str,
+                                      _s=sufijo) -> str:
+            return pluviometro_de_zona(f"{pluviometro}{_s}", periodo)
+
+        for periodo in periodos:
+            nombre = f"T{periodo.replace('.', '_')}{sufijo}"
+            destino = proyecto / f"{nombre}.met"
+            escribir_met(destino, nombre, periodo, asignacion,
+                         pluviometro_del_escenario, modelo_cuenca)
+            resultado.productos.append(str(destino))
+            resultado.escenarios.append(nombre)
 
     # LA VENTANA SE DECLARA, no se deduce de un multiplicador embebido. Era
     # 'duracion_h * 4', es decir 12 horas con la tormenta de 3, suficiente para
@@ -1099,8 +2038,7 @@ def _escribir_meteorologia(configuracion, proyecto, hietogramas, asignacion,
 
     ruta_hms = proyecto / str(configuracion.obtener("hec_hms.proyecto.archivo"))
     if ruta_hms.is_file():
-        registrar_componentes(ruta_hms,
-                              [f"T{p.replace('.', '_')}" for p in periodos],
+        registrar_componentes(ruta_hms, list(resultado.escenarios),
                               "Tormenta_diseno")
         resultado.productos.append(str(ruta_hms))
     else:

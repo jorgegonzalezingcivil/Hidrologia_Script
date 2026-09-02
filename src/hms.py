@@ -36,8 +36,10 @@ cada corrida deja junto al proyecto, y por eso se lee aquí.
 
 from __future__ import annotations
 
+import datetime as _dt
 import re
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
@@ -46,6 +48,7 @@ __all__ = [
     "ErrorHms",
     "ResultadoCorrida",
     "guion_de_corridas",
+    "clase_por_pendiente",
     "leer_log_de_corrida",
     "ruta_lanzador",
     "ejecutar_corridas",
@@ -151,7 +154,34 @@ _DURACION = re.compile(r"total runtime for this simulation is ([\d:]+)")
 _SEVERIDAD = re.compile(r"^(ERROR|WARNING|NOTE)\s+\d+:\s+(.*)$")
 
 
-def leer_log_de_corrida(ruta_log: Path, corrida: str = "") -> ResultadoCorrida:
+def clase_por_pendiente(pendiente_pct: float,
+                        clases: Sequence[dict]) -> dict | None:
+    """
+    Clase de tramo a la que pertenece una pendiente.
+
+    POR QUE LA PENDIENTE Y NO LA HIDRAULICA. La linealizacion de Cunge deriva la
+    celeridad del calado normal, y ese calado sale de un ancho de fondo
+    regionalizado y de un n de Manning declarado, no de secciones levantadas: al
+    caudal ordinario devuelve laminas de 18 cm, y toda la K cuelga de ahi.
+    Ademas la hace depender del caudal que el propio modelo produce, de modo que
+    K y caudal se persiguen y el resultado depende de cuantas veces se itere.
+
+    Declarar la celeridad por clase de pendiente rompe las dos cosas: no depende
+    de una seccion que no se levanto ni de la salida del modelo. Es un criterio
+    del consultor y como tal hay que sustentarlo en el informe.
+
+    Las clases se recorren en orden y gana la primera cuyo minimo no supere la
+    pendiente, de modo que la ultima recoge todo lo que quede por encima.
+    """
+    elegida = None
+    for clase in clases:
+        if float(pendiente_pct) >= float(clase["pendiente_min_pct"]):
+            elegida = clase
+    return elegida
+
+
+def leer_log_de_corrida(ruta_log: Path, corrida: str = "",
+                        desde: float | None = None) -> ResultadoCorrida:
     """
     Interpreta el log que una corrida deja junto al proyecto.
 
@@ -165,6 +195,8 @@ def leer_log_de_corrida(ruta_log: Path, corrida: str = "") -> ResultadoCorrida:
     ErrorHms
         Si el log no está. Que falte significa que la corrida no llegó a
         empezar, y eso no se puede confundir con una corrida sin incidencias.
+        Y si el log es ANTERIOR a 'desde', porque entonces es el de una
+        ejecución previa.
     """
     ruta_log = Path(ruta_log)
     nombre = corrida or ruta_log.stem
@@ -172,6 +204,23 @@ def leer_log_de_corrida(ruta_log: Path, corrida: str = "") -> ResultadoCorrida:
         raise ErrorHms(
             f"no se encuentra el log de la corrida {nombre!r} en {ruta_log}: "
             "la simulación no llegó a ejecutarse.")
+
+    # UN LOG VIEJO ES UNA CORRIDA QUE NO OCURRIO. Si HEC-HMS aborta al abrir el
+    # proyecto, por ejemplo porque un elemento del .basin esta mal escrito, no
+    # llega a tocar los logs de corrida: quedan intactos los de la vez anterior,
+    # con su 'Finished' y sin errores, y el DSS conserva aquellos resultados.
+    # Leerlos sin mirar la fecha da un CORRECTO sobre un modelo que ya no
+    # existe. Medido: ocurrio al insertar un embalse con la sintaxis equivocada.
+    if desde is not None:
+        modificado = ruta_log.stat().st_mtime
+        if modificado < desde:
+            marca = _dt.datetime.fromtimestamp(modificado)
+            raise ErrorHms(
+                f"el log de la corrida {nombre!r} es de {marca:%Y-%m-%d %H:%M} "
+                "y por tanto de una ejecución anterior: esta vez la corrida no "
+                "llegó a escribirlo. HEC-HMS abortó antes de computar, y el "
+                "DSS todavía guarda los resultados de la vez pasada. Revisar "
+                "el log del proyecto (.log) para ver por qué.")
 
     resultado = ResultadoCorrida(corrida=nombre, ruta_log=str(ruta_log))
     for linea in ruta_log.read_text(
@@ -225,6 +274,7 @@ def ejecutar_corridas(
         guion_de_corridas(nombre_proyecto, directorio_proyecto, corridas),
         encoding="utf-8")
 
+    empezo = time.time() - 2.0     # margen por la resolucion del reloj
     try:
         proceso = subprocess.run(  # noqa: S603 - ejecutable declarado en config
             [str(lanzador), "-s", str(ruta_guion.resolve())],
@@ -244,7 +294,8 @@ def ejecutar_corridas(
     for corrida in corridas:
         try:
             estados.append(leer_log_de_corrida(
-                directorio_proyecto / f"{corrida}.log", corrida))
+                directorio_proyecto / f"{corrida}.log", corrida,
+                desde=empezo))
         except ErrorHms as error:
             estados.append(ResultadoCorrida(corrida=corrida,
                                             errores=[str(error)]))

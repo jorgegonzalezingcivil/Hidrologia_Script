@@ -14,7 +14,7 @@
 # configuración vieja se detiene con 'clave ausente', que al menos es ruidoso,
 # pero corregirlo a mano en cada proyecto es trabajo repetido y propenso a que
 # dos estudios acaben con doctrina distinta sin que nadie lo advierta.
-esquema_version: 5
+esquema_version: 15
 
 proyecto:
   nombre: "Estudio Hidrológico - PLANTILLA"
@@ -538,7 +538,87 @@ verificacion:
   factor_extrapolacion: 2.0
   # Por debajo de esto la banda sale tan ancha que aceptaria cualquier cosa, y
   # una verificacion que no puede fallar no verifica nada.
+  # ---------------------------------------------------------------------------
+  # CONSISTENCIA INTERNA, SIN ESTACIONES DE CAUDAL
+  # ---------------------------------------------------------------------------
+  # El contraste externo solo es posible donde hay limnimetria utilizable, y en
+  # la mayoria de los estudios no la hay o esta comprometida por regulacion.
+  # Estas comprobaciones salen enteras de lo que la cadena ya calculo y no
+  # necesitan ningun dato de caudal.
+  #
+  # NO DEMUESTRAN QUE EL CAUDAL SEA CORRECTO. Acotan, igual que el contraste
+  # externo, y por eso su incumplimiento es advertencia y no bloqueo.
+  #
+  # LAS BANDAS SALEN DE LO MEDIDO EN ESTE ESTUDIO y son criterio del consultor.
+  consistencia:
+    # Entre que dos periodos se juzga. SE DECLARAN, no se toman los extremos:
+    # el Tr 500 es extrapolacion de la distribucion de lluvia y no observacion,
+    # y juzgar contra el saca al modelo de banda por el comportamiento de un
+    # cuantil que nadie ha visto. Medido en este estudio: entre 2,33 y 100 el
+    # cociente es 2,32 y entra en banda; arrastrando el 500 sube a 3,49.
+    periodos: [2.33, 100]
+
+    # Cuanto mas rapido crece la creciente que la lluvia que la produce, entre
+    # el periodo mas bajo y el mas alto.
+    #
+    # POR ABAJO LA COTA ES FISICA: el coeficiente de escorrentia sube con la
+    # magnitud del evento, de modo que las crecientes tienen que crecer mas que
+    # la precipitacion. Un valor por debajo de 1 no es una cuenca natural, y fue
+    # justo eso lo que delato a la estacion EL VERGEL como registro regulado:
+    # sus crecientes crecen 2,23 mientras su lluvia crece 2,28.
+    #
+    # POR ARRIBA delata el umbral de perdidas. Con Ia = 0,2*S el modelo crecia
+    # 13,6 veces contra 2,28 de la lluvia, un cociente de 5,96; con 0,05*S baja
+    # a 2,32, y la unica estacion no regulada del estudio da 2,08.
+    crecimiento_relativo: [1.0, 3.0]
+
+    # Coeficiente de escorrentia mediano de las subcuencas, en los dos extremos.
+    # Con Ia = 0,2*S la creciente frecuente salia con 0,014, que no es creible
+    # en una cuenca de paramo y pastos que mantiene caudal base todo el anio.
+    coef_escorrentia_frecuente: [0.03, 0.30]
+    coef_escorrentia_diseno: [0.10, 0.60]
+
+    # Exponente n de Q proporcional a A^n entre puntos anidados del modelo.
+    # Coherencia interna pura, sin ningun dato externo. En crecientes el valor
+    # corriente va de 0,7 a 0,8; se admite algo mas de holgura porque el
+    # reparto de la lluvia por zonas lo desplaza.
+    exponente_area: [0.5, 1.0]
+
+    # Lo que MAS dice no es el valor sino su deriva entre la creciente
+    # frecuente y la de diseno: un modelo coherente reparte el caudal entre sus
+    # puntos de la misma manera en las dos. Medido en este estudio antes de
+    # corregir las perdidas, el exponente iba de 0,586 a 0,858, una deriva de
+    # 0,272 que delataba el mismo defecto expresado en geometria.
+    deriva_exponente: [0.0, 0.15]
+
+    # Solo se emparejan puntos de tamano comparable con el mayor: en una
+    # microcuenca de 1 km2 el exponente lo decide el redondeo.
+    fraccion_area_minima: 0.2
+
+    # Tiempo al pico del modelo dividido por el tiempo de concentracion de la
+    # cuenca. Miden lo mismo por caminos distintos y deben ser del mismo orden.
+    # Medido con Muskingum-Cunge: el modelo respondia en 1 h contra un Tc de
+    # 10,67 h, es decir 0,09, y esa desproporcion era la senal de que el
+    # transito no transportaba la onda.
+    tp_sobre_tc: [0.3, 1.5]
+
   minimo_anios: 15
+
+  # Piso por debajo del cual la estacion no entra ni como referencia. Entre este
+  # valor y minimo_anios la estacion se contrasta pero queda marcada INDICATIVA:
+  # se reporta y NO se le permite mover ningun parametro por si sola.
+  #
+  # POR QUE EXISTE ESTE TRAMO INTERMEDIO. Descartar en seco una serie corta deja
+  # sin contraste partes enteras de la cuenca. En este estudio, admitir SIMAYA
+  # como indicativa lleva la superficie contrastada del 37 % al 66 %, porque
+  # drena una rama distinta de la de PUENTE LA CALERA. Lo que la serie corta no
+  # sostiene son los periodos altos, y de eso ya se encarga factor_extrapolacion.
+  minimo_anios_indicativo: 9
+
+  # Meses cuya presencia hace utilizable el ano para el maximo anual. Exigir los
+  # doce descarta anos a los que solo les falta un mes SECO, y en un mes seco no
+  # ocurre la creciente anual. Regimen bimodal de la sabana de Bogota.
+  meses_temporada_humeda: [4, 5, 10, 11]
   # Ventana sobre la que se promedia el hidrograma. 24 h porque el dato
   # observado es el maximo de los caudales MEDIOS DIARIOS.
   ventana_promedio_h: 24.0
@@ -1053,6 +1133,21 @@ idf:
 
 cambio_climatico:
   aplicar: true
+
+  # DOS ESCENARIOS EN UNA SOLA CORRIDA. El de diseno lleva el factor y el de
+  # referencia representa la lluvia registrada, para que el informe pueda mostrar
+  # cuanto del caudal procede de la proyeccion y cuanto del dato.
+  #
+  # EL SEGUNDO SE COMPUTA, NO SE ESCALA. El factor es un multiplicador unico
+  # sobre la lamina, de modo que el hietograma de referencia se obtiene
+  # dividiendo por el. Pero las perdidas del SCS no son lineales y el caudal no
+  # se puede deducir del otro: medido en el estudio de Refugio del Valle, un
+  # 10,6 % mas de lluvia produce entre un 21 y un 27 % mas de caudal, mas en las
+  # crecientes frecuentes porque el umbral amplifica cuando la lluvia es pequena.
+  #
+  # El M13 escribe los dos juegos de pluviometros, meteorologias y corridas, y
+  # HEC-HMS los resuelve en la misma sesion. Solo cuesta tiempo de computo.
+  comparar_escenarios: true
   # ADAPTADOR DE LA CUARTA COMUNICACION NACIONAL. El IDEAM publica un raster por
   # departamento, variable, escenario y horizonte, en una carpeta que exige
   # sesion institucional: se descarga a mano UNA vez y vive fuera del
@@ -1309,6 +1404,69 @@ tiempo_rezago:
 
 numero_curva:
   condicion_humedad: "II"        # I | II | III
+
+  # ---------------------------------------------------------------------------
+  # ABSTRACCION INICIAL:  Ia = lambda * S
+  # ---------------------------------------------------------------------------
+  # 0.20 es el clasico y 0.05 el revisado. Son los DOS unicos admitidos, porque
+  # la conversion de S esta publicada para ellos y no para un valor cualquiera.
+  #
+  # POR QUE SE ADOPTA 0.05. La relacion Ia = 0,2*S no es fisica: salio de un
+  # ajuste del SCS de los anios cincuenta sobre pocas cuencas y con dispersion
+  # grande, que el propio NEH-630 capitulo 10 reconoce. Woodward y otros (2003)
+  # la reexaminaron sobre unas 300 cuencas y hallaron la mediana cerca de 0,05;
+  # Hawkins y otros (2009), 'Curve Number Hydrology: State of the Practice' de
+  # la ASCE, lo recogen como practica recomendada.
+  #
+  # LA CONVERSION DE S VA INCLUIDA Y NO ES OPCIONAL. Las tablas de CN estan
+  # calibradas CON lambda = 0,2; bajar la abstraccion conservando la misma S
+  # seria quedarse con el beneficio sin el costo. Se aplica
+  # S(0,05) = 1,33 * S(0,2)^1,15 con S en pulgadas, y al modelo va el CN
+  # EQUIVALENTE, no el de la tabla de suelos y coberturas, que no cambia.
+  #
+  # MEDIDO EN ESTA CUENCA, con CN mediano de 75,3: el coeficiente de escorrentia
+  # de Tr 2,33 pasa del 1,4 % al 7,2 %, la creciente de diseno sube solo un 12 %
+  # y la de Tr 500 baja. Corrige un umbral que desactivaba los eventos pequenos,
+  # no infla el caudal de diseno. Con 0,2 el volumen de escorrentia crecia 30,6
+  # veces entre Tr 2,33 y Tr 100 mientras la lluvia crecia 2,28 y la estacion no
+  # regulada del estudio crecia 4,75.
+  #
+  # LA PRACTICA CORRIENTE EN COLOMBIA USA 0,2. Apartarse exige justificarlo por
+  # escrito: el informe presenta las dos tablas, y el M13 deja el contraste por
+  # subcuenca en hidrologia/abstraccion_inicial.csv.
+  abstraccion_inicial_lambda: 0.05
+
+  # ---------------------------------------------------------------------------
+  # FACTOR DE CALIBRACION SOBRE EL NUMERO DE CURVA
+  # ---------------------------------------------------------------------------
+  # 1.00 = el CN que sale de suelos y coberturas, sin tocar. Es el valor por
+  # omision y el unico que NO exige justificacion.
+  #
+  # ESTO ES CALIBRACION Y HAY QUE LLAMARLA POR SU NOMBRE. El numero de curva no
+  # es un parametro libre: sale de la tabla de homologacion a partir del suelo y
+  # la cobertura. Moverlo convierte el ajuste posterior en el resultado de
+  # haberlo buscado, y el informe debe declarar el factor, su motivo y contra
+  # que se ajusto. Un estudio que presente un CN calibrado como si fuera el de
+  # la tabla no es defendible ante interventoria.
+  #
+  # POR QUE UN FACTOR Y NO EDITAR LA TABLA. La tabla es doctrina compartida por
+  # todos los estudios; el factor es una decision de ESTE estudio, viaja en su
+  # configuracion y el M13 deja las dos columnas en
+  # hidrologia/abstraccion_inicial.csv para que el informe muestre el CN de
+  # suelos al lado del que recibe el modelo.
+  #
+  # CUANTO RECORRIDO TIENE. Medido en esta cuenca: bajar el CN reduce la
+  # escorrentia de la creciente frecuente mucho mas deprisa que la de diseno,
+  # que es el mismo efecto de umbral que obligo a adoptar Ia = 0,05*S. Con
+  # factor 0.90 el coeficiente de escorrentia frecuente cae de 0,092 a 0,042 y
+  # sigue dentro de la banda declarada; con 0.85 baja a 0,026 y se sale por
+  # debajo. Por debajo de 0,90 se vuelve a romper lo que la abstraccion
+  # inicial corrigio.
+  #
+  # LA HUMEDAD ANTECEDENTE I NO ES LA ALTERNATIVA ORTODOXA QUE PARECE: llevaria
+  # el CN de 75,3 a 56,1 y el coeficiente frecuente a 0,006, muy por debajo de
+  # cualquier banda admisible.
+  factor_calibracion: 1.00
   tabla_cn: "data/referencia/cn_scs.csv"
   tabla_grupo_hidrologico: "data/referencia/hsg_textura.csv"
   homologacion_suelos: "data/00_insumos_usuario/homologacion/suelos.csv"
@@ -1345,7 +1503,36 @@ hec_hms:
   loss: "scs_cn"
   # DECISION DEL CONSULTOR: sin flujo base. La tormenta de diseno es un
   # evento aislado y el hidrograma que interesa es el de escorrentia directa.
-  baseflow: "none"
+  baseflow: "none"       # heredado; lo vigente es el bloque flujo_base
+
+  # ---------------------------------------------------------------------------
+  # FLUJO BASE
+  # ---------------------------------------------------------------------------
+  # El hidrograma de una tormenta de diseno sin flujo base arranca en cero y
+  # vuelve a cero, y el rio no hace eso. Sin el, contrastar el modelo contra una
+  # creciente medida obliga a descontarle al DATO OBSERVADO un caudal base
+  # estimado, es decir, a meter una hipotesis en el lado de la evidencia.
+  #
+  # Los tres parametros se DECLARAN. Ninguno sale de la cadena.
+  flujo_base:
+    metodo: "recesion"          # ninguno | recesion
+
+    # Caudal antecedente por unidad de area, en m3/s por km2.
+    #
+    # SALE DE LA SERIE DE MINIMOS MENSUALES (Q_MN_M), no de la de medios. El
+    # caudal medio mensual incluye la escorrentia de las tormentas del mes y
+    # usarlo como flujo base la contaria dos veces. Medido en PUENTE LA CALERA,
+    # 81,31 km2 drenados: mediana de los minimos mensuales 0,37 m3/s, es decir
+    # 4,55 l/s/km2; la mediana de los medios habria dado 13,88, tres veces mas.
+    caudal_especifico_m3s_km2: 0.00455
+
+    # Razon entre el flujo base de un dia y el del dia anterior. Valor corriente
+    # en cuencas de montana con almacenamiento moderado.
+    factor_recesion: 0.80
+
+    # Fraccion del pico por debajo de la cual la recesion vuelve a mandar en la
+    # rama de agotamiento.
+    umbral_pico: 0.10
   # --- M13: proyecto de HEC-HMS ya construido --------------------------------
   # EL CONSULTOR ENTREGA EL MODELO ARMADO y la cadena lo ACTUALIZA: carga los
   # parametros calculados, escribe la meteorologia y genera los escenarios. La
@@ -1365,6 +1552,51 @@ hec_hms:
     # fechada del .basin, porque una escritura equivocada sobre un modelo que
     # costo horas de delimitacion asistida no se deshace.
     copia_de_seguridad: true
+
+  # ---------------------------------------------------------------------------
+  # EMBALSES
+  # ---------------------------------------------------------------------------
+  # Cuerpos de agua REGULADOS que hay dentro de la cuenca y que la delimitacion
+  # asistida no crea como elemento, porque el DEM solo ve una superficie plana.
+  #
+  # POR QUE SE DECLARAN AQUI Y NO SE DEDUCEN. La cartografia de cobertura no
+  # basta: en este estudio Corine clasifica el embalse de San Rafael como
+  # 'laguna natural' y no como embalse, de modo que ningun modulo tenia como
+  # saber que ahi hay regulacion. Y aunque la clasificara bien, el nodo donde
+  # esta la presa lo sabe el consultor y no el raster: el vaso puede quedar a
+  # kilometros del nodo que reune su cuenca.
+  #
+  # LO QUE APORTA DECLARARLO. El M13 escribe el elemento, su curva y la entrada
+  # de la tabla emparejada, de modo que la cadena reproduce el resultado desde
+  # los insumos. Con el embalse editado a mano el estudio no puede reproducir su
+  # propio caudal de diseno, y eso ante interventoria pesa mas que la cifra.
+  #
+  # Lista vacia en un estudio sin embalses, que es el caso corriente.
+  embalses: []
+  # Ejemplo de declaracion, para copiar y ajustar:
+  #
+  # embalses:
+  #   - nombre: "San Rafael"
+  #     # El nodo que reune la cuenca aferente al embalse, y el elemento al que
+  #     # descargaba antes. El M13 los reconecta pasando por el embalse.
+  #     aguas_arriba: "J25"
+  #     aguas_abajo: "R25"
+  #     # Espejo de agua, MEDIDO sobre la cobertura del estudio. Es lo unico de
+  #     # esta declaracion que no es un supuesto.
+  #     area_espejo_km2: 2.30
+  #     # Vertedero. SUPUESTOS mientras no se consiga la geometria real:
+  #     # Q = C * L * H^1.5, con H la lamina sobre la cresta.
+  #     cresta_m: 8.0
+  #     coeficiente_vertedero: 2.0
+  #     # Hasta que lamina se tabula la curva.
+  #     lamina_maxima_m: 3.0
+  #     # HIPOTESIS DE OPERACION: el vaso esta LLENO a la cota de la cresta, no
+  #     # queda almacenamiento util y lo unico que ocurre es el transito sobre
+  #     # el vertedero. Es el caso desfavorable aguas abajo: un embalse con
+  #     # volumen disponible amortiguaria mas, de modo que no puede quedarse
+  #     # corto. Sin registro de operacion no hay forma de hacerlo mejor.
+  #     lleno_en_la_cresta: true
+
   transito:
     metodos: [muskingum, muskingum_cunge]
     metodo_adoptado: "muskingum_cunge"
@@ -1378,6 +1610,67 @@ hec_hms:
       # es la creciente media anual, proxima a banca llena, que es el
       # criterio habitual. Cambiarlo cambia K y X de toda la red.
       caudal_referencia_tr: "2.33"
+      # FACTOR DE PONDERACION DEL ALMACENAMIENTO. 0,5 es traslacion pura y 0
+      # es maxima atenuacion. NO se deriva de la hidraulica: se declara.
+      #
+      # POR QUE HACE FALTA DECLARARLO. Muskingum-Cunge SI lo deriva, y sobre la
+      # geometria que este estudio puede entregar (un trapecio prismatico, sin
+      # pozos ni meandros ni desborde) devuelve X = 0,49 y atenuacion MEDIDA del
+      # 0,0 % en los 62 tramos. Ninguna combinacion de rugosidad y ancho la
+      # mueve. Esa respuesta no dice que el rio no atenue: dice que un canal
+      # prismatico con esta pendiente no atenua.
+      #
+      # 0,2 es el valor corriente para cauces naturales. Al adoptarlo, la
+      # atenuacion pasa a ser una DECISION y no un resultado, y el informe debe
+      # declararlo junto con el contraste contra el caudal observado.
+      #
+      # NO puede ser 0: eso describe un embalse de nivel horizontal, no un
+      # cauce. En cauces naturales el rango util va de 0,1 a 0,3.
+      x: 0.2
+
+      # -------------------------------------------------------------------------
+      # CLASES DE TRAMO POR PENDIENTE
+      # -------------------------------------------------------------------------
+      # Aqui se declaran juntas la celeridad de la onda y la X, que son las dos
+      # cosas que el metodo necesita y que la cadena NO puede medir en este
+      # estudio.
+      #
+      # POR QUE NO SE DERIVAN DE LA HIDRAULICA. La linealizacion de Cunge saca la
+      # celeridad del calado normal, y ese calado sale de un ancho de fondo
+      # regionalizado y de un n de Manning declarado, no de secciones levantadas:
+      # al caudal ordinario devuelve laminas de 18 cm. Y su X sobre esa geometria
+      # da 0,497 de mediana en los 62 tramos, es decir traslacion pura, con dos
+      # tramos que hay que recortar por salir negativos.
+      #
+      # Ademas, linealizar en un caudal obliga a tomarlo de la salida del propio
+      # modelo, con lo que K y caudal se persiguen: medido, la iteracion recorria
+      # 185,6 -> 125,3 -> 79,1 -> 112,1 -> 120,9 -> 122,5 antes de asentarse. Con
+      # la celeridad declarada eso desaparece: la K no depende de lo que el modelo
+      # produzca.
+      #
+      # LO QUE SE GANA A CAMBIO ES UN CRITERIO QUE HAY QUE SUSTENTAR. Estos ocho
+      # numeros son del consultor y el informe debe declararlos como tales, junto
+      # al contraste contra el caudal observado.
+      #
+      # Se recorren en orden y gana la ULTIMA cuyo minimo no supere la pendiente,
+      # de modo que la ultima recoge todo lo que quede por encima.
+      clases_pendiente:
+        - nombre: "valle"
+          pendiente_min_pct: 0.0
+          celeridad_ms: 0.7
+          x: 0.15
+        - nombre: "pie de ladera"
+          pendiente_min_pct: 0.5
+          celeridad_ms: 1.2
+          x: 0.20
+        - nombre: "ladera"
+          pendiente_min_pct: 2.0
+          celeridad_ms: 2.0
+          x: 0.30
+        - nombre: "montana"
+          pendiente_min_pct: 5.0
+          celeridad_ms: 3.0
+          x: 0.40
     muskingum_cunge:
       forma_seccion: "trapezoidal"
       n_manning: 0.04           # cauce natural; lo declara el consultor

@@ -103,10 +103,29 @@ class PruebaMigracionCompleta(unittest.TestCase):
             "  buffer_adicional_km: 5.0\n"
             '  catalogo: "x.shp"\n'
             "\n"
+            "tormenta:\n"
+            "  duracion_h: 3.0\n"
+            "\n"
+            # Un estudio de la version 1 ya declaraba el factor de cambio
+            # climatico: el bloque es anterior a la cadena de migraciones y
+            # ninguna receta lo introduce, de modo que tiene que estar aqui
+            # para que las que cuelgan de el encuentren su ancla.
+            "cambio_climatico:\n"
+            "  aplicar: true\n"
+            "\n"
+            "numero_curva:\n"
+            '  condicion_humedad: "II"\n'
+            "\n"
             "hec_hms:\n"
             "  intercambio:\n"
             '    insumos: "a"\n'
             '    salida: "b"\n'
+            '  baseflow: "none"\n'
+            "  proyecto:\n"
+            '    modelo_cuenca: "Basin_1"\n'
+            "  transito:\n"
+            "    muskingum:\n"
+            "      celeridad_ms: null\n"
             "\n"
             "dem:\n"
             "  delimitacion:\n"
@@ -121,6 +140,45 @@ class PruebaMigracionCompleta(unittest.TestCase):
     def _config(self) -> str:
         return (self.temporal / "config" / "config.yaml").read_text(
             encoding="utf-8")
+
+    def test_una_receta_a_medias_no_sube_la_version(self) -> None:
+        """
+        El faltante tiene que seguir viendose en la siguiente corrida.
+
+        Si la version subiera igual, el estudio diria que esta al dia sin
+        tener la clave y nadie volveria a intentarlo: el modulo que la lea
+        caeria en su valor por omision, en silencio.
+        """
+        ruta = self.temporal / "config" / "config.yaml"
+        # Se quita el ancla que necesita la receta de la 3 a la 4.
+        ruta.write_text(self._config().replace("  duracion_h: 3.0\n", ""),
+                        encoding="utf-8")
+
+        resultado = mig.migrar(self.temporal, _RAIZ_REPO)
+
+        self.assertEqual(resultado.version_final, 3)
+        self.assertIn("esquema_version: 3", self._config())
+        self.assertTrue(resultado.requieren_decision)
+        # Y la siguiente pasada vuelve a intentarlo, en lugar de darlo por hecho.
+        self.assertEqual(mig.migrar(self.temporal, _RAIZ_REPO).version_inicial, 3)
+
+    def test_una_clave_ya_presente_no_detiene_la_migracion(self) -> None:
+        """
+        Que ya este hecho no es un fallo.
+
+        Un estudio que arranca en la version 1 recibe bloques enteros de la
+        herramienta, y esos bloques ya traen claves que una receta POSTERIOR
+        vuelve a pedir. Si eso cortara la migracion, ningun estudio antiguo
+        llegaria nunca a la ultima version.
+        """
+        resultado = mig.migrar(self.temporal, _RAIZ_REPO)
+        self.assertEqual(resultado.version_final, _OBJETIVO)
+        ya_estaban = [c for c in resultado.cambios
+                      if c.motivo_omision == "ya estaba presente"]
+        self.assertTrue(ya_estaban, "el caso que se quiere vigilar no ocurrio")
+        for cambio in ya_estaban:
+            self.assertFalse(cambio.bloquea)
+        self.assertEqual(resultado.requieren_decision, [])
 
     def test_la_ausencia_de_version_significa_la_uno(self) -> None:
         self.assertEqual(mig.leer_version(self._config()), 1)

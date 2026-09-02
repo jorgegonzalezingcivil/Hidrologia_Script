@@ -166,6 +166,22 @@ capitulos:
   - titulo: "Número de curva"
     nivel: 2
     texto: numero_de_curva
+    tablas:
+      # LAS DOS COLUMNAS DE CN, JUNTAS Y A PROPOSITO. El informe presenta el que
+      # sale de suelos y coberturas al lado del que recibe el modelo. Mostrar
+      # solo el segundo llevaria a un revisor a concluir que se bajo el numero
+      # de curva para obtener un resultado, y tendria razon en preguntarlo.
+      - archivo: "data/02_procesado/hidrologia/abstraccion_inicial.csv"
+        titulo: >-
+          Número de curva de suelos y coberturas y su equivalente para la
+          abstracción inicial adoptada
+        columnas:
+          subcuenca: "Subcuenca"
+          cn_suelos_cobertura: "CN de suelos y coberturas"
+          s_lambda_020_mm: "S con Ia = 0,20·S (mm)"
+          s_adoptada_mm: "S adoptada (mm)"
+          ia_mm: "Abstracción inicial (mm)"
+          cn_equivalente: "CN equivalente en el modelo"
     figuras:
       - archivo: "M10_mapa_cn.png"
         titulo: "Número de curva por subcuenca"
@@ -469,6 +485,47 @@ capitulos:
         titulo: "Caudal máximo contra periodo de retorno"
       - archivo: "M14_hidrograma_Sink-1.png"
         titulo: "Hidrograma de creciente en el sitio de proyecto"
+
+  - titulo: "Verificación de crecientes contra caudal observado"
+    nivel: 3
+    texto: verificacion_de_crecientes
+    tablas:
+      - archivo: "data/02_procesado/hidrologia/transito.csv"
+        titulo: >-
+          Parámetros de tránsito por tramo, con la clase de pendiente adoptada
+        columnas:
+          tramo: "Tramo"
+          longitud_m: "Longitud (m)"
+          pendiente_pct: "Pendiente (%)"
+          clase_pendiente: "Clase"
+          celeridad_ms: "Celeridad (m/s)"
+          k_min: "K (min)"
+          x: "X"
+      - archivo: "data/02_procesado/hidrologia/verificacion_crecientes.csv"
+        titulo: >-
+          Contraste del modelo contra el caudal observado en las estaciones de
+          la cuenca
+        columnas:
+          union: "Nodo"
+          estacion: "Estación"
+          anios: "Años"
+          indicativa: "Indicativa"
+          periodo_retorno: "T (años)"
+          observado_media_diaria_m3s: "Observado, media diaria (m3/s)"
+          banda_inferior_m3s: "Banda inferior (m3/s)"
+          banda_superior_m3s: "Banda superior (m3/s)"
+          pico_modelado_m3s: "Pico modelado (m3/s)"
+    figuras:
+      - archivo: "M14c_verificacion_J24.png"
+        titulo: >-
+          Contraste en Puente La Calera, estación situada aguas abajo del
+          embalse
+      - archivo: "M14c_verificacion_J29.png"
+        titulo: >-
+          Contraste indicativo en Simaya, única estación sobre rama no regulada
+      - archivo: "M14c_media_movil_24h.png"
+        titulo: >-
+          Qué compara la verificación: pico instantáneo contra media diaria
 
   - titulo: "CONCLUSIONES"
     nivel: 1

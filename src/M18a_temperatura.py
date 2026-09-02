@@ -1458,7 +1458,7 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
                         [evaluar(adoptado, cotas[1]), evaluar(adoptado, techo)],
                         color="#b03a2e", linewidth=1.4, linestyle="--",
                         label="extrapolación sobre la cuenca")
-            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            graficos.leyenda(ax, estilo)
             fig.text(0.01, -0.04,
                      f"Ajuste con las {adoptado['n']} estaciones del estudio. "
                      f"R² = {adoptado['r2']:.3f}. Intervalo de confianza al "
@@ -1537,7 +1537,7 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
                                [f["t_media_cuenca_c"] for f in grupo],
                                s=36, color=color, label=etiqueta, zorder=3)
             ax.set_xticks(meses)
-            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            graficos.leyenda(ax, estilo)
             fig.text(0.01, -0.04,
                      f"Gradiente evaluado en la cota media ponderada de la "
                      f"cuenca, {resultado.cobertura.get('cota_media_cuenca_m')} "
@@ -1567,7 +1567,7 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
                 ax.axhline(adoptado["gradiente_c_por_km"], color="#555555",
                            linestyle=":", linewidth=1.2, label="compuesto")
             ax.set_xticks(meses)
-            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            graficos.leyenda(ax, estilo)
             for ruta in graficos.guardar(
                     fig, directorio / "M18a_gradiente_mensual", estilo):
                 resultado.productos.append(rutas.relativa(ruta, base))
@@ -1622,7 +1622,7 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
                        color="#b03a2e", linestyle="--", linewidth=1.4,
                        label="Cenicafé, mensual equivalente")
             ax.set_xticks(meses)
-            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            graficos.leyenda(ax, estilo)
             fig.text(0.01, -0.04,
                      f"Cenicafé {etp['cenicafe_multianual_mm_anio']:.0f} mm/año "
                      f"contra Thornthwaite {etp['thornthwaite_anual_mm']:.0f}: "
@@ -1670,7 +1670,7 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
                         [v * factor for _, v in validos],
                         color=estilo.color(0), linewidth=1.4, linestyle="--",
                         label=f"Thornthwaite ajustada, ×{factor:.3f}")
-            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            graficos.leyenda(ax, estilo)
             fig.text(0.01, -0.04,
                      "Las dos acaban dependiendo solo de la elevación: Cenicafé "
                      "de forma directa, y Thornthwaite a través del gradiente "

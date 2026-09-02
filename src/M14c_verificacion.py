@@ -54,6 +54,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
+import statistics
 import sys
 import time
 from dataclasses import dataclass, field
@@ -90,6 +92,7 @@ class Pareja:
     union: str
     distancia_m: float
     anios: int = 0
+    indicativa: bool = False
     caudal_base: float = 0.0
     maximos: dict[int, float] = field(default_factory=dict)
 
@@ -101,6 +104,7 @@ class ResultadoM14c:
     sin_pareja: list[dict[str, Any]] = field(default_factory=list)
     tr_maximo: float = 0.0
     hubo_ajuste: bool = False
+    consistencia: dict[str, Any] = field(default_factory=dict)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -230,17 +234,161 @@ def emparejar_con_uniones(
 
 def maximos_anuales_de_mensuales(
     meses_por_anio: dict[int, dict[int, float]], minimo_meses: int = 12,
+    meses_exigidos: Sequence[int] = (),
 ) -> dict[int, float]:
     """
     Máximo anual de caudal a partir de los máximos mensuales.
 
     Misma reducción exacta que el M07 aplica a la precipitación: el mayor de los
-    máximos mensuales es el del año. Se exigen los doce meses porque un año al
-    que le falta la temporada de lluvias daría un máximo que no es comparable.
+    máximos mensuales es el del año.
+
+    LO QUE HAY QUE EXIGIR ES LA TEMPORADA DE LLUVIAS, NO LOS DOCE MESES. Pedir el
+    año completo descarta años a los que solo les falta un mes seco, y en un mes
+    seco no ocurre la creciente anual: ese año sigue siendo utilizable. Medido en
+    SIMAYA, la regla de doce meses dejaba 5 años y la de temporada húmeda deja 9.
+
+    Con 'meses_exigidos' vacío se conserva el criterio por conteo, que sirve
+    cuando el estudio no declara régimen.
     """
-    return {anio: float(max(meses.values()))
-            for anio, meses in meses_por_anio.items()
-            if len(meses) >= minimo_meses}
+    exigidos = set(int(m) for m in meses_exigidos)
+    salida = {}
+    for anio, meses in meses_por_anio.items():
+        if exigidos:
+            if not exigidos <= set(meses):
+                continue
+        elif len(meses) < minimo_meses:
+            continue
+        salida[anio] = float(max(meses.values()))
+    return salida
+
+
+def crecimiento_relativo(q_bajo: float, q_alto: float,
+                         p_bajo: float, p_alto: float) -> float | None:
+    """
+    Cuanto mas rapido crece la creciente que la lluvia que la produce.
+
+    ES LA COMPROBACION QUE NO NECESITA NINGUNA ESTACION, y tiene una cota fisica
+    dura por abajo: el resultado DEBE superar 1. El coeficiente de escorrentia
+    sube con la magnitud del evento, de modo que las crecientes tienen que
+    crecer mas deprisa que la precipitacion. Un valor por debajo de 1 no
+    describe una cuenca en regimen natural.
+
+    Por arriba tambien acota. Medido en este estudio entre Tr 2,33 y Tr 100: la
+    lluvia crece 2,28 veces; el modelo con abstraccion inicial de 0,2*S crecia
+    13,6, es decir un cociente de 5,96, y eso delato el umbral de perdidas que
+    desactivaba los eventos pequenos. Con 0,05*S el cociente baja a 2,32, y la
+    unica estacion no regulada del estudio da 2,08.
+
+    Devuelve None si no hay con que calcularlo, y no un cero que pareceria una
+    medida.
+    """
+    try:
+        razon_caudal = float(q_alto) / float(q_bajo)
+        razon_lluvia = float(p_alto) / float(p_bajo)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+    if razon_lluvia <= 0:
+        return None
+    return razon_caudal / razon_lluvia
+
+
+def exponente_de_area(q_menor: float, area_menor: float,
+                      q_mayor: float, area_mayor: float) -> float | None:
+    """
+    Exponente n de Q proporcional a A^n entre dos puntos anidados del modelo.
+
+    Es coherencia interna pura: no interviene ningun dato externo. En crecientes
+    el exponente corriente va de 0,7 a 0,8, y lo que mas dice no es su valor
+    sino su DERIVA entre periodos de retorno. Medido aqui antes de corregir el
+    transito: iba de 0,586 en Tr 2,33 a 0,858 en Tr 100, y esa deriva era la
+    misma causa que el desajuste de las perdidas, expresada en geometria.
+    """
+    try:
+        if min(float(q_menor), float(q_mayor)) <= 0:
+            return None
+        razon_area = float(area_mayor) / float(area_menor)
+        if razon_area <= 1.0:
+            return None
+        return math.log(float(q_mayor) / float(q_menor)) / math.log(razon_area)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def areas_acumuladas(texto_basin: str) -> tuple[dict[str, float], set[str]]:
+    """
+    Area drenada por cada elemento, y cuales quedan por encima de un embalse.
+
+    LOS QUE TIENEN UN EMBALSE EN SU CUENCA SE APARTAN. El exponente de area
+    supone que entre dos puntos anidados solo media el agregado de mas cuenca;
+    si en medio hay un elemento que almacena, el caudal de aguas abajo llega
+    laminado y el exponente mide el embalse y no la cuenca. En este estudio el
+    embalse recorta 50 m3/s a 5,5.
+    """
+    import re as _re
+    import collections as _col
+
+    aguas_abajo: dict[str, str] = {}
+    propia: dict[str, float] = {}
+    embalses: set[str] = set()
+    for bloque in _re.split(
+            r"(?=^(?:Reach|Subbasin|Junction|Sink|Reservoir|Diversion): )",
+            texto_basin, flags=_re.M):
+        encabezado = _re.match(
+            r"^(Reach|Subbasin|Junction|Sink|Reservoir|Diversion): (.+)",
+            bloque)
+        if not encabezado:
+            continue
+        nombre = encabezado.group(2).strip()
+        if encabezado.group(1) == "Reservoir":
+            embalses.add(nombre)
+        destino = _re.search(r"^     Downstream: (.+?)\s*$", bloque, _re.M)
+        if destino:
+            aguas_abajo[nombre] = destino.group(1).strip()
+        area = _re.search(r"^     Area: ([\d.]+)", bloque, _re.M)
+        if area:
+            propia[nombre] = float(area.group(1))
+
+    hijos = _col.defaultdict(list)
+    for origen, destino in aguas_abajo.items():
+        hijos[destino].append(origen)
+
+    def recorrer(raiz: str) -> set[str]:
+        vistos, pila = set(), [raiz]
+        while pila:
+            actual = pila.pop()
+            if actual in vistos:
+                continue
+            vistos.add(actual)
+            pila.extend(hijos.get(actual, []))
+        return vistos
+
+    acumulada, afectados = {}, set()
+    for nombre in set(aguas_abajo) | set(hijos):
+        arriba = recorrer(nombre)
+        acumulada[nombre] = sum(propia.get(e, 0.0) for e in arriba)
+        # AFECTADO es el que tiene un embalse EN SU CUENCA, no el que esta por
+        # encima de uno. Lo que invalida el exponente es que el caudal del punto
+        # de aguas abajo venga laminado, y eso le pasa al de abajo.
+        if arriba & embalses:
+            afectados.add(nombre)
+    return acumulada, afectados
+
+
+def fuera_de_banda(valor: float | None,
+                   banda: Sequence[float]) -> str:
+    """
+    Si un valor se sale de la banda declarada, y por que lado.
+
+    Devuelve cadena vacia cuando esta dentro o cuando no hay valor: la ausencia
+    de medida no es un incumplimiento, es otra cosa y se reporta aparte.
+    """
+    if valor is None or len(banda) != 2:
+        return ""
+    if float(valor) < float(banda[0]):
+        return f"por debajo de {float(banda[0]):g}"
+    if float(valor) > float(banda[1]):
+        return f"por encima de {float(banda[1]):g}"
+    return ""
 
 
 # =============================================================================
@@ -430,9 +578,16 @@ def _figura_contraste(graficos, estilo, directorio, pareja, filas, base,
 
     with graficos.figura(
         estilo,
-        titulo=(f"Verificacion de crecientes en {pareja.union}\n"
-                f"{pareja.codigo} {pareja.nombre} ({pareja.anios} anios)"),
-        etiqueta_x="Periodo de retorno (anios)",
+        # El titulo dice de que clase de contraste se trata: en el informe una
+        # figura indicativa junto a una de verificacion se leeria como dos
+        # verificaciones si no lo dijera.
+        titulo=((f"Contraste INDICATIVO en {pareja.union}"
+                 if pareja.indicativa else
+                 f"Verificación de crecientes en {pareja.union}") + "\n"
+                + f"{pareja.codigo} {pareja.nombre} ({pareja.anios} años)"
+                + (", serie corta: no sostiene por si sola un cambio de "
+                   "parámetro" if pareja.indicativa else "")),
+        etiqueta_x="Periodo de retorno (años)",
         etiqueta_y="Caudal (m3/s)",
     ) as (fig, ax):
         ax.fill_between(periodos, inferior, superior, alpha=0.18,
@@ -457,15 +612,15 @@ def _figura_contraste(graficos, estilo, directorio, pareja, filas, base,
         eje.set_minor_formatter(ticker.NullFormatter())
         eje.set_minor_locator(ticker.NullLocator())
         ax.grid(alpha=0.25, which="both")
-        ax.legend(frameon=False, fontsize=9)
+        graficos.leyenda(ax, estilo)
         fig.tight_layout(rect=(0, 0.09, 1, 1))
         fig.text(0.01, 0.045,
                  "El pico real observado es al menos su media diaria: por DEBAJO "
-                 "de la cota el modelo esta bajo con certeza (aspa).",
+                 "de la cota el modelo está bajo con certeza (aspa).",
                  fontsize=8, color="#555555")
         fig.text(0.01, 0.012,
                  "Por ENCIMA no se concluye nada: el pico real puede estar muy "
-                 "arriba y este dato no dice cuanto. Ya se descuenta el caudal base.",
+                 "arriba y este dato no dice cuánto.",
                  fontsize=8, color="#555555")
         nombre = f"M14c_verificacion_{pareja.union}"
         for ruta in graficos.guardar(fig, directorio / nombre, estilo):
@@ -495,7 +650,7 @@ def _figura_media_movil(graficos, estilo, directorio, serie, paso, ventana_h,
     pico = max(caudal)
 
     with graficos.figura(
-        estilo, titulo=f"Que compara la verificacion: {union}, Tr {periodo}",
+        estilo, titulo=f"Qué compara la verificación: {union}, Tr {periodo}",
         etiqueta_x="Horas desde el inicio de la tormenta",
         etiqueta_y="Caudal (m3/s)",
     ) as (fig, ax):
@@ -505,16 +660,16 @@ def _figura_media_movil(graficos, estilo, directorio, serie, paso, ventana_h,
                    alpha=0.18, label=f"Ventana de {ventana_h:.0f} h de mayor media")
         ax.axhline(media, color="#c0392b", lw=1.5, ls="--",
                    label=f"Media en esa ventana = {media:.2f} m3/s")
-        ax.annotate(f"Pico instantaneo {pico:.2f} m3/s\n"
+        ax.annotate(f"Pico instantáneo {pico:.2f} m3/s\n"
                     f"es {pico / media:.1f} veces la media",
                     xy=(0.97, 0.72), xycoords="axes fraction", ha="right",
                     fontsize=10, color="#1f4e79")
         ax.set_ylim(0, pico * 1.12)
         ax.grid(alpha=0.25)
-        ax.legend(loc="upper right", frameon=False, fontsize=9)
+        graficos.leyenda(ax, estilo)
         fig.tight_layout(rect=(0, 0.05, 1, 1))
         fig.text(0.01, 0.012,
-                 "El dato observado es el maximo de los caudales MEDIOS "
+                 "El dato observado es el máximo de los caudales MEDIOS "
                  "DIARIOS, asi que se compara contra la media de 24 h.",
                  fontsize=8, color="#555555")
         for ruta in graficos.guardar(
@@ -592,6 +747,22 @@ def ejecutar(
         return _cerrar(logger, resultado, base, ruta_json, inicio,
                        SALIDA_CORRECTA)
 
+    # Si el modelo ya lleva flujo base, la comparacion es directa.
+    modelo_con_flujo_base = str(configuracion.obtener(
+        "hec_hms.flujo_base.metodo", "ninguno")).strip().lower() != "ninguno"
+    resultado.hallazgos.append(Hallazgo(
+        INFORMATIVO, "verificacion.flujo_base",
+        "el modelo lleva flujo base, de modo que se contrasta contra el caudal "
+        "observado SIN descontarle nada."
+        if modelo_con_flujo_base else
+        "el modelo NO simula flujo base, de modo que al caudal observado se le "
+        "descuenta el ordinario del rio antes de comparar. Esa resta es una "
+        "hipotesis puesta del lado de la evidencia: declarar el flujo base en "
+        "hec_hms.flujo_base la vuelve innecesaria."))
+
+    temporada_humeda = [int(m) for m in configuracion.obtener(
+        "verificacion.meses_temporada_humeda", []) or []]
+
     with registro.bloque(logger, "Caudal observado"):
         observados = leer_caudal_observado(
             ruta_serie, delimitador, [p.codigo for p in parejas])
@@ -599,14 +770,19 @@ def ejecutar(
             ruta_serie, delimitador, [p.codigo for p in parejas])
         for pareja in parejas:
             pareja.maximos = maximos_anuales_de_mensuales(
-                observados.get(pareja.codigo, {}))
+                observados.get(pareja.codigo, {}),
+                meses_exigidos=temporada_humeda)
             pareja.anios = len(pareja.maximos)
-            # El caudal ordinario del rio, que el modelo NO simula. Se toma la
-            # mediana y no la media para que un solo anio extraordinario no la
-            # desplace.
+            # El caudal ordinario del rio. Solo se descuenta del dato
+            # OBSERVADO cuando el modelo no lo simula: descontarlo tambien
+            # cuando si lo lleva restaria dos veces y haria pasar por bueno un
+            # modelo bajo. La resta es una hipotesis puesta en el lado de la
+            # evidencia, asi que se evita en cuanto el modelo puede prescindir
+            # de ella.
             serie_media = sorted(medios.get(pareja.codigo, []))
-            pareja.caudal_base = (serie_media[len(serie_media) // 2]
-                                  if serie_media else 0.0)
+            pareja.caudal_base = (
+                0.0 if modelo_con_flujo_base else
+                (serie_media[len(serie_media) // 2] if serie_media else 0.0))
             logger.info("  %s %s -> %s a %.0f m | %d anio(s) de caudal",
                         pareja.codigo, pareja.nombre[:22], pareja.union,
                         pareja.distancia_m, pareja.anios)
@@ -618,26 +794,34 @@ def ejecutar(
     repeticiones = int(configuracion.obtener("verificacion.repeticiones"))
     factor = float(configuracion.obtener("verificacion.factor_extrapolacion"))
     minimo_anios = int(configuracion.obtener("verificacion.minimo_anios"))
+    minimo_indicativo = int(configuracion.obtener(
+        "verificacion.minimo_anios_indicativo", minimo_anios))
     ventana_h = float(configuracion.obtener("verificacion.ventana_promedio_h"))
 
     with registro.bloque(logger, "Contraste"):
         for pareja in parejas:
             resultado.contrastes.extend(_contrastar(
                 pareja, hidrogramas, periodos_todos, confianza, repeticiones,
-                factor, minimo_anios, ventana_h, configuracion, resultado,
-                logger))
+                factor, minimo_anios, minimo_indicativo, ventana_h,
+                configuracion, resultado, logger))
             resultado.parejas.append({
                 "codigo": pareja.codigo, "nombre": pareja.nombre,
                 "union": pareja.union, "distancia_m": pareja.distancia_m,
-                "anios": pareja.anios})
+                "anios": pareja.anios, "indicativa": pareja.indicativa})
 
     if graficas:
         with registro.bloque(logger, "Figuras"):
             _dibujar(configuracion, base, parejas, hidrogramas, ventana_h,
                      resultado, logger)
 
+    # CORRE SIEMPRE, haya o no estaciones. Es lo unico que un estudio sin
+    # limnimetria puede oponerle a los resultados del modelo.
+    with registro.bloque(logger, "Consistencia interna"):
+        _consistencia(configuracion, base, resultado, logger)
+
     _escribir(configuracion, base, resultado, delimitador, logger)
-    resultado.hallazgos.extend(_resumir(resultado))
+    resultado.hallazgos.extend(
+        _resumir(resultado, modelo_con_flujo_base))
     codigo = (SALIDA_BLOQUEANTE
               if esquema.hay_bloqueantes(resultado.hallazgos)
               else SALIDA_CORRECTA)
@@ -645,17 +829,29 @@ def ejecutar(
 
 
 def _contrastar(pareja, hidrogramas, periodos_todos, confianza, repeticiones,
-                factor, minimo_anios, ventana_h, configuracion, resultado,
-                logger) -> list[dict[str, Any]]:
+                factor, minimo_anios, minimo_indicativo, ventana_h,
+                configuracion, resultado, logger) -> list[dict[str, Any]]:
     """Ajusta la frecuencia observada y la contrasta contra el modelo."""
-    if pareja.anios < minimo_anios:
+    if pareja.anios < minimo_indicativo:
         resultado.hallazgos.append(Hallazgo(
             ADVERTENCIA, "verificacion.serie_corta",
             f"{pareja.codigo} {pareja.nombre} tiene {pareja.anios} anio(s) "
-            f"completos de caudal, por debajo del minimo de {minimo_anios}. NO "
-            "se usa para verificar: un ajuste de frecuencia sobre tan pocos "
-            "anios daria una banda tan ancha que aceptaria cualquier cosa."))
+            f"utilizables de caudal, por debajo del piso de "
+            f"{minimo_indicativo}. NO se usa: un ajuste de frecuencia sobre tan "
+            "pocos anios daria una banda tan ancha que aceptaria cualquier "
+            "cosa."))
         return []
+
+    pareja.indicativa = pareja.anios < minimo_anios
+    if pareja.indicativa:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "verificacion.serie_indicativa",
+            f"{pareja.codigo} {pareja.nombre} tiene {pareja.anios} anio(s), "
+            f"por debajo de los {minimo_anios} que se exigen para verificar. "
+            "Se contrasta como INDICATIVA: aporta cobertura sobre una parte de "
+            "la cuenca que si no quedaria sin contraste alguno, pero NO "
+            "sostiene por si sola ningun cambio de parametro. Con tan pocos "
+            "anios el ajuste lo decide un solo ano extremo."))
 
     sostenidos = periodos_sostenidos(pareja.anios, periodos_todos, factor)
     if not sostenidos:
@@ -725,6 +921,7 @@ def _contrastar(pareja, hidrogramas, periodos_todos, confianza, repeticiones,
         filas.append({
             "union": pareja.union, "codigo": pareja.codigo,
             "estacion": pareja.nombre, "anios": pareja.anios,
+            "indicativa": pareja.indicativa,
             "periodo_retorno": periodo,
             "observado_media_diaria_m3s": round(d["cuantil"], 3),
             "banda_inferior_m3s": round(d["inferior"], 3),
@@ -795,7 +992,252 @@ def _escribir(configuracion, base, resultado, delimitador, logger) -> None:
     logger.info("Tabla del contraste: %s", destino.name)
 
 
-def _resumir(resultado: ResultadoM14c) -> list[Hallazgo]:
+def _consistencia(configuracion, base, resultado, logger) -> None:
+    """
+    Comprobaciones que NO necesitan estaciones de caudal.
+
+    POR QUE EXISTEN. El contraste externo solo es posible donde hay limnimetria,
+    y en la mayoria de los estudios no la hay o esta comprometida. Estas cuatro
+    comprobaciones salen enteras de lo que la propia cadena ya calculo, y en
+    este estudio las cuatro detectaron un error real antes de que ninguna
+    estacion dijera nada.
+
+    NO DEMUESTRAN QUE UN CAUDAL SEA CORRECTO. Acotan, igual que el contraste
+    externo, y por eso incumplirlas es advertencia y no bloqueo: el consultor
+    decide, y el informe declara.
+    """
+    bandas = configuracion.obtener("verificacion.consistencia", {}) or {}
+    if not bandas:
+        return
+
+    delimitador = str(configuracion.obtener("insumos_usuario.delimitador_csv"))
+    carpeta = rutas.directorio("procesado", base) / "hidrologia"
+    try:
+        balance = _leer_csv(carpeta / "balance_subcuencas.csv", delimitador)
+        caudales = _leer_csv(carpeta / "qmax_por_periodo.csv", delimitador)
+    except ErrorRutas as error:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "consistencia.sin_insumos", str(error)))
+        return
+
+    disponibles = sorted({float(f["periodo_retorno"]) for f in balance
+                          if f.get("periodo_retorno")})
+    if len(disponibles) < 2:
+        return
+    # LOS DOS PERIODOS SE DECLARAN, no se toman los extremos. Tomar el mayor
+    # disponible pondria a juzgar el Tr 500, que es extrapolacion de la
+    # distribucion de lluvia y no observacion: el modelo se saldria de banda por
+    # el comportamiento de un cuantil que nadie ha visto.
+    pedidos = [float(x) for x in (bandas.get("periodos") or [])[:2]]
+    pareja = [p for p in pedidos if any(abs(p - d) < 1e-6 for d in disponibles)]
+    if len(pareja) == 2:
+        bajo, alto = min(pareja), max(pareja)
+    else:
+        bajo, alto = disponibles[0], disponibles[-1]
+        if pedidos:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, "consistencia.periodos",
+                f"los periodos declarados {pedidos} no estan entre los "
+                f"calculados {disponibles}; se juzga entre {bajo:g} y "
+                f"{alto:g}, que pueden ser extrapolacion."))
+
+    def por_periodo(campo, periodo):
+        valores = [float(f[campo]) for f in balance
+                   if abs(float(f["periodo_retorno"]) - periodo) < 1e-6
+                   and f.get(campo) not in (None, "")]
+        # LA MEDIANA DE VERDAD, no el elemento central: con un numero par de
+        # valores el central no es la mediana, y el estudio adopta la mediana.
+        return statistics.median(valores) if valores else None
+
+    medidas: dict[str, Any] = {"periodo_bajo": bajo, "periodo_alto": alto}
+
+    # 1. La creciente contra su lluvia.
+    salida = next((f for f in caudales if f.get("tipo") == "Sink"), None)
+    lluvia_baja = por_periodo("precipitacion_mm", bajo)
+    lluvia_alta = por_periodo("precipitacion_mm", alto)
+    if salida and lluvia_baja and lluvia_alta:
+        columna = lambda p: "q_T" + f"{p:g}".replace(".", "_") + "_m3s"
+        medidas["crecimiento_relativo"] = crecimiento_relativo(
+            salida.get(columna(bajo)), salida.get(columna(alto)),
+            lluvia_baja, lluvia_alta)
+
+    # 2. El coeficiente de escorrentia en los dos extremos.
+    medidas["coef_frecuente"] = por_periodo("coef_escorrentia", bajo)
+    medidas["coef_diseno"] = por_periodo("coef_escorrentia", alto)
+
+    # 3. El exponente de area entre puntos anidados, y su DERIVA entre periodos.
+    medidas.update(_exponentes(configuracion, caudales, bajo, alto, bandas,
+                               resultado))
+
+    # 4. El tiempo al pico contra el tiempo de concentracion de la cuenca.
+    medidas.update(_tiempo_al_pico(base, caudales, alto, bandas, delimitador,
+                                   resultado))
+
+    revisiones = [
+        ("consistencia.crecimiento", "crecimiento_relativo",
+         "crecimiento_relativo",
+         "la creciente crece {valor:.2f} veces lo que crece su lluvia, {falla}. "
+         "Por debajo de 1 la serie no se comporta como una cuenca natural, "
+         "porque el coeficiente de escorrentia sube con la magnitud del evento; "
+         "muy por encima delata un umbral de perdidas que desactiva los eventos "
+         "frecuentes."),
+        ("consistencia.coef_frecuente", "coef_escorrentia_frecuente",
+         "coef_frecuente",
+         "el coeficiente de escorrentia de la creciente frecuente es "
+         "{valor:.3f}, {falla}. Un valor muy bajo significa que la abstraccion "
+         "inicial se esta llevando la tormenta entera."),
+        ("consistencia.coef_diseno", "coef_escorrentia_diseno", "coef_diseno",
+         "el coeficiente de escorrentia de la creciente de diseno es "
+         "{valor:.3f}, {falla}."),
+        ("consistencia.exponente_area", "exponente_area", "exponente_alto",
+         "el caudal escala con el area como A^{valor:.3f} entre puntos "
+         "anidados del modelo, {falla}. En crecientes el exponente corriente "
+         "va de 0,7 a 0,8."),
+        ("consistencia.deriva_exponente", "deriva_exponente", "deriva_exponente",
+         "el exponente de area cambia {valor:.3f} entre la creciente frecuente "
+         "y la de diseno, {falla}. Un modelo coherente reparte el caudal entre "
+         "sus puntos de la misma manera en las dos."),
+        ("consistencia.tp_sobre_tc", "tp_sobre_tc", "tp_sobre_tc",
+         "el modelo pica a {valor:.2f} veces el tiempo de concentracion de la "
+         "cuenca, {falla}. Los dos miden lo mismo por caminos distintos y "
+         "tienen que ser del mismo orden; una respuesta mucho mas rapida que "
+         "el Tc indica que el transito no esta transportando la onda."),
+    ]
+    for clave, nombre_banda, medida, plantilla in revisiones:
+        valor = medidas.get(medida)
+        banda = bandas.get(nombre_banda) or []
+        falla = fuera_de_banda(valor, banda)
+        if falla:
+            resultado.hallazgos.append(Hallazgo(
+                ADVERTENCIA, clave,
+                plantilla.format(valor=valor, falla=falla)
+                + " Es una comprobacion de consistencia interna, sin dato "
+                  "externo: acota, no demuestra que el caudal sea correcto."))
+
+    resultado.consistencia = {k: (round(v, 4) if isinstance(v, float) else v)
+                              for k, v in medidas.items() if v is not None}
+    logger.info("Consistencia: crecimiento %s, coef. frecuente %s, diseno %s",
+                *(f"{medidas.get(k):.3f}" if isinstance(medidas.get(k), float)
+                  else "-" for k in
+                  ("crecimiento_relativo", "coef_frecuente", "coef_diseno")))
+
+
+def _columna_de_caudal(periodo: float) -> str:
+    """Nombre de la columna de caudal de un periodo, como la escribe el M14."""
+    return "q_T" + f"{periodo:g}".replace(".", "_") + "_m3s"
+
+
+def _exponentes(configuracion, caudales, bajo, alto, bandas,
+                resultado) -> dict[str, Any]:
+    """
+    Exponente n de Q proporcional a A^n entre el punto mayor y los anidados.
+
+    ES COHERENCIA INTERNA PURA: no interviene ningun dato externo. Lo que mas
+    dice no es el valor sino su DERIVA entre periodos de retorno: un modelo
+    coherente reparte el caudal entre sus puntos de la misma manera en la
+    creciente frecuente y en la rara. Medido aqui antes de corregir las
+    perdidas, el exponente iba de 0,586 a 0,858, y esa deriva era el mismo
+    defecto expresado en geometria.
+    """
+    proyecto = Path(str(configuracion.obtener("hec_hms.proyecto.directorio")))
+    ruta_basin = proyecto / str(
+        configuracion.obtener("hec_hms.proyecto.modelo_cuenca"))
+    if not ruta_basin.is_file():
+        return {}
+    areas, afectados = areas_acumuladas(
+        ruta_basin.read_text(encoding="latin-1", errors="replace"))
+
+    limpios = {n: a for n, a in areas.items()
+               if n not in afectados and a > 0.0}
+    if len(limpios) < 2:
+        resultado.hallazgos.append(Hallazgo(
+            INFORMATIVO, "consistencia.sin_parejas",
+            f"no hay dos puntos anidados sin embalse en su cuenca: "
+            f"{len(afectados)} de {len(areas)} elemento(s) tienen uno aguas "
+            "arriba. El exponente de area no se calcula, porque entre dos "
+            "puntos separados por un embalse mide el embalse y no la cuenca."))
+        return {}
+
+    referencia = max(limpios, key=lambda n: limpios[n])
+    area_ref = limpios[referencia]
+    # Solo contra puntos de tamano comparable: en una microcuenca de 1 km2 el
+    # exponente lo decide el redondeo.
+    minimo = float(bandas.get("fraccion_area_minima", 0.2)) * area_ref
+    caudal = {f["elemento"].strip(): f for f in caudales}
+
+    salida: dict[str, Any] = {}
+    for etiqueta, periodo in (("bajo", bajo), ("alto", alto)):
+        columna = _columna_de_caudal(periodo)
+        valores = []
+        for nombre, area in limpios.items():
+            if nombre == referencia or area < minimo:
+                continue
+            try:
+                n = exponente_de_area(
+                    float(caudal[nombre][columna]), area,
+                    float(caudal[referencia][columna]), area_ref)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if n is not None:
+                valores.append(n)
+        if valores:
+            salida[f"exponente_{etiqueta}"] = statistics.median(valores)
+            salida[f"parejas_{etiqueta}"] = len(valores)
+    if "exponente_bajo" in salida and "exponente_alto" in salida:
+        salida["deriva_exponente"] = abs(
+            salida["exponente_alto"] - salida["exponente_bajo"])
+    return salida
+
+
+def _tiempo_al_pico(base, caudales, periodo, bandas, delimitador,
+                    resultado) -> dict[str, Any]:
+    """
+    Tiempo al pico del modelo frente al tiempo de concentracion de la cuenca.
+
+    Los dos miden lo mismo por caminos distintos, de modo que tienen que ser
+    del mismo orden. Medido aqui con Muskingum-Cunge: el modelo respondia en
+    una hora contra un Tc de 10,67 h, y esa desproporcion era la senal de que
+    el transito no estaba transportando la onda. Nadie la vio hasta que se
+    busco a proposito.
+    """
+    ruta = (rutas.directorio("procesado", base) / "morfometria"
+            / "tiempo_concentracion.csv")
+    if not ruta.is_file():
+        return {}
+    try:
+        filas = _leer_csv(ruta, delimitador)
+    except ErrorRutas:
+        return {}
+    horas = sorted(
+        float(f["tc_horas"]) for f in filas
+        if str(f.get("aplicable", "")).strip().lower() in ("true", "si", "sí",
+                                                           "1")
+        and f.get("tc_horas"))
+    salida_modelo = next((f for f in caudales if f.get("tipo") == "Sink"), None)
+    if not horas or salida_modelo is None:
+        return {}
+    # La MEDIANA del subconjunto aplicable, que es el criterio del estudio.
+    tc = statistics.median(horas)
+    columna = "tp_T" + f"{periodo:g}".replace(".", "_") + "_h"
+    try:
+        tp = float(salida_modelo[columna])
+    except (KeyError, TypeError, ValueError):
+        return {}
+    if tc <= 0:
+        return {}
+    return {"tc_horas": tc, "tp_horas": tp, "tp_sobre_tc": tp / tc}
+
+
+def _leer_csv(ruta: Path, delimitador: str) -> list[dict[str, Any]]:
+    """Lee un producto de la cadena, o dice cual falta."""
+    if not Path(ruta).is_file():
+        raise ErrorRutas(f"no se encuentra {ruta.name}. Ejecutar el M14 antes.")
+    with Path(ruta).open(encoding="utf-8-sig", newline="") as manejador:
+        return list(csv.DictReader(manejador, delimiter=delimitador))
+
+
+def _resumir(resultado: ResultadoM14c,
+             con_flujo_base: bool = False) -> list[Hallazgo]:
     """
     El veredicto. Es de UN SOLO LADO y conviene no leerlo como mas de lo que es.
 
@@ -804,11 +1246,28 @@ def _resumir(resultado: ResultadoM14c) -> list[Hallazgo]:
     real puede estar muy por encima de esa cota y no sabemos cuanto.
     """
     hallazgos: list[Hallazgo] = []
+    # EL VEREDICTO SE PRONUNCIA SOLO SOBRE LO QUE VERIFICA. Una serie
+    # indicativa se reporta aparte: dejarla pesar en el veredicto haria que
+    # nueve anios decididos por un solo ano extremo movieran la conclusion
+    # igual que dieciocho anios de registro.
+    indicativos = [f for f in resultado.contrastes if f.get("indicativa")]
+    if indicativos:
+        bajos_ind = [f for f in indicativos if f["modelo_demasiado_bajo"]]
+        uniones = sorted({f["union"] for f in indicativos})
+        hallazgos.append(Hallazgo(
+            INFORMATIVO, "verificacion.indicativo",
+            f"contraste INDICATIVO en {uniones}: {len(bajos_ind)} de "
+            f"{len(indicativos)} por debajo de la cota. No cuenta para el "
+            "veredicto ni sostiene por si solo un cambio de parametro; sirve "
+            "para saber si el desajuste aparece tambien en otra rama de la "
+            "cuenca o solo donde si hay registro largo."))
     if not resultado.contrastes:
         return hallazgos
 
-    bajos = [f for f in resultado.contrastes if f["modelo_demasiado_bajo"]]
-    total = len(resultado.contrastes)
+    verificables = [f for f in resultado.contrastes
+                    if not f.get("indicativa")]
+    bajos = [f for f in verificables if f["modelo_demasiado_bajo"]]
+    total = len(verificables)
 
     if not bajos:
         hallazgos.append(Hallazgo(
@@ -833,8 +1292,10 @@ def _resumir(resultado: ResultadoM14c) -> list[Hallazgo]:
         f"contraste(s), en los periodos {periodos}. {detalle}. La certeza viene "
         "de que el pico instantaneo de un dia siempre supera a la media de ese "
         "dia: si el modelo no alcanza ni la media observada, no puede estar "
-        "reproduciendo el pico. Ya se descuenta el caudal base, que el modelo "
-        "no simula."))
+        "reproduciendo el pico. " + (
+            "El modelo lleva flujo base, de modo que la comparacion es "
+            "directa." if con_flujo_base else
+            "Ya se descuenta el caudal base, que el modelo no simula.")))
 
     frecuentes = [p for p in periodos if p <= 10]
     if frecuentes and len(bajos) < total:
@@ -893,6 +1354,7 @@ def _cerrar(logger, resultado, base, ruta_json, inicio, codigo):
         "sin_pareja": resultado.sin_pareja,
         "tr_maximo_verificado": resultado.tr_maximo,
         "contrastes": resultado.contrastes,
+        "consistencia": resultado.consistencia,
         "productos": resultado.productos,
         "resumen": conteo,
         "codigo_salida": codigo,

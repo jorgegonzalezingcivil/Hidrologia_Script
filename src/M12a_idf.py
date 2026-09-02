@@ -1861,7 +1861,7 @@ def _figura_cambio_climatico(configuracion, base, resultado, logger) -> None:
 
     with graficos.figura(
             estilo,
-            titulo="Cambio proyectado en la precipitacion media anual",
+            titulo="Cambio proyectado en la precipitación media anual",
             etiqueta_x="",
             etiqueta_y="Cambio (%)") as (fig, ax):
         posiciones = range(len(datos))
@@ -1903,7 +1903,7 @@ def _figura_cambio_climatico(configuracion, base, resultado, logger) -> None:
                   fontsize=estilo.tamano_fuente - 1)
         fig.text(0.01, -0.09,
                  "Rotulo sobre cada barra: factor aplicable. El cambio es de la "
-                 "precipitacion MEDIA ANUAL, no del evento extremo.",
+                 "precipitación MEDIA ANUAL, no del evento extremo.",
                  fontsize=estilo.tamano_fuente - 2, color="#555555")
         for ruta in graficos.guardar(fig, directorio / "M12a_cambio_climatico",
                                      estilo):

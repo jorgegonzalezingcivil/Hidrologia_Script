@@ -1044,7 +1044,7 @@ def ejecutar(
         logger, MODULO, DESCRIPCION, config=configuracion,
         insumos={"serie consolidada": rutas.relativa(ruta_serie, base),
                  "ventana adoptada": etiqueta_ventana or "sin adoptar",
-                 "umbral adoptado": f"{umbral} anios" if umbral else "sin adoptar"},
+                 "umbral adoptado": f"{umbral} años" if umbral else "sin adoptar"},
         parametros={
             "ideam.agregacion_diaria_a_mensual.max_dias_faltantes": max_faltantes,
             "anomalos.metodo": configuracion.obtener("anomalos.metodo"),
@@ -1756,7 +1756,7 @@ def _figuras(configuracion, base, resultado, series, orden, claves, datos,
         ax.plot(range(1, 13), promedio, color="#c00000", linewidth=2.2,
                 label="promedio de las estaciones")
         ax.set_xticks(range(1, 13))
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        graficos.leyenda(ax, estilo)
         fig.tight_layout()
         for ruta in graficos.guardar(fig, directorio / "M05_ciclo_anual", estilo):
             resultado.productos.append(rutas.relativa(ruta, base))
@@ -1777,7 +1777,7 @@ def _figuras(configuracion, base, resultado, series, orden, claves, datos,
             ax.set_xticks(posiciones)
             ax.set_xticklabels([c["metodo"] for c in validos],
                                fontsize=estilo.tamano_fuente - 1)
-            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            graficos.leyenda(ax, estilo)
             fig.tight_layout()
             for ruta in graficos.guardar(
                     fig, directorio / "M05_complemento", estilo):
@@ -1869,7 +1869,7 @@ def _figura_correlaciones(graficos, estilo, directorio, orden, datos,
             valor, _ = est.correlacion_pareada(datos[:, i], datos[:, j])
             matriz[i, j] = matriz[j, i] = valor if np.isfinite(valor) else np.nan
     with graficos.figura(
-        estilo, titulo=f"Correlacion entre estaciones (umbral adoptado {minima})",
+        estilo, titulo=f"Correlación entre estaciones (umbral adoptado {minima})",
         alto_cm=max(estilo.alto_cm, 0.35 * n + 5.0),
     ) as (fig, ax):
         graficos.mapa_calor(ax, matriz, orden, estilo, minimo=0.0, maximo=1.0)

@@ -720,9 +720,15 @@ def _construir(configuracion, resultado, subcuencas, duracion_min,
                     BLOQUEANTE, "hietograma.reparto", str(error)))
                 return
             for paso in intervalos:
+                # EL FACTOR VIAJA CON EL DATO. La seccion 5 de CLAUDE.md pide
+                # que los productos de precipitacion vayan etiquetados por
+                # escenario, y sin esta columna el M13 no puede deshacerlo para
+                # construir el escenario de referencia: tendria que ir a buscar
+                # el factor al JSON de este modulo, que es dato de otro archivo.
                 resultado.hietogramas.append(
                     {"pluviometro": pluviometro, clave_unidad: nombre,
-                     "periodo_retorno": periodo, **paso})
+                     "periodo_retorno": periodo, "factor_cc": factor_cc,
+                     **paso})
             resumen = resumir_hietograma(intervalos, lamina)
             resumen.update({"pluviometro": pluviometro, clave_unidad: nombre,
                             "periodo_retorno": periodo,
@@ -913,9 +919,9 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
 
         with graficos.figura(
                 estilo,
-                titulo=f"Hietograma de diseno, T = {periodo} anos",
+                titulo=f"Hietograma de diseño, T = {periodo} años",
                 etiqueta_x="Tiempo (min)",
-                etiqueta_y="Precipitacion por intervalo (mm)") as (fig, ax):
+                etiqueta_y="Precipitación por intervalo (mm)") as (fig, ax):
             # LAS BARRAS SE ESTRECHAN de la zona mas lluviosa a la menos. Con
             # todas del mismo ancho el dibujo se lee como un grafico APILADO y
             # un lector concluiria que la lamina total es la suma de las cinco,

@@ -724,7 +724,7 @@ def _figuras(configuracion, base, resultado, logger) -> None:
                    bottom=[a + b for a, b in zip(retencion, infiltrada)],
                    color=estilo.color(1), label="escorrentía superficial")
             ax.set_xticks(meses)
-            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            graficos.leyenda(ax, estilo)
             fig.text(0.01, -0.04,
                      f"La suma de cada barra es la precipitación del mes. "
                      f"Coeficiente de infiltración {resultado.resumen.get('c_medio'):.3f}, "
@@ -754,7 +754,7 @@ def _figuras(configuracion, base, resultado, logger) -> None:
                color=estilo.color(2), label="Kv, cobertura")
         ax.axhline(1.0, color="#b03a2e", linestyle="--", linewidth=1.2,
                    label="límite del modelo")
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        graficos.leyenda(ax, estilo)
         ax.set_xticks([])
         for ruta in graficos.guardar(
                 fig, directorio / "M18b_aporte_coeficientes", estilo):

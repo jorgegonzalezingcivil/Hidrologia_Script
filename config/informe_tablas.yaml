@@ -406,3 +406,42 @@ tablas:
 #   Catalogo Nacional de Estaciones. Darle formato es una normalizacion del
 #   M03, no del informe.
 # =============================================================================
+
+  - numero: "5-20"
+    leyenda: "Caudales de diseño y de referencia por escenario de cambio climático"
+    fuente: "data/02_procesado/hidrologia/escenarios_cc.csv"
+    encabezados: 1
+    # EL DE DISENO ES EL QUE LLEVA EL FACTOR y el otro es la lluvia registrada.
+    # No son dos alternativas entre las que elegir: la doctrina aplica el factor
+    # cuando es de incremento, y el escenario sin el se presenta para mostrar
+    # cuanto del caudal procede de la proyeccion y cuanto del dato. Medido en
+    # este estudio, entre el 21 y el 27 %, mas en las crecientes frecuentes
+    # porque el umbral de perdidas amplifica mas cuando la lluvia es pequena.
+    titulos:
+      - "Periodo de retorno (años)"
+      - "Caudal de diseño, con factor (m³/s)"
+      - "Caudal de referencia, sin factor (m³/s)"
+      - "Aporte del factor (m³/s)"
+      - "Aporte del factor (%)"
+    columnas: [periodo_retorno, q_diseno_m3s, q_referencia_m3s,
+               aporte_factor_m3s, aporte_factor_pct]
+
+  - numero: "5-21"
+    leyenda: "Curva de almacenamiento y descarga del embalse"
+    fuente: "data/02_procesado/hidrologia/embalses.csv"
+    encabezados: 1
+    # LA COTA ES LO QUE HAY QUE MOSTRAR. El modelo consume la curva en volumen,
+    # porque HEC-HMS 4.13 no admite la forma por elevacion con Puls modificado,
+    # pero el estado de operacion adoptado y la lamina sobre el vertedero solo
+    # se leen en cota. La curva de elevacion contra volumen es informacion
+    # secundaria del operador, tomada para la modelacion hidrologica; no
+    # constituye un estudio de operacion del embalse.
+    titulos:
+      - "Embalse"
+      - "Cota (m.s.n.m.)"
+      - "Volumen (miles de m³)"
+      - "Volumen (hm³)"
+      - "Lámina sobre la cresta (m)"
+      - "Descarga (m³/s)"
+    columnas: [embalse, cota_msnm, volumen_miles_m3, volumen_hm3,
+               lamina_sobre_cresta_m, descarga_m3s]

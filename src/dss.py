@@ -181,6 +181,64 @@ def escribir_serie_precipitacion(
     }
 
 
+def escribir_tabla_emparejada(
+    destino: Path,
+    nombre: str,
+    valores_x: Sequence[float],
+    valores_y: Sequence[float],
+    parte_c: str = "STORAGE-FLOW",
+    unidades_x: str = "THOU M3",
+    unidades_y: str = "M3/S",
+    tipo_x: str = "STORAGE",
+    tipo_y: str = "FLOW",
+) -> str:
+    """
+    Escribe una tabla emparejada en el DSS, como la curva de un embalse.
+
+    LAS UNIDADES NO SON LAS MISMAS QUE EN EL RESTO DEL PROGRAMA. Para una tabla
+    emparejada en sistema metrico HEC-HMS espera 'THOU M3'; con '1000 M3', que
+    es lo que vale en los parametros de las subcuencas, rechaza la tabla con
+    'Units ... are not valid for paired data'. Se comprobo sobre la 4.13.
+
+    Devuelve el pathname escrito, para que quien construya el .pdata declare
+    exactamente el que existe en el archivo.
+
+    Excepciones
+    -----------
+    ErrorDss
+        Si la tabla esta vacia, si las dos columnas no se corresponden o si la
+        escritura falla.
+    """
+    if not valores_x or len(valores_x) != len(valores_y):
+        raise ErrorDss(
+            f"la tabla {nombre!r} trae {len(valores_x)} valor(es) en X y "
+            f"{len(valores_y)} en Y.")
+
+    try:
+        from hecdss import HecDss
+        from hecdss.paired_data import PairedData
+    except ImportError as error:  # pragma: no cover - depende del entorno
+        raise ErrorDss(
+            "no esta instalado 'hecdss', que es lo que escribe el formato DSS. "
+            "Instalarlo en el venv del proyecto.") from error
+
+    pathname = f"//{nombre}/{parte_c}///TABLE/"
+    tabla = PairedData.create(
+        x_values=list(valores_x), y_values=[list(valores_y)],
+        x_units=unidades_x, x_type=tipo_x,
+        y_units=unidades_y, y_type=tipo_y, path=pathname)
+    archivo = HecDss(str(destino))
+    try:
+        archivo.put(tabla)
+    except Exception as error:                           # noqa: BLE001
+        raise ErrorDss(
+            f"no se pudo escribir la tabla {nombre!r} en {destino}: "
+            f"{error}") from error
+    finally:
+        archivo.close()
+    return pathname
+
+
 def leer_series(
     origen: Path, parametros: Sequence[str] = (), elementos: Sequence[str] = (),
 ) -> list[Serie]:

@@ -761,9 +761,10 @@ def _figuras(configuracion, base, resultado, logger) -> None:
                             if f["fase"] == fase and f["mes"] == mes]
                 medias.append(float(np.mean(muestras)) if muestras else np.nan)
             ax.plot(range(1, 13), medias, color=color_de[fase], linewidth=1.8,
-                    marker="o", markersize=3.5, label=fase)
+                    marker="o", markersize=3.5,
+                    label=oni.nombre_de_fase(fase))
         ax.set_xticks(range(1, 13))
-        ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+        graficos.leyenda(ax, estilo)
         fig.tight_layout()
         for ruta in graficos.guardar(fig, directorio / "M05b_ciclo_por_fase",
                                      estilo):
@@ -787,12 +788,13 @@ def _figuras(configuracion, base, resultado, logger) -> None:
                                          (oni.FASE_NINA, 0.2)):
                 valores = [f.get(f"{fase}_pct") or 0.0 for f in contraste]
                 ax.barh(posiciones + desplazamiento, valores, height=0.4,
-                        color=color_de[fase], label=fase)
+                        color=color_de[fase],
+                        label=oni.nombre_de_fase(fase))
             ax.axvline(0.0, color=graficos.GRIS_CONTEXTO, linewidth=0.8)
             ax.set_yticks(posiciones)
             ax.set_yticklabels(etiquetas,
                                fontsize=max(3.0, estilo.tamano_fuente - 3))
-            ax.legend(fontsize=estilo.tamano_fuente - 1, frameon=False)
+            graficos.leyenda(ax, estilo)
             fig.tight_layout()
             for ruta in graficos.guardar(fig, directorio / "M05b_contraste",
                                          estilo):

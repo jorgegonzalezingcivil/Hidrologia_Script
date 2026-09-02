@@ -47,6 +47,7 @@ __all__ = [
     "FASE_NEUTRAL",
     "FASE_COMPUESTA",
     "NOMBRE_DE_FASE",
+    "nombre_de_fase",
     "COLOR_DE_FASE",
     "RELLENO_DE_FASE",
     "descargar",
@@ -88,6 +89,18 @@ NOMBRE_DE_FASE: dict[str, str] = {
     FASE_NEUTRAL: "Neutral",
     FASE_COMPUESTA: "Año compuesto",
 }
+
+def nombre_de_fase(fase: str) -> str:
+    """
+    Como se escribe una fase donde alguien la va a leer.
+
+    Las claves viajan por los archivos y por los nombres de columna, y ahi
+    siguen sin tilde ni ene porque cambiarlas romperia productos ya calculados.
+    Lo que el informe muestra es otra cosa: 'nino' en la leyenda de un grafico
+    es tan visible como un numero mal puesto.
+    """
+    return NOMBRE_DE_FASE.get(str(fase), str(fase))
+
 
 COLOR_DE_FASE: dict[str, str] = {
     FASE_NINO: "#c00000",
