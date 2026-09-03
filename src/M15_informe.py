@@ -114,6 +114,17 @@ PATRON_LEYENDA = re.compile(r"^\s*(Ilustraci[oó]n|Gr[aá]fico|Figura|Tabla)\b",
 # figura ausente en lugar de un nombre que no puede leer.
 PATRON_ARCHIVO = re.compile(r"([\w\-\.]+\.(?:png|jpg|jpeg|svg))", re.I)
 
+# UNA CARPETA ENTERA DE FIGURAS, no una figura. La plantilla lo pide en ocho
+# puntos: "Agregar graficos de la subcarpeta X de la carpeta de graficos
+# individuales ... y agregar un parrafo despues de cada una". El contenido
+# depende del estudio (aqui 136 figuras, entre 8 y 32 por tanda) y por eso no
+# puede escribirse en la plantilla, que no sabe cuantas estaciones tendra el
+# estudio siguiente.
+PATRON_TANDA = re.compile(
+    r"^\s*Agregar\s+gr[aá]ficos?\s+de\s+la\s+subcarpeta\s+(.+?)"
+    r"\s+de\s+la\s+carpeta", re.I)
+PATRON_COMILLAS = re.compile(r"[“”\"']([^“”\"']+)[“”\"']")
+
 
 @dataclass
 class ResultadoM15:
@@ -132,6 +143,8 @@ class ResultadoM15:
     analisis_resueltos: list[str] = field(default_factory=list)
     analisis_incompletos: list[dict[str, str]] = field(default_factory=list)
     identidad_ajena: list[dict[str, str]] = field(default_factory=list)
+    tandas_puestas: list[dict[str, str]] = field(default_factory=list)
+    tandas_sin_modelo: list[str] = field(default_factory=list)
     fuera_de_alcance: list[str] = field(default_factory=list)
     fuera_de_alcance_motivo: str = ""
     productos: list[str] = field(default_factory=list)
@@ -255,6 +268,159 @@ def resolver_analisis(parrafo, redactado: Sequence[str], documento,
     return len(redactado)
 
 
+def leer_tandas(ruta: Path) -> dict[str, dict[str, Any]]:
+    """Las tandas de graficos individuales, indexadas por su subcarpeta."""
+    if not ruta.is_file():
+        return {}
+    import yaml
+
+    with ruta.open(encoding="utf-8") as manejador:
+        datos = yaml.safe_load(manejador) or {}
+    tandas: dict[str, dict[str, Any]] = {}
+    for entrada in datos.get("tandas") or []:
+        clave = _normalizar_clave(str(entrada.get("subcarpeta", "")))
+        if not clave:
+            continue
+        tandas[clave] = entrada
+        # LOS ALIAS son como la instruccion de la plantilla nombra la carpeta,
+        # que no siempre coincide con el nombre del directorio.
+        for alias in entrada.get("alias") or []:
+            tandas[_normalizar_clave(str(alias))] = entrada
+    return tandas
+
+
+def _normalizar_clave(texto: str) -> str:
+    """'papel de probabilidad' y 'papel_probabilidad' son la misma carpeta."""
+    plano = unicodedata.normalize("NFKD", str(texto).strip().lower())
+    plano = "".join(c for c in plano if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", "_", plano).strip("_")
+
+
+def nombres_de_estaciones(ruta: Path, delimitador: str) -> dict[str, str]:
+    """
+    Codigo y nombre normalizado de cada estacion, para nombrar sus figuras.
+
+    LOS ARCHIVOS SE LLAMAN DE DOS MANERAS. Unos por el codigo ('2120077.png') y
+    otros por el nombre normalizado ('apto_guaimaral_usta.png'), segun el
+    modulo que los escribio. Se indexan las dos formas para no depender de
+    cual sea.
+    """
+    if not ruta.is_file():
+        return {}
+    indice: dict[str, str] = {}
+    for fila in leer_tabla_csv(ruta, delimitador):
+        codigo = str(fila.get("Código de la estación", "")).strip()
+        nombre = str(fila.get("Nombre de la estación", "")).strip()
+        if not nombre:
+            continue
+        # El inventario escribe 'NOMBRE [codigo]'; en la leyenda sobra el
+        # codigo, que ya identifica la figura por su archivo.
+        limpio = re.sub(r"\s*\[[^\]]*\]\s*$", "", nombre).strip()
+        if codigo:
+            indice[codigo] = limpio
+        indice[_normalizar_clave(limpio)] = limpio
+    return indice
+
+
+def nombre_de_figura(archivo: str, nombra: str, estaciones) -> str:
+    """Como se llama en la leyenda la figura de un archivo de la tanda."""
+    tallo = Path(archivo).stem
+    if nombra == "periodo":
+        encaje = re.search(r"T([0-9]+(?:[_.][0-9]+)?)", tallo)
+        return encaje.group(1).replace("_", ",") if encaje else tallo
+    if nombra == "estacion":
+        if tallo in estaciones:
+            return estaciones[tallo]
+        clave = _normalizar_clave(tallo)
+        if clave in estaciones:
+            return estaciones[clave]
+        # SE PRUEBA QUITANDO EL PREFIJO del nombre de archivo: el M05 escribe
+        # 'precipitacion_total_historica_<estacion>.png'.
+        for largo in sorted(estaciones, key=len, reverse=True):
+            if largo and clave.endswith(largo):
+                return estaciones[largo]
+    return tallo.replace("_", " ").strip()
+
+
+def resolver_tanda(parrafo, subcarpetas, tandas, individuales, ancho,
+                   estaciones, documento, modelo_leyenda) -> list[dict[str, str]]:
+    """
+    Coloca una carpeta entera de graficos, cada uno con su leyenda y su parrafo.
+
+    SE SUSTITUYE LA INSTRUCCION por el bloque completo. La instruccion pide
+    "agregar un parrafo despues de cada una con una explicacion corta", de modo
+    que cada figura entra con cuatro elementos: leyenda, imagen, fuente y
+    parrafo.
+
+    LA LEYENDA SE CLONA de una que numere con campos SEQ, para que las figuras
+    nuevas entren en la secuencia del capitulo y Word las renumere sola. Sin
+    eso habria que escribir el numero a mano en 136 figuras y ninguna quedaria
+    referenciable.
+
+    EL PARRAFO ES UNA PLANTILLA, y eso hay que decirlo: con 32 graficos de la
+    misma clase, uno por estacion, no hay 32 lecturas distintas que hacer. El
+    parrafo dice que muestra la figura y que hay que mirar en ella; la lectura
+    particular de una estacion la escribe el consultor.
+
+    Devuelve la lista de figuras colocadas.
+    """
+    import copy
+
+    from docx.text.paragraph import Paragraph
+
+    puestas: list[dict[str, str]] = []
+    ancla = parrafo._element
+    for subcarpeta in subcarpetas:
+        entrada = tandas.get(_normalizar_clave(subcarpeta))
+        if entrada is None:
+            continue
+        carpeta = Path(individuales) / str(entrada["subcarpeta"])
+        if not carpeta.is_dir():
+            continue
+        for imagen in sorted(carpeta.glob("*.png")):
+            nombre = nombre_de_figura(imagen.name,
+                                      str(entrada.get("nombra", "archivo")),
+                                      estaciones)
+            leyenda = Paragraph(copy.deepcopy(modelo_leyenda._element),
+                                modelo_leyenda._parent)
+            _fijar_leyenda(leyenda, str(entrada["leyenda"]).format(
+                nombre=nombre))
+            figura = documento.add_paragraph(style="No Spacing")
+            poner_figura(figura, imagen, ancho)
+            fuente = documento.add_paragraph(str(entrada.get("fuente", "")),
+                                             style="Fuente")
+            texto = documento.add_paragraph(
+                str(entrada.get("parrafo", "")).format(nombre=nombre),
+                style="Normal")
+            for pieza in (leyenda._element, figura._element, fuente._element,
+                          texto._element):
+                ancla.addnext(pieza)
+                ancla = pieza
+            puestas.append({"subcarpeta": str(entrada["subcarpeta"]),
+                            "archivo": imagen.name, "nombre": nombre})
+    if puestas:
+        # LA INSTRUCCION SE RETIRA. Dejarla marcaria como pendiente un bloque
+        # que ya esta puesto, y el consultor volveria a colocarlo.
+        parrafo._element.getparent().remove(parrafo._element)
+    return puestas
+
+
+def _fijar_leyenda(parrafo, leyenda: str) -> None:
+    """Cambia el texto de una leyenda clonada sin tocar sus campos SEQ."""
+    puesto = False
+    for run in parrafo.runs:
+        xml = run._element.xml
+        if "fldChar" in xml or "instrText" in xml:
+            continue
+        if not puesto and run.text.strip().startswith("."):
+            run.text = f". {leyenda}"
+            puesto = True
+        elif puesto:
+            run.text = ""
+    if not puesto and parrafo.runs:
+        parrafo.runs[-1].text = f". {leyenda}"
+
+
 def leer_identidad(ruta: Path) -> dict[str, Any]:
     """Los terminos del informe de referencia y las claves propias del estudio."""
     if not ruta.is_file():
@@ -362,6 +528,13 @@ def clasificar(texto: str) -> tuple[str, str]:
     coincide = PATRON_TABLA.match(texto)
     if coincide:
         return "tabla", coincide.group(1)
+    encaje = PATRON_TANDA.match(texto or "")
+    if encaje:
+        # Se devuelven las subcarpetas que nombra, que pueden ser dos:
+        # 'histograma_pdf' y 'papel de probabilidad' van en la misma
+        # instruccion.
+        return "tanda", ",".join(PATRON_COMILLAS.findall(encaje.group(1))
+                                 or [encaje.group(1).strip()])
     if PATRON_ANALISIS.match(texto):
         return "analisis", texto.strip()
     return "", ""
@@ -917,7 +1090,12 @@ def ejecutar(
     analisis = leer_analisis(rutas.resolver(
         configuracion.obtener("informe.analisis", "config/analisis.yaml"),
         base))
-
+    tandas = leer_tandas(rutas.resolver(
+        configuracion.obtener("informe.tandas", "config/informe_tandas.yaml"),
+        base))
+    estaciones_nombradas = nombres_de_estaciones(
+        rutas.directorio("procesado", base) / "estaciones"
+        / "inventario_estaciones.csv", delimitador)
     resultado = ResultadoM15(plantilla=str(origen))
 
     registro.registrar_cabecera(
@@ -930,6 +1108,13 @@ def ejecutar(
 
     try:
         documento = plantilla_docx.abrir(origen)
+        # LA LEYENDA MODELO tiene que numerar con campos SEQ, o las figuras de
+        # las tandas quedarian sin numero y no podrian referenciarse.
+        modelo_leyenda = next(
+            (p for p in documento.paragraphs
+             if p.style.name == "Caption"
+             and p.text.strip().startswith("Gráfico")
+             and any("fldChar" in run._element.xml for run in p.runs)), None)
     except (plantilla_docx.ErrorPlantilla, ErrorRutas) as error:
         resultado.hallazgos.append(Hallazgo(
             BLOQUEANTE, "informe.plantilla", str(error)))
@@ -950,7 +1135,17 @@ def ejecutar(
             if parrafo is None:
                 continue
             tipo, argumento = clasificar(parrafo.text)
-            if tipo == "analisis":
+            if tipo == "tanda":
+                if modelo_leyenda is None:
+                    resultado.tandas_sin_modelo.append(argumento)
+                else:
+                    puestas = resolver_tanda(
+                        parrafo, argumento.split(","), tandas, individuales,
+                        ancho, estaciones_nombradas, documento, modelo_leyenda)
+                    resultado.tandas_puestas.extend(puestas)
+                    resultado.figuras_puestas.extend(
+                        p["archivo"] for p in puestas)
+            elif tipo == "analisis":
                 redactado = analisis.get(_normalizar_leyenda(argumento))
                 if redactado:
                     resolver_analisis(parrafo, redactado["parrafos"],
@@ -1176,6 +1371,34 @@ def _resolver_tabla(cuerpo, posicion, tablas, parrafos, numero, declaracion,
 def _resumir(resultado: ResultadoM15) -> list[Hallazgo]:
     """Lo que el módulo resolvió y lo que queda por hacer a mano."""
     hallazgos: list[Hallazgo] = []
+
+    if resultado.tandas_puestas:
+        import collections
+
+        por_carpeta = collections.Counter(p["subcarpeta"]
+                                          for p in resultado.tandas_puestas)
+        detalle = ", ".join(f"{k} ({v})" for k, v in sorted(por_carpeta.items()))
+        hallazgos.append(Hallazgo(
+            INFORMATIVO, "informe.tandas",
+            f"{len(resultado.tandas_puestas)} gráfico(s) individuales "
+            f"colocados en {len(por_carpeta)} tanda(s), cada uno con su "
+            f"leyenda numerada, su fuente y un párrafo: {detalle}. EL PÁRRAFO "
+            "ES UNA PLANTILLA por tanda, con el nombre de la estación "
+            "sustituido: con decenas de gráficos de la misma clase no hay una "
+            "lectura distinta por cada uno, y fingirla sería relleno. Dice qué "
+            "muestra la figura y qué hay que mirar en ella; la lectura "
+            "particular de una estación, cuando la haya, la escribe el "
+            "consultor.",
+        ))
+
+    if resultado.tandas_sin_modelo:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "informe.tandas_sin_modelo",
+            f"{len(resultado.tandas_sin_modelo)} tanda(s) de gráficos no se "
+            "colocaron porque no se encontró en la plantilla ninguna leyenda "
+            "de gráfico numerada con campos: sin ella las figuras nuevas "
+            "quedarían sin número y no podrían referenciarse.",
+        ))
 
     if resultado.fuera_de_alcance:
         hallazgos.append(Hallazgo(

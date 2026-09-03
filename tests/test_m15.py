@@ -749,6 +749,103 @@ class PruebaAnalisisRedactados(unittest.TestCase):
                           "después"])
 
 
+class PruebaTandasDeGraficos(unittest.TestCase):
+    """
+    Una carpeta entera de gráficos, no una figura.
+
+    La plantilla lo pide en ocho puntos y el contenido depende del estudio: en
+    Refugio del Valle son 136 figuras, entre 8 y 32 por tanda. No puede
+    escribirse en la plantilla, que no sabe cuántas estaciones tendrá el
+    estudio siguiente.
+    """
+
+    def test_reconoce_la_instruccion_y_saca_la_subcarpeta(self) -> None:
+        tipo, dato = m15.clasificar(
+            "Agregar gráficos de la subcarpeta “precipitacion_cruda” de la "
+            "carpeta de gráficos individuales de la carpeta de resultados y "
+            "agregar un párrafo después de cada una.")
+        self.assertEqual(tipo, "tanda")
+        self.assertEqual(dato, "precipitacion_cruda")
+
+    def test_una_instruccion_puede_pedir_dos_carpetas(self) -> None:
+        # 'histograma_pdf' y 'papel de probabilidad' van en la misma.
+        _, dato = m15.clasificar(
+            "Agregar gráficos de la subcarpeta “histograma_pdf” y “papel de "
+            "probabilidad” de la carpeta de gráficos individuales.")
+        self.assertEqual(dato.split(","), ["histograma_pdf",
+                                           "papel de probabilidad"])
+
+    def test_la_instruccion_no_se_confunde_con_un_analisis(self) -> None:
+        """
+        'Agregar gráficos' pide figuras y 'Agregar análisis' pide texto.
+
+        Contar la primera como redacción la daría por escrita cuando lo que
+        falta es colocar 136 figuras.
+        """
+        self.assertEqual(
+            m15.clasificar("Agregar análisis de Gráfico 4-3.")[0], "analisis")
+        self.assertEqual(
+            m15.clasificar("Agregar gráficos de la subcarpeta “enso” de la "
+                           "carpeta de gráficos individuales.")[0], "tanda")
+
+    def test_el_alias_resuelve_el_nombre_que_usa_la_instruccion(self) -> None:
+        """
+        La instrucción dice 'papel de probabilidad' y la carpeta se llama
+        'papel_probabilidad'.
+
+        Sin el alias la tanda no se colocaba y no había forma de saber por qué:
+        solo faltaban dieciséis figuras.
+        """
+        tandas = m15.leer_tandas(
+            _RAIZ_REPO / "config" / "informe_tandas.yaml")
+        if not tandas:
+            self.skipTest("no está la declaración de tandas")
+        self.assertIn("papel_probabilidad", tandas)
+        self.assertIn("papel_de_probabilidad", tandas)
+        self.assertIs(tandas["papel_probabilidad"],
+                      tandas["papel_de_probabilidad"])
+
+    def test_cada_tanda_declara_leyenda_fuente_y_parrafo(self) -> None:
+        # Sin cualquiera de los tres la figura entra suelta, sin poder
+        # referenciarse o sin la explicación que la instrucción pide.
+        tandas = m15.leer_tandas(
+            _RAIZ_REPO / "config" / "informe_tandas.yaml")
+        if not tandas:
+            self.skipTest("no está la declaración de tandas")
+        for clave, entrada in tandas.items():
+            with self.subTest(tanda=clave):
+                for campo in ("leyenda", "fuente", "parrafo", "nombra"):
+                    self.assertTrue(str(entrada.get(campo, "")).strip(), campo)
+                self.assertIn("{nombre}", str(entrada["leyenda"]))
+                self.assertIn("{nombre}", str(entrada["parrafo"]))
+
+    def test_el_nombre_sale_del_codigo_o_del_nombre_del_archivo(self) -> None:
+        # Los módulos escriben unos por código y otros por nombre normalizado.
+        estaciones = {"2120077": "TORCA", "apto_guaimaral_usta": "APTO GUAIMARAL"}
+        self.assertEqual(
+            m15.nombre_de_figura("2120077.png", "estacion", estaciones),
+            "TORCA")
+        self.assertEqual(
+            m15.nombre_de_figura("precipitacion_total_historica_"
+                                 "apto_guaimaral_usta.png", "estacion",
+                                 estaciones),
+            "APTO GUAIMARAL")
+
+    def test_el_periodo_de_retorno_recupera_su_decimal(self) -> None:
+        # El archivo no admite el punto y lo escribe como 'T2_33'.
+        self.assertEqual(
+            m15.nombre_de_figura("M11_mapa_pmax_T2_33.png", "periodo", {}),
+            "2,33")
+        self.assertEqual(
+            m15.nombre_de_figura("M11_mapa_pmax_T100.png", "periodo", {}),
+            "100")
+
+    def test_un_archivo_que_no_se_reconoce_no_queda_sin_nombre(self) -> None:
+        # Mejor el nombre del archivo que una leyenda vacía.
+        self.assertEqual(
+            m15.nombre_de_figura("otra_cosa.png", "estacion", {}), "otra cosa")
+
+
 class PruebaCamposParaActualizar(unittest.TestCase):
     """
     Los campos del documento se marcan para que Word los recalcule.

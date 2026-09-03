@@ -1,0 +1,136 @@
+# =============================================================================
+# TANDAS DE GRÁFICOS INDIVIDUALES  (insumo del M15)
+# -----------------------------------------------------------------------------
+# QUÉ RESUELVE. La plantilla pide en ocho puntos "Agregar gráficos de la
+# subcarpeta X de la carpeta de gráficos individuales ... y agregar un párrafo
+# después de cada una con una explicación corta". No es una figura sino una
+# CARPETA ENTERA, y su contenido depende del estudio: aquí son 136 figuras,
+# entre 8 y 32 por tanda, una por estación o por periodo de retorno. Escribirlas
+# a mano en la plantilla es imposible, porque la plantilla no sabe cuántas
+# estaciones tendrá el estudio siguiente.
+#
+# ESTO ES DOCTRINA DE LA HERRAMIENTA Y NO DEL ESTUDIO. El nombre de la
+# subcarpeta, la leyenda y lo que hay que decir de cada figura son los mismos
+# en cualquier estudio; lo único que cambia son las estaciones, y esas salen
+# del inventario. Por eso vive aquí y no en el analisis.yaml del estudio.
+#
+# EL PÁRRAFO ES UNA PLANTILLA Y ESO HAY QUE DECIRLO. Con 32 gráficos de
+# precipitación histórica, uno por estación, no hay 32 lecturas distintas que
+# hacer: la figura dice lo mismo de cada estación y lo que cambia es de cuál.
+# El párrafo declara qué muestra la figura y qué hay que mirar en ella; la
+# lectura particular de una estación, cuando la haya, la escribe el consultor.
+# Fingir 32 análisis distintos sería relleno, y el relleno en un informe se
+# nota.
+#
+# 'nombra' dice de dónde sale el nombre de cada figura:
+#   estacion  el archivo se llama por el código de la estación o por su nombre
+#             normalizado; se resuelve contra el inventario del estudio.
+#   periodo   el archivo lleva el periodo de retorno (T10, T100).
+#   archivo   se usa el propio nombre del archivo, normalizado.
+# =============================================================================
+
+version: 1
+
+tandas:
+
+  - subcarpeta: "precipitacion_cruda"
+    leyenda: "Precipitación Total Histórica {nombre}"
+    fuente: "Fuente: IDEAM, 2024."
+    nombra: estacion
+    parrafo: >-
+      La serie histórica de precipitación total de la estación {nombre} permite
+      verificar la continuidad del registro y la presencia de vacíos, así como
+      identificar cambios de nivel que pudieran corresponder a traslados de
+      instrumento o a cambios de operación no documentados. Es el dato de
+      partida sobre el que se aplican después los análisis de consistencia, de
+      datos anómalos y de complemento.
+
+  - subcarpeta: "doble_masa"
+    leyenda: "Análisis de Doble Masa {nombre}"
+    fuente: "Fuente: INCOHISA, 2024."
+    nombra: estacion
+    parrafo: >-
+      El análisis de doble masa de la estación {nombre} contrasta su
+      precipitación acumulada contra la del conjunto de estaciones vecinas. Un
+      quiebre en la pendiente de la recta indica que la estación cambió su
+      comportamiento respecto de las demás, lo que apunta a una causa local, y
+      no a un cambio del régimen climático, que afectaría a todas por igual.
+      Cuando el quiebre se confirma, los registros anteriores a él se corrigen
+      por la razón entre las dos pendientes.
+
+  - subcarpeta: "anomalos"
+    leyenda: "Análisis de Datos Anómalos {nombre}"
+    fuente: "Fuente: INCOHISA, 2024."
+    nombra: estacion
+    parrafo: >-
+      La detección de datos anómalos de la estación {nombre} se realiza mes a
+      mes sobre la serie mensual, comparando cada valor contra el rango
+      intercuartílico ampliado de ese mismo mes calendario en los demás años.
+      Un dato marcado no se descarta de manera automática: queda señalado para
+      que el consultor decida su tratamiento, porque en un régimen con
+      estacionalidad marcada un valor alto puede corresponder a un evento real
+      de la temporada húmeda y no a un error de registro.
+
+  - subcarpeta: "serie_mensual"
+    leyenda: "Serie Mensual Completada {nombre}"
+    fuente: "Fuente: IDEAM, INCOHISA, 2024."
+    nombra: estacion
+    parrafo: >-
+      La serie mensual de la estación {nombre} se presenta con los valores
+      observados y los completados por imputación múltiple, distinguidos entre
+      sí. La verificación que interesa es que los valores completados se sitúen
+      dentro del rango de variación propio de cada mes y no introduzcan saltos:
+      un método que reprodujera la media de la serie suavizaría la variabilidad
+      interanual y afectaría al análisis de frecuencia posterior.
+
+  - subcarpeta: "enso"
+    leyenda: "Comparación ENSO Precipitación Vs. {nombre}"
+    fuente: "Fuente: INCOHISA, 2024."
+    nombra: estacion
+    parrafo: >-
+      La serie de la estación {nombre} se presenta clasificada por fase del
+      fenómeno ENSO, lo que permite asociar los valores extremos a las
+      condiciones de El Niño y La Niña. La clasificación se emplea para
+      caracterizar la variabilidad y NO como criterio de exclusión: ningún
+      registro se descarta por la fase en que fue medido, porque hacerlo
+      eliminaría del análisis justamente los años que definen los extremos.
+
+  - subcarpeta: "histograma_pdf"
+    leyenda: "Histograma Pmax {nombre}"
+    fuente: "Fuente: INCOHISA, 2024."
+    nombra: estacion
+    parrafo: >-
+      El histograma de la serie de máximos anuales en 24 horas de la estación
+      {nombre} se presenta con la función de densidad de la distribución
+      ajustada superpuesta. Permite verificar visualmente que la distribución
+      seleccionada reproduce la forma de la muestra, en particular en la cola
+      derecha, que es la que gobierna los periodos de retorno altos.
+
+  - subcarpeta: "papel_probabilidad"
+    # LA INSTRUCCION LA NOMBRA DE OTRA FORMA. Dice "papel de probabilidad", con
+    # la preposicion, y la carpeta se llama 'papel_probabilidad': sin declarar
+    # el alias la tanda no se colocaba y no habia forma de saber por que, tan
+    # solo faltaban dieciseis figuras.
+    alias: ["papel de probabilidad"]
+    leyenda: "Ajuste Distribución de Probabilidad {nombre}"
+    fuente: "Fuente: INCOHISA, 2024."
+    nombra: estacion
+    parrafo: >-
+      El papel de probabilidad de la estación {nombre} presenta los datos
+      observados frente a la distribución ajustada, con su banda de confianza.
+      La lectura relevante es el comportamiento en la cola derecha: una
+      desviación sistemática de los puntos respecto de la recta en los periodos
+      de retorno altos indicaría que la distribución elegida no representa bien
+      los eventos extremos, que es precisamente para lo que se usa.
+
+  - subcarpeta: "pmax_subcuencas"
+    leyenda: "Precipitación Máxima en 24 h por Subcuenca, Tr = {nombre} años"
+    fuente: "Fuente: INCOHISA, 2024."
+    nombra: periodo
+    parrafo: >-
+      La distribución de la precipitación máxima en 24 horas por subcuenca para
+      el periodo de retorno de {nombre} años muestra el gradiente espacial de la
+      lámina de diseño sobre la cuenca. Es el insumo de la zonificación
+      pluviométrica, que agrupa las subcuencas en zonas de lámina homogénea, y
+      cada subcuenca recibe en el modelo el hietograma de su zona y no el
+      promedio de la cuenca.
