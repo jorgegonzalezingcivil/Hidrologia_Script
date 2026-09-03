@@ -38,7 +38,47 @@ NOMBRES = (
     ("neutro.png", "neutral.png",
      "la cadena nombra la fase neutral del ENSO 'neutral' (comun.oni), no "
      "'neutro'"),
+    ("Comparación Caudales e Influencia Cambo Climático",
+     "Comparación Caudales e Influencia Cambio Climático",
+     "decia 'Cambo Climatico'"),
 )
+
+# -----------------------------------------------------------------------------
+# LAS FIGURAS DE LOS DOS ESCENARIOS DE CAMBIO CLIMATICO
+#
+# La seccion de resultados presenta los dos escenarios uno detras del otro, con
+# tabla, hidrograma y curva de Qmax cada uno, y cierra con la figura de barras
+# que los compara. Al escribirla, las CUATRO instrucciones de figura quedaron
+# apuntando a DOS archivos: los dos hidrogramas al mismo y las dos curvas de
+# Qmax al mismo. Los graficos de la pagina del escenario con factor habrian
+# mostrado la curva del escenario sin el, y nada lo habria advertido: el nombre
+# del archivo existe, solo que es el del otro escenario.
+#
+# Y el nombre que pedian no existia. La cadena escribe
+# 'M14_hidrograma_Sink-1.png', donde el '1' es parte del nombre del elemento
+# 'Sink-1' del modelo; al intercalar '_sin_cambio_climatico' antes del numero
+# quedo partido en 'M14_hidrograma_Sink-_sin_cambio_climatico1.png'.
+#
+# Se identifican por la leyenda, que aqui SI las distingue una a una.
+# -----------------------------------------------------------------------------
+FIGURAS = (
+    ("Hidrograma de Creciente Sitio de Proyecto (sin cambio climático)",
+     "M14_hidrograma_Sink-1_referencia.png",
+     "pedia el hidrograma del escenario con factor"),
+    ("Qmax Vs. Periodo de Retorno (sin cambio climático)",
+     "M14_qmax_vs_periodo_referencia.png",
+     "pedia la curva del escenario con factor"),
+    ("Hidrograma de Creciente Sitio de Proyecto (con cambio climático)",
+     "M14_hidrograma_Sink-1.png",
+     "el nombre del elemento del modelo es 'Sink-1' y quedo partido"),
+    ("Qmax Vs. Periodo de Retorno (con cambio climático)",
+     "M14_qmax_vs_periodo.png",
+     "ya era el correcto; se declara para que las cuatro queden juntas"),
+    ("Comparación Caudales e Influencia",
+     "M14_escenarios_cc.png",
+     "la cadena no pone tildes ni enes en los nombres de archivo"),
+)
+
 
 # Encabezados de tabla equivocados. Se identifican por la leyenda de SU tabla,
 # porque el texto 'Coeficiente de forma' aparece bien en una y mal en dos.
@@ -686,13 +726,60 @@ REDACCION_NUEVA = (
 )
 
 
+# -----------------------------------------------------------------------------
+# EL ANALISIS DE LOS DOS ESCENARIOS DE CAMBIO CLIMATICO
+#
+# Va con la misma regla que las ocho anteriores: TEORIA NEUTRA, sin cifras de
+# este estudio. Las cifras las ponen las dos tablas y la figura de barras, y el
+# texto tiene que seguir sirviendo cuando el factor sea otro. Lo que si dice, y
+# es lo que no se puede deducir mirando las tablas, es POR QUE el caudal no
+# crece en la misma proporcion que la lluvia y CUAL de los dos escenarios es el
+# de diseno.
+# -----------------------------------------------------------------------------
+ANALISIS_ESCENARIOS = (
+    "Escribir análisis sobre resultados sin cambio climático y cambio "
+    "climático",
+    ("Los resultados se presentan en dos escenarios. El escenario de "
+     "referencia se obtiene con la lluvia de diseño derivada directamente de "
+     "los registros históricos de las estaciones, sin ninguna corrección; el "
+     "escenario de diseño aplica sobre esa misma lluvia el factor de cambio "
+     "climático que corresponde al periodo de retorno y a la ventana de "
+     "proyección adoptada. Los dos se calculan con el mismo modelo, la misma "
+     "distribución temporal de la tormenta, los mismos números de curva y el "
+     "mismo tránsito: la única diferencia entre ellos es la lámina de "
+     "precipitación.",
+     "El incremento del caudal no es proporcional al incremento de la lluvia, "
+     "y esa es la razón de calcular el segundo escenario en lugar de escalar "
+     "el primero. El método del número de curva descuenta una abstracción "
+     "inicial antes de que se produzca escorrentía, de modo que la fracción de "
+     "la lluvia que se convierte en caudal aumenta con la magnitud del evento: "
+     "un mismo porcentaje adicional de precipitación produce un porcentaje "
+     "mayor de caudal, y ese efecto es más acentuado en las crecientes "
+     "frecuentes, donde la lluvia total es pequeña frente al umbral de "
+     "pérdidas, que en las extraordinarias. En consecuencia, el aporte "
+     "relativo del factor de cambio climático disminuye a medida que crece el "
+     "periodo de retorno, aunque su aporte absoluto aumente.",
+     "El escenario de diseño, con el factor aplicado, es el que se adopta "
+     "para el dimensionamiento hidráulico de las obras, en aplicación de la "
+     "regla condicional que incorpora la proyección climática únicamente "
+     "cuando es de incremento. El escenario de referencia no constituye una "
+     "alternativa de diseño entre las que elegir: se presenta para separar "
+     "explícitamente la parte del caudal que proviene del registro observado "
+     "de la parte que proviene de la proyección, y así permitir que una "
+     "revisión posterior evalúe por separado el modelo hidrológico y la "
+     "hipótesis climática que se le superpone."),
+    "el consultor pidio el analisis de los dos escenarios",
+)
+
+
 def consolidar_redaccion_nueva(documento, escribir: bool) -> list[str]:
     """Redacta las ocho secciones y borra su instruccion, en una sola pasada."""
     hechos: list[str] = []
     textos_actuales = {p.text.strip() for p in _parrafos(documento)
                        if p.text.strip()}
 
-    for ancla_texto, parrafos_nuevos, motivo in REDACCION_NUEVA:
+    for ancla_texto, parrafos_nuevos, motivo in (
+            REDACCION_NUEVA + (ANALISIS_ESCENARIOS,)):
         if parrafos_nuevos[0] in textos_actuales:
             hechos.append(f"YA REDACTADO: {ancla_texto[:50]}...")
             continue
@@ -775,6 +862,12 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
     # --- 6b. Las ocho instrucciones de redaccion nueva -----------------------
     hechos.extend(consolidar_redaccion_nueva(documento, escribir))
 
+    # --- 6d. Figuras de los dos escenarios de cambio climatico ---------------
+    hechos.extend(consolidar_figuras_de_escenario(documento, escribir))
+
+    # --- 6c. Tablas que la cadena produce y la plantilla no declaraba --------
+    hechos.extend(consolidar_bloques_nuevos(documento, escribir))
+
     # --- 7. Instrucciones rosa ya resueltas: se borran -----------------------
     # VA AL FINAL: tiene que ver escritas las secciones 1 a 6 antes de borrar
     # sus notas, o borraria la instruccion sin haber comprobado que el
@@ -783,6 +876,336 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
 
     if escribir and hechos:
         documento.save(str(ruta))
+    return hechos
+
+
+def _indexar(documento):
+    """(clase, objeto) de cada hijo del cuerpo, en orden de documento."""
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    salida = []
+    for hijo in documento.element.body.iterchildren():
+        if hijo.tag.endswith("}p"):
+            salida.append(("p", Paragraph(hijo, documento)))
+        elif hijo.tag.endswith("}tbl"):
+            salida.append(("t", Table(hijo, documento)))
+    return salida
+
+
+def _leyenda(objetos, texto: str):
+    """
+    La leyenda de estilo 'Caption' que dice ese texto, y su posicion.
+
+    SE EXIGE EL ESTILO. El indice de tablas repite cada leyenda con estilo
+    'table of figures', de modo que buscar solo por texto encuentra dos y la
+    primera es la del indice, al principio del documento.
+    """
+    for indice, (clase, objeto) in enumerate(objetos):
+        if (clase == "p" and objeto.style.name == "Caption"
+                and texto in objeto.text):
+            return indice, objeto
+    return -1, None
+
+
+def _clonar_leyenda(modelo, leyenda: str):
+    """
+    Copia una leyenda conservando sus campos de numeracion.
+
+    NO SIRVE _clonar. Esa version escribe en el primer run y vacia los demas,
+    y en una leyenda los runs del medio son los campos SEQ que producen el
+    numero: vaciarlos deja el campo roto y la leyenda sin numerar. Aqui se
+    conserva todo hasta el ultimo campo y se sustituye solo el texto que sigue,
+    con lo que la leyenda nueva se numera sola y entra en la secuencia del
+    capitulo, sin que haya que renumerar las que ya estaban.
+    """
+    import copy
+
+    from docx.text.paragraph import Paragraph
+
+    parrafo = Paragraph(copy.deepcopy(modelo._element), modelo._parent)
+    puesto = False
+    for run in parrafo.runs:
+        xml = run._element.xml
+        if "fldChar" in xml or "instrText" in xml:
+            continue
+        if not run.text.strip().startswith("."):
+            continue
+        run.text = f". {leyenda}"
+        puesto = True
+        break
+    if not puesto:
+        raise SystemExit(f"la leyenda modelo no tiene texto tras su numero: "
+                         f"{modelo.text!r}")
+    # Lo que venia detras del texto sustituido era el resto de la leyenda
+    # vieja, partido en varios runs por el corrector ortografico de Word.
+    visto = False
+    for run in parrafo.runs:
+        if run.text == f". {leyenda}":
+            visto = True
+            continue
+        if visto and "fldChar" not in run._element.xml:
+            run.text = ""
+    return parrafo._element
+
+
+def _clonar_tabla(modelo, columnas: int):
+    """
+    Copia una tabla de la plantilla dejandola con otro numero de columnas.
+
+    SE CLONA Y NO SE CREA. Una tabla nueva con 'add_table' sale con el estilo
+    'Normal Table', que en esta plantilla no lleva bordes ni sombreado de
+    encabezado: el formato de casa esta aplicado celda por celda, no en un
+    estilo con nombre, de modo que la unica forma de heredarlo es copiar una
+    tabla que ya lo tenga.
+
+    Se quitan columnas por la derecha y se reparte el ancho entre las que
+    quedan, para que la tabla siga ocupando el ancho util de la pagina.
+    """
+    import copy
+
+    from docx.oxml.ns import qn
+    from docx.table import Table
+
+    if columnas > len(modelo.columns):
+        raise SystemExit(f"la tabla modelo tiene {len(modelo.columns)} "
+                         f"columna(s) y se piden {columnas}")
+    tabla = Table(copy.deepcopy(modelo._tbl), modelo._parent)
+    rejilla = tabla._tbl.find(qn("w:tblGrid"))
+    definiciones = rejilla.findall(qn("w:gridCol"))
+    total = sum(int(d.get(qn("w:w")) or 0) for d in definiciones)
+    for sobrante in definiciones[columnas:]:
+        rejilla.remove(sobrante)
+    for definicion in rejilla.findall(qn("w:gridCol")):
+        definicion.set(qn("w:w"), str(total // columnas))
+    for fila in tabla._tbl.findall(qn("w:tr")):
+        celdas = fila.findall(qn("w:tc"))
+        for sobrante in celdas[columnas:]:
+            fila.remove(sobrante)
+        for celda in fila.findall(qn("w:tc")):
+            propiedades = celda.find(qn("w:tcPr"))
+            ancho = (propiedades.find(qn("w:tcW"))
+                     if propiedades is not None else None)
+            if ancho is not None:
+                # El ancho de celda va en porcentaje del ancho de la tabla,
+                # que es 5000 = 100 %. El de la rejilla va en twips.
+                ancho.set(qn("w:w"), str(5000 // columnas))
+    return tabla
+
+
+# -----------------------------------------------------------------------------
+# TABLAS QUE LA CADENA YA PRODUCE Y LA PLANTILLA NO DECLARA
+#
+# El M15 no inventa estructura: llena lo que la plantilla pide. Una tabla
+# declarada en config/informe_tablas.yaml cuya leyenda no exista en el
+# documento NO produce error al generar el informe, simplemente no aparece, y
+# eso no se nota al revisarlo. Tres pruebas de tests/test_m15.py lo impiden, y
+# estaban en rojo por estas dos.
+#
+# LA LEYENDA Y LOS ENCABEZADOS SE LEEN DE informe_tablas.yaml, no se copian
+# aqui. Es la misma razon por la que la tabla de viabilidad se lee de
+# tc_aplicabilidad.csv: si se escribieran dos veces, el documento y la
+# declaracion podrian acabar diciendo cosas distintas, y el emparejamiento del
+# M15 es por leyenda exacta.
+#
+# EL NUMERO DE LA INSTRUCCION ES INFORMATIVO. La leyenda se numera con campos
+# SEQ y Word calcula el numero al actualizarlos; el M15 empareja por el texto,
+# nunca por el numero (ver M15_informe.leer_declaracion_tablas). Los que van
+# aqui son los que quedan al insertar: el capitulo 5 llegaba a la 5-12, el
+# embalse entra antes en 'Construccion del Modelo' y corre las siguientes.
+# -----------------------------------------------------------------------------
+BLOQUES_NUEVOS = (
+    {
+        "leyenda": "Curva de almacenamiento y descarga del embalse",
+        # Entra detras de la 5-10, 'Datos transito crecientes microcuencas',
+        # que es la ultima de 'Construccion del Modelo'. Con eso las dos de
+        # resultados, que el consultor rotulo 5-11 y 5-12, pasan a ser la 5-12
+        # y la 5-13 en cuanto Word actualice los campos.
+        "numero": "5-11",
+        # Va donde se arma el modelo y no donde se presentan sus resultados: el
+        # embalse es un elemento del .basin, y el estado de operacion del que
+        # parte es la decision con mas peso de todo el transito.
+        "antes_de": "Modelo HEC-HMS",
+        "fuente": "Fuente: EAAB, INCOHISA, 2024.",
+        "motivo": "la curva del embalse no estaba declarada en la plantilla",
+    },
+)
+
+INSTRUCCION = ("Completar la Tabla {numero} con datos del estudio, "
+               "conservando el estilo de letra y tamaño, cambiar a color "
+               "negro al finalizar. Agregar las columnas o filas que sean "
+               "necesarias.")
+
+
+def _leyenda_de_figura(objetos, texto: str):
+    """
+    La leyenda de FIGURA que dice ese texto, y su posicion.
+
+    NO SIRVE _leyenda. La misma frase encabeza la tabla y la figura del mismo
+    escenario, 'Tabla -. Qmax Vs. Periodo de Retorno (sin cambio climatico)' y
+    'Grafico -. Qmax ...', y la tabla va primero: buscando por texto se
+    encontraba la de la tabla y detras habia una tabla, no una instruccion de
+    figura.
+    """
+    for indice, (clase, objeto) in enumerate(objetos):
+        if clase != "p" or objeto.style.name != "Caption":
+            continue
+        etiqueta = objeto.text.strip().split()[0] if objeto.text.strip() else ""
+        if etiqueta.rstrip(".") not in ("Gráfico", "Ilustración", "Figura"):
+            continue
+        if texto in objeto.text:
+            return indice, objeto
+    return -1, None
+
+
+def consolidar_figuras_de_escenario(documento, escribir: bool) -> list[str]:
+    """
+    Pone en cada instruccion de figura el archivo que le corresponde.
+
+    EN LAS FIGURAS LA LEYENDA VA ANTES de la instruccion, al contrario que en
+    las tablas. No es un descuido de la plantilla: es su composicion.
+
+    SE REESCRIBE LA INSTRUCCION ENTERA y no se sustituye el nombre dentro del
+    texto. El nombre que la plantilla traia lleva tildes, y sustituir el trozo
+    que el patron del M15 alcanza a leer dejaria pegado lo que quedaba delante.
+    """
+    hechos: list[str] = []
+    objetos = _indexar(documento)
+    for leyenda, archivo, motivo in FIGURAS:
+        indice, _ = _leyenda_de_figura(objetos, leyenda)
+        if indice < 0:
+            hechos.append(f"NO SE ENCONTRO la leyenda de figura '{leyenda}'")
+            continue
+        instruccion = None
+        for siguiente in range(indice + 1, min(len(objetos), indice + 4)):
+            clase, objeto = objetos[siguiente]
+            if clase != "p":
+                break
+            if m15.clasificar(objeto.text)[0] == "figura":
+                instruccion = objeto
+                break
+        if instruccion is None:
+            hechos.append(f"'{leyenda}' no tiene instruccion de figura detras")
+            continue
+        pedia = instruccion.text.strip()
+        quiere = f"Colocar Figura: {archivo}"
+        if pedia == quiere:
+            hechos.append(f"YA CORREGIDA: '{leyenda}' pide {archivo}")
+            continue
+        if escribir:
+            _fijar_parrafo(instruccion, quiere)
+        hechos.append(f"'{leyenda}': {pedia} -> {quiere} ({motivo})")
+    return hechos
+
+
+def consolidar_bloques_nuevos(documento, escribir: bool) -> list[str]:
+    """Inserta la instruccion, la leyenda y la tabla de cada bloque declarado."""
+    declaracion = m15.leer_declaracion_tablas(
+        _RAIZ / "config" / "informe_tablas.yaml")
+    hechos: list[str] = []
+
+    for bloque in BLOQUES_NUEVOS:
+        leyenda = str(bloque["leyenda"])
+        entrada = declaracion.get(m15._normalizar_leyenda(leyenda))
+        if entrada is None:
+            hechos.append(f"NO ESTA DECLARADA en informe_tablas.yaml: "
+                          f"{leyenda}")
+            continue
+        titulos = [str(t) for t in entrada.get("titulos") or []]
+        columnas = [str(c) for c in entrada.get("columnas") or []]
+        if len(titulos) != len(columnas):
+            hechos.append(f"{leyenda}: {len(columnas)} columna(s) declarada(s) "
+                          f"y {len(titulos)} titulo(s)")
+            continue
+
+        objetos = _indexar(documento)
+        if _leyenda(objetos, leyenda)[0] >= 0:
+            hechos.append(f"YA INSERTADA: {leyenda}")
+            continue
+
+        # --- de donde se copia el formato ---
+        posicion, modelo_leyenda = _leyenda(
+            objetos, "Datos tránsito crecientes")
+        if modelo_leyenda is None or objetos[posicion + 1][0] != "t":
+            hechos.append("NO SE ENCONTRO la tabla modelo de la que copiar el "
+                          "formato ('Datos tránsito crecientes')")
+            continue
+        modelo_tabla = objetos[posicion + 1][1]
+        modelo_instruccion = next(
+            (o for c, o in objetos
+             if c == "p" and m15.clasificar(o.text)[0] == "tabla"), None)
+        modelo_fuente = next((o for c, o in objetos
+                              if c == "p" and o.style.name == "Fuente"), None)
+        if modelo_instruccion is None or modelo_fuente is None:
+            hechos.append("NO SE ENCONTRO instruccion o linea de fuente de la "
+                          "que copiar el formato")
+            continue
+
+        # --- donde va ---
+        if bloque.get("tras_tabla"):
+            indice, _ = _leyenda(objetos, str(bloque["tras_tabla"]))
+            if indice < 0:
+                hechos.append(f"NO SE ENCONTRO la tabla "
+                              f"'{bloque['tras_tabla']}' tras la que insertar")
+                continue
+            # Detras de esa tabla y de su linea de fuente, no pegado a la
+            # leyenda: entre la instruccion y su tabla no puede entrar nada, o
+            # el M15 deja de encontrarla y la reporta 'sin tabla detras'.
+            final = indice + 1
+            while (final + 1 < len(objetos)
+                   and not (objetos[final + 1][0] == "p"
+                            and m15.clasificar(objetos[final + 1][1].text)[0])
+                   and objetos[final + 1][0] != "t"
+                   and objetos[final + 1][1].style.name in ("Fuente",
+                                                            "Caption")):
+                final += 1
+            ancla, despues = objetos[final][1], True
+        else:
+            indice, encontrada = _leyenda(objetos, str(bloque["antes_de"]))
+            if encontrada is None:
+                hechos.append(f"NO SE ENCONTRO la leyenda "
+                              f"'{bloque['antes_de']}' antes de la que "
+                              f"insertar")
+                continue
+            ancla, despues = encontrada, False
+
+        if not escribir:
+            hechos.append(f"insertaria '{leyenda}' con {len(columnas)} "
+                          f"columna(s) ({bloque['motivo']})")
+            continue
+
+        instruccion = _clonar(
+            modelo_instruccion, INSTRUCCION.format(numero=bloque["numero"]))
+        leyenda_nueva = _clonar_leyenda(modelo_leyenda, leyenda)
+        tabla = _clonar_tabla(modelo_tabla, len(columnas))
+        for celda, titulo in zip(tabla.rows[0].cells, titulos):
+            m15._fijar_texto(celda, titulo)
+        # LAS FILAS DE DATOS SE DEJAN EN BLANCO. La tabla modelo las trae con
+        # los numeros del estudio del que se copio la plantilla, y el M15
+        # escribe tantas filas como traiga la fuente: una que sobrara se
+        # quedaria mezclando dos estudios sin que nada lo advirtiera.
+        for fila in tabla.rows[1:]:
+            for celda in fila.cells:
+                m15._fijar_texto(celda, "")
+        fuente = _clonar(modelo_fuente, str(bloque["fuente"]))
+
+        elemento = ancla._element
+        piezas = [instruccion, leyenda_nueva, tabla._tbl, fuente]
+        if despues:
+            # addnext deja cada pieza justo detras del ancla, de modo que hay
+            # que ir moviendo el ancla o el bloque sale al reves.
+            for pieza in piezas:
+                elemento.addnext(pieza)
+                elemento = pieza
+        else:
+            # addprevious deja cada pieza justo delante del ancla, que NO se
+            # mueve: insertando en orden, cada una queda detras de la anterior.
+            # Recorrerlas al reves invertia el bloque entero, y el resultado
+            # era 'Fuente', tabla, leyenda, instruccion.
+            for pieza in piezas:
+                elemento.addprevious(pieza)
+        hechos.append(f"insertada '{leyenda}' con {len(columnas)} columna(s) "
+                      f"({bloque['motivo']})")
     return hechos
 
 

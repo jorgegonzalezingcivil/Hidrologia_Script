@@ -350,8 +350,31 @@ tablas:
                calado_normal_m, ancho_superior_m, velocidad_ms, celeridad_ms,
                k_s, k_min, k_h, x]
 
+  # LAS DOS TABLAS DE CAUDALES, UNA POR ESCENARIO DE CAMBIO CLIMATICO. La
+  # plantilla las presenta una detras de la otra, con la misma forma, y cierra
+  # con la figura de barras que las compara. El de diseno es el que lleva el
+  # factor y el que alimenta la modelacion hidraulica; el de referencia
+  # representa la lluvia registrada y NO es una alternativa entre las que
+  # elegir. Medido en este estudio, el factor aporta entre el 21 y el 27 %, mas
+  # en las crecientes frecuentes porque el umbral de perdidas amplifica mas
+  # cuando la lluvia es pequena.
+  #
+  # FALTA EL PERIODO DE 500 ANOS EN LAS DOS. La cadena lo calcula y la tabla de
+  # la plantilla tiene siete columnas, no ocho. Es una decision del consultor
+  # sobre su documento, anotada aqui para que no se pierda: anadir la columna
+  # exige tocar el Word, y declarar aqui una columna que la tabla no tiene
+  # dejaria el informe con un dato sin celda donde ponerlo.
+  - numero: "5-11"
+    leyenda: "Qmax Vs. Periodo de Retorno (sin cambio climático)"
+    fuente: "data/02_procesado/hidrologia/qmax_por_periodo_referencia.csv"
+    encabezados: 2
+    filtro:
+      tipo: "Sink"
+    columnas: [q_T2_33_m3s, q_T5_m3s, q_T10_m3s, q_T15_m3s, q_T25_m3s,
+               q_T50_m3s, q_T100_m3s]
+
   - numero: "5-12"
-    leyenda: "Qmax Vs. Periodo de Retorno"
+    leyenda: "Qmax Vs. Periodo de Retorno (con cambio climático)"
     fuente: "data/02_procesado/hidrologia/qmax_por_periodo.csv"
     # Dos filas de titulo y UNA SOLA de datos: la tabla no tiene columna de
     # etiqueta, son los siete caudales del punto de entrega.
@@ -407,26 +430,18 @@ tablas:
 #   M03, no del informe.
 # =============================================================================
 
-  - numero: "5-20"
-    leyenda: "Caudales de diseño y de referencia por escenario de cambio climático"
-    fuente: "data/02_procesado/hidrologia/escenarios_cc.csv"
-    encabezados: 1
-    # EL DE DISENO ES EL QUE LLEVA EL FACTOR y el otro es la lluvia registrada.
-    # No son dos alternativas entre las que elegir: la doctrina aplica el factor
-    # cuando es de incremento, y el escenario sin el se presenta para mostrar
-    # cuanto del caudal procede de la proyeccion y cuanto del dato. Medido en
-    # este estudio, entre el 21 y el 27 %, mas en las crecientes frecuentes
-    # porque el umbral de perdidas amplifica mas cuando la lluvia es pequena.
-    titulos:
-      - "Periodo de retorno (años)"
-      - "Caudal de diseño, con factor (m³/s)"
-      - "Caudal de referencia, sin factor (m³/s)"
-      - "Aporte del factor (m³/s)"
-      - "Aporte del factor (%)"
-    columnas: [periodo_retorno, q_diseno_m3s, q_referencia_m3s,
-               aporte_factor_m3s, aporte_factor_pct]
+# LOS DOS ESCENARIOS NO LLEVAN UNA TERCERA TABLA. Se habia declarado aqui una
+# tabla comparativa de cinco columnas, con el aporte del factor en m3/s y en
+# por ciento. El consultor resolvio la seccion de otra forma en la plantilla:
+# dos tablas de caudales con la misma forma, una por escenario, sus dos
+# hidrogramas y sus dos curvas de Qmax contra periodo, y al final la figura de
+# barras 'M14_escenarios_cc' que compara los picos y muestra el aporte sobre
+# cada par. La tabla comparativa seria una tercera lectura del mismo dato.
+#
+# El producto escenarios_cc.csv SIGUE ESCRIBIENDOSE: es la fuente de esa figura
+# y el registro del contraste, que el informe cita en el analisis.
 
-  - numero: "5-21"
+  - numero: "5-12"
     leyenda: "Curva de almacenamiento y descarga del embalse"
     fuente: "data/02_procesado/hidrologia/embalses.csv"
     encabezados: 1

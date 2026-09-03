@@ -90,7 +90,12 @@ PATRON_LEYENDA = re.compile(r"^\s*(Ilustraci[oó]n|Gr[aá]fico|Figura|Tabla)\b",
                             re.I)
 
 # Un nombre de archivo dentro de la instrucción, con su carpeta si la lleva.
-PATRON_ARCHIVO = re.compile(r"([A-Za-z0-9_\-\.]+\.(?:png|jpg|jpeg|svg))", re.I)
+# \w ES UNICODE en Python y admite tilde y ene, [A-Za-z0-9] no. Con la clase
+# ASCII, un nombre como "M14_comparacion_cambio_climatico.png" escrito con
+# tildes se leia TRUNCADO desde la ultima letra acentuada, "tico.png", y el
+# modulo buscaba un archivo con ese nombre: no lo encontraba y reportaba una
+# figura ausente en lugar de un nombre que no puede leer.
+PATRON_ARCHIVO = re.compile(r"([\w\-\.]+\.(?:png|jpg|jpeg|svg))", re.I)
 
 
 @dataclass

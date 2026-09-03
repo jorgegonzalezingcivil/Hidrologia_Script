@@ -499,5 +499,113 @@ class PruebaPlantillaConsolidada(unittest.TestCase):
         for parrafo in self.parrafos:
             self.assertNotIn("1980-2023", parrafo.text)
 
+class PruebaNombreDeArchivoConTilde(unittest.TestCase):
+    """
+    El patron que lee el nombre de la figura tiene que admitir tildes.
+
+    ERA UN TRUNCAMIENTO SILENCIOSO. Con la clase ASCII, una instruccion que
+    pedia 'M14_comparacion_cambio_climatico.png' escrita con tildes se leia
+    como 'tico.png', desde la ultima letra acentuada: el modulo buscaba un
+    archivo con ESE nombre, no lo encontraba y reportaba una figura ausente, de
+    modo que el diagnostico apuntaba al archivo y no a la instruccion. Aparecio
+    de verdad al escribir la seccion de los dos escenarios de cambio climatico.
+    """
+
+    def test_lee_el_nombre_completo(self) -> None:
+        self.assertEqual(
+            m15.clasificar("Colocar Figura: M14_comparación_climático.png"),
+            ("figura", "M14_comparación_climático.png"))
+
+    def test_tambien_con_ene(self) -> None:
+        self.assertEqual(
+            m15.clasificar("Colocar Figura: M11_zonificación_año.png")[1],
+            "M11_zonificación_año.png")
+
+    def test_sigue_leyendo_los_nombres_sin_tilde(self) -> None:
+        self.assertEqual(
+            m15.clasificar("Colocar Figura: M14_qmax_vs_periodo.png")[1],
+            "M14_qmax_vs_periodo.png")
+
+    def test_no_se_lleva_el_texto_que_va_delante(self) -> None:
+        # El patron busca dentro de lo que sigue a 'Colocar Figura:', y un
+        # nombre de archivo no lleva espacios: si se los admitiera, arrastraria
+        # la frase entera.
+        self.assertEqual(
+            m15.clasificar("Colocar Figura: el mapa M06_isoyetas.png")[1],
+            "M06_isoyetas.png")
+
+
+class PruebaFigurasDeEscenario(unittest.TestCase):
+    """
+    Las cinco figuras de los dos escenarios piden cinco archivos distintos.
+
+    ES LA REGRESION QUE CASI SE ENTREGA. Al escribir la seccion, las cuatro
+    instrucciones de figura apuntaban a DOS archivos: los dos hidrogramas al
+    mismo y las dos curvas de Qmax al mismo. Los graficos de la pagina del
+    escenario con factor habrian mostrado la curva del escenario sin el, y nada
+    lo habria advertido, porque el archivo que nombraban existe: es el del otro
+    escenario.
+    """
+
+    LEYENDAS = (
+        "Hidrograma de Creciente Sitio de Proyecto (sin cambio climático)",
+        "Qmax Vs. Periodo de Retorno (sin cambio climático)",
+        "Hidrograma de Creciente Sitio de Proyecto (con cambio climático)",
+        "Qmax Vs. Periodo de Retorno (con cambio climático)",
+        "Comparación Caudales e Influencia",
+    )
+
+    def setUp(self) -> None:
+        plantilla = _RAIZ_REPO / "templates" / "informe_base.docx"
+        if not plantilla.is_file():
+            self.skipTest("la plantilla saneada no esta en el repositorio")
+        import docx_plantilla as dp
+        from docx.text.paragraph import Paragraph
+
+        documento = dp.abrir(plantilla)
+        self.parrafos = [Paragraph(hijo, documento)
+                         for hijo in documento.element.body.iterchildren()
+                         if hijo.tag.endswith("}p")]
+
+    def _archivo_de(self, leyenda: str):
+        """El archivo que pide la instruccion que sigue a esa leyenda."""
+        for indice, parrafo in enumerate(self.parrafos):
+            if parrafo.style.name != "Caption" or leyenda not in parrafo.text:
+                continue
+            etiqueta = parrafo.text.strip().split()[0].rstrip(".")
+            # LA MISMA FRASE ENCABEZA LA TABLA Y LA FIGURA del escenario, y la
+            # tabla va primero: sin distinguir el prefijo se encuentra la de la
+            # tabla, y detras de ella no hay instruccion de figura.
+            if etiqueta not in ("Gráfico", "Ilustración", "Figura"):
+                continue
+            for siguiente in self.parrafos[indice + 1:indice + 3]:
+                clase, dato = m15.clasificar(siguiente.text)[:2]
+                if clase == "figura":
+                    return dato
+        return None
+
+    def test_cada_leyenda_tiene_su_instruccion(self) -> None:
+        for leyenda in self.LEYENDAS:
+            with self.subTest(leyenda=leyenda):
+                self.assertIsNotNone(self._archivo_de(leyenda))
+
+    def test_las_cinco_piden_archivos_distintos(self) -> None:
+        archivos = [self._archivo_de(leyenda) for leyenda in self.LEYENDAS]
+        self.assertEqual(len(set(archivos)), len(self.LEYENDAS), archivos)
+
+    def test_el_escenario_del_archivo_coincide_con_su_leyenda(self) -> None:
+        """
+        Comprobar que son distintos no basta: podrian estar intercambiados, y
+        entonces cada pagina mostraria la figura de la otra. El sufijo
+        '_referencia' es el del escenario sin factor.
+        """
+        for leyenda in self.LEYENDAS[:4]:
+            with self.subTest(leyenda=leyenda):
+                archivo = self._archivo_de(leyenda)
+                sin_factor = "sin cambio climático" in leyenda
+                self.assertEqual("_referencia" in archivo, sin_factor,
+                                 f"{leyenda} -> {archivo}")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

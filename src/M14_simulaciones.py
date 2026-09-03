@@ -36,10 +36,13 @@ que se cree. Es la comprobación que permite defender el CN ante interventoría.
 Productos:
     data/02_procesado/hidrologia/resultados_por_elemento.csv
     data/02_procesado/hidrologia/qmax_por_periodo.csv
+    data/02_procesado/hidrologia/qmax_por_periodo_referencia.csv
     data/02_procesado/hidrologia/balance_subcuencas.csv
     data/02_procesado/hidrologia/hidrogramas.csv
-    data/05_resultados/graficos/M14_qmax_vs_periodo.png y .svg
-    data/05_resultados/graficos/M14_hidrograma_*.png y .svg
+    data/02_procesado/hidrologia/escenarios_cc.csv
+    data/05_resultados/graficos/M14_qmax_vs_periodo[_referencia].png y .svg
+    data/05_resultados/graficos/M14_hidrograma_*[_referencia].png y .svg
+    data/05_resultados/graficos/M14_escenarios_cc.png y .svg
     data/02_procesado/M14_simulaciones.json
 
 Uso:
@@ -105,6 +108,12 @@ class ResultadoM14:
     balance: list[dict[str, Any]] = field(default_factory=list)
     hidrogramas: list[dict[str, Any]] = field(default_factory=list)
     escenarios: list[dict[str, Any]] = field(default_factory=list)
+    # EL ESCENARIO DE REFERENCIA VA APARTE Y NO MEZCLADO. El informe presenta
+    # las dos tablas y los dos hidrogramas por separado, y el de diseno es el
+    # que alimenta la modelacion hidraulica. En una sola lista, los dieciseis
+    # periodos de retorno de las corridas se leerian como dieciseis periodos.
+    resultados_referencia: list[dict[str, Any]] = field(default_factory=list)
+    hidrogramas_referencia: list[dict[str, Any]] = field(default_factory=list)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -606,15 +615,6 @@ def _extraer(configuracion, proyecto, corridas, resultado, logger) -> None:
             if caudal is None:
                 continue
             resumen = resumir_hidrograma(caudal.instantes, caudal.valores)
-            # DEL ESCENARIO DE REFERENCIA SOLO SE GUARDA EL PICO. No alimenta la
-            # tabla de caudales, ni el balance, ni las figuras, ni la
-            # comprobacion de monotonia: el informe se construye sobre el de
-            # diseno, y este va al lado para mostrar cuanto aporta el factor.
-            # Mezclarlos daria dieciseis periodos de retorno donde hay ocho.
-            if escenario == "referencia":
-                por_elemento_ref.setdefault(
-                    elemento, {})[periodo] = resumen["qmax_m3s"]
-                continue
             ficha = resultado.elementos.get(elemento, {})
             fila = {
                 "elemento": elemento,
@@ -627,18 +627,31 @@ def _extraer(configuracion, proyecto, corridas, resultado, logger) -> None:
             fila.update({c: v for c, v in resumen.items()
                          if c != "pico_en_el_borde"})
             fila["pico_en_el_borde"] = resumen["pico_en_el_borde"]
+
+            # EL ESCENARIO DE REFERENCIA NO ENTRA EN LAS TABLAS DE DISENO. Se
+            # guarda con la misma forma, en listas propias, porque el informe
+            # presenta las dos tablas y los dos hidrogramas por separado.
+            # NO alimenta el balance de subcuencas, la comprobacion de
+            # monotonia ni el aviso de hidrograma truncado: esos vigilan el
+            # modelo que produce el caudal de diseno, y duplicarlos daria dos
+            # avisos por el mismo elemento.
+            if escenario == "referencia":
+                por_elemento_ref.setdefault(
+                    elemento, {})[periodo] = resumen["qmax_m3s"]
+                resultado.resultados_referencia.append(fila)
+                if elemento in puntos:
+                    resultado.hidrogramas_referencia += _pasos_del_hidrograma(
+                        elemento, periodo, caudal)
+                continue
+
             if resumen["pico_en_el_borde"]:
                 truncados.append(f"{elemento} (T{periodo})")
             resultado.resultados.append(fila)
             por_elemento.setdefault(elemento, {})[periodo] = resumen["qmax_m3s"]
 
             if elemento in puntos:
-                paso = caudal.intervalo_min
-                resultado.hidrogramas += [{
-                    "elemento": elemento, "periodo_retorno": periodo,
-                    "minuto": round(i * paso, 1),
-                    "caudal_m3s": round(float(v), 4),
-                } for i, v in enumerate(caudal.valores)]
+                resultado.hidrogramas += _pasos_del_hidrograma(
+                    elemento, periodo, caudal)
 
             if ficha.get("tipo") != "Subbasin":
                 continue
@@ -665,6 +678,48 @@ def _extraer(configuracion, proyecto, corridas, resultado, logger) -> None:
 
     _hallazgos_de_extraccion(resultado, por_elemento, corridas, truncados,
                              fuera_de_balance, tolerancia, puntos)
+
+
+def _pasos_del_hidrograma(elemento: str, periodo: str, caudal) -> list[dict]:
+    """Los pasos de un hidrograma, en la forma de la tabla del informe."""
+    paso = caudal.intervalo_min
+    return [{"elemento": elemento, "periodo_retorno": periodo,
+             "minuto": round(indice * paso, 1),
+             "caudal_m3s": round(float(valor), 4)}
+            for indice, valor in enumerate(caudal.valores)]
+
+
+def tabla_ancha(filas, periodos) -> list[dict[str, Any]]:
+    """
+    La tabla del informe: una fila por elemento y una columna por periodo.
+
+    LAS COLUMNAS VAN EN ORDEN DE PERIODO y no en el de las corridas: HEC-HMS
+    las reordena alfabeticamente al guardar, y una tabla de caudales de diseno
+    con T100 antes que T15 se lee mal.
+
+    Se usa para los dos escenarios, con la MISMA forma: asi la declaracion de
+    las dos tablas del informe es simetrica y quien lea cualquiera de los dos
+    archivos encuentra las mismas columnas.
+    """
+    fichas: dict[str, dict[str, Any]] = {}
+    valores: dict[str, dict[str, dict[str, Any]]] = {}
+    for fila in filas:
+        fichas.setdefault(fila["elemento"], {
+            "elemento": fila["elemento"], "tipo": fila["tipo"],
+            "area_km2": fila["area_km2"]})
+        valores.setdefault(fila["elemento"], {})[fila["periodo_retorno"]] = fila
+
+    anchas: list[dict[str, Any]] = []
+    for elemento, ficha in fichas.items():
+        registro_ = dict(ficha)
+        for periodo in periodos:
+            fila = valores[elemento].get(periodo)
+            etiqueta = periodo.replace(".", "_")
+            registro_[f"q_T{etiqueta}_m3s"] = (round(fila["qmax_m3s"], 3)
+                                               if fila else None)
+            registro_[f"tp_T{etiqueta}_h"] = fila["t_pico_h"] if fila else None
+        anchas.append(registro_)
+    return anchas
 
 
 def comparar_escenarios(diseno: dict, referencia: dict,
@@ -801,34 +856,25 @@ def _escribir_tablas(configuracion, base, resultado, logger) -> None:
         _escribir_csv(ruta, filas, delimitador)
         resultado.productos.append(rutas.relativa(ruta, base))
 
-    # La tabla ancha es la del informe: una fila por elemento y una columna por
-    # periodo de retorno. LAS COLUMNAS VAN EN ORDEN DE PERIODO y no en el de las
-    # corridas: HEC-HMS las reordena alfabeticamente al guardar, y una tabla de
-    # caudales de diseno con T100 antes que T15 se lee mal.
+    # LA TABLA ANCHA ES LA DEL INFORME, y hay una por escenario: la plantilla
+    # pide 'Qmax Vs. Periodo de Retorno (con cambio climatico)' y la misma
+    # tabla sin el factor. La de diseno conserva su nombre de siempre, porque
+    # es la que alimenta la modelacion hidraulica y la citan otros modulos.
     periodos = _periodos_en_orden(resultado)
-    valores: dict[str, dict[str, dict[str, Any]]] = {}
-    fichas: dict[str, dict[str, Any]] = {}
-    for fila in resultado.resultados:
-        fichas.setdefault(fila["elemento"], {
-            "elemento": fila["elemento"], "tipo": fila["tipo"],
-            "area_km2": fila["area_km2"]})
-        valores.setdefault(fila["elemento"], {})[fila["periodo_retorno"]] = fila
-
-    anchas: dict[str, dict[str, Any]] = {}
-    for elemento, ficha in fichas.items():
-        registro_ = dict(ficha)
-        for periodo in periodos:
-            fila = valores[elemento].get(periodo)
-            etiqueta = periodo.replace(".", "_")
-            registro_[f"q_T{etiqueta}_m3s"] = (round(fila["qmax_m3s"], 3)
-                                               if fila else None)
-            registro_[f"tp_T{etiqueta}_h"] = fila["t_pico_h"] if fila else None
-        anchas[elemento] = registro_
+    anchas = tabla_ancha(resultado.resultados, periodos)
     ruta = destino / "qmax_por_periodo.csv"
-    _escribir_csv(ruta, list(anchas.values()), delimitador)
+    _escribir_csv(ruta, anchas, delimitador)
     resultado.productos.append(rutas.relativa(ruta, base))
     logger.info("%d elemento(s) en la tabla de caudales, %d periodo(s)",
                 len(anchas), len(periodos))
+
+    if resultado.resultados_referencia:
+        referencia = tabla_ancha(resultado.resultados_referencia, periodos)
+        ruta = destino / "qmax_por_periodo_referencia.csv"
+        _escribir_csv(ruta, referencia, delimitador)
+        resultado.productos.append(rutas.relativa(ruta, base))
+        logger.info("%d elemento(s) en la tabla de caudales de referencia",
+                    len(referencia))
 
     _completar_transito(configuracion, base, resultado,
                         delimitador, logger)
@@ -1134,43 +1180,85 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
     directorio = rutas.resolver(
         configuracion.obtener("graficos.directorio"), base)
     periodos = _periodos_en_orden(resultado)
-    puntos = sorted({h["elemento"] for h in resultado.hidrogramas})
 
-    escritas = 0
-    # 1. Qmax contra periodo de retorno, un trazo por punto de interes.
+    # LOS DOS ESCENARIOS LLEVAN FIGURA PROPIA, con el mismo dibujo. La
+    # plantilla los presenta uno detras del otro, y una sola figura con las
+    # dieciseis curvas superpuestas no se leeria: los hidrogramas de los dos
+    # escenarios se cruzan y comparten la escala.
+    escritas = _figura_qmax(graficos, estilo, directorio, base, resultado,
+                            resultado.resultados, periodos, "")
+    escritas += _figuras_hidrograma(graficos, estilo, directorio, base,
+                                    resultado, resultado.hidrogramas,
+                                    periodos, "")
+    if resultado.resultados_referencia:
+        escritas += _figura_qmax(
+            graficos, estilo, directorio, base, resultado,
+            resultado.resultados_referencia, periodos, SUFIJO_REFERENCIA)
+        escritas += _figuras_hidrograma(
+            graficos, estilo, directorio, base, resultado,
+            resultado.hidrogramas_referencia, periodos, SUFIJO_REFERENCIA)
+    if resultado.escenarios:
+        escritas += _figura_escenarios(graficos, estilo, directorio, base,
+                                       resultado)
+    logger.info("%d figura(s) escritas", escritas)
+
+
+# El sufijo del escenario sin factor en los productos del informe. NO es
+# SUFIJO_SIN_FACTOR, que es el de los nombres dentro de HEC-HMS: alli tiene que
+# ser corto porque el programa lo usa como identificador, y aqui tiene que
+# decirle al consultor de que archivo se trata.
+SUFIJO_REFERENCIA = "_referencia"
+
+NOTA_ESCENARIO = {
+    "": "Escenario de diseño, con el factor de cambio climático aplicado.",
+    SUFIJO_REFERENCIA: ("Escenario de referencia, sin el factor de cambio "
+                        "climático: representa la lluvia registrada."),
+}
+
+
+def _figura_qmax(graficos, estilo, directorio, base, resultado, filas,
+                 periodos, sufijo: str) -> int:
+    """Caudal maximo contra periodo de retorno, un trazo por punto."""
+    puntos = sorted({f["elemento"] for f in filas})
     series: dict[str, tuple[list[float], list[float]]] = {}
     for punto in puntos:
         pares = [(float(p), f["qmax_m3s"]) for p in periodos
-                 for f in resultado.resultados
+                 for f in filas
                  if f["elemento"] == punto and f["periodo_retorno"] == p]
         if pares:
             series[punto] = ([x for x, _ in pares], [y for _, y in pares])
-    if series:
-        with graficos.figura(
-                estilo, titulo="Caudal máximo contra periodo de retorno",
-                etiqueta_x="Periodo de retorno (años)",
-                etiqueta_y="Caudal pico (m3/s)") as (fig, ax):
-            graficos.lineas(ax, series, estilo)
-            ax.set_xscale("log")
-            ax.set_xticks([float(p) for p in periodos])
-            ax.set_xticklabels(periodos)
-            ax.set_ylim(bottom=0)
-            fig.text(0.01, -0.04,
-                     f"Sitio de proyecto: {resultado.punto_de_proyecto}. "
-                     "Modelo HEC-HMS, SCS Curve Number y SCS Unit Hydrograph, "
-                     "tránsito Muskingum-Cunge.",
-                     fontsize=estilo.tamano_fuente - 2, color="#555555")
-            for ruta in graficos.guardar(
-                    fig, directorio / "M14_qmax_vs_periodo", estilo):
-                resultado.productos.append(rutas.relativa(ruta, base))
-            escritas += 1
+    if not series:
+        return 0
+    with graficos.figura(
+            estilo, titulo="Caudal máximo contra periodo de retorno",
+            etiqueta_x="Periodo de retorno (años)",
+            etiqueta_y="Caudal pico (m3/s)") as (fig, ax):
+        graficos.lineas(ax, series, estilo)
+        ax.set_xscale("log")
+        ax.set_xticks([float(p) for p in periodos])
+        ax.set_xticklabels(periodos)
+        ax.set_ylim(bottom=0)
+        fig.text(0.01, -0.04,
+                 f"Sitio de proyecto: {resultado.punto_de_proyecto}. "
+                 "Modelo HEC-HMS, SCS Curve Number y SCS Unit Hydrograph, "
+                 f"tránsito Muskingum-Cunge. {NOTA_ESCENARIO[sufijo]}",
+                 fontsize=estilo.tamano_fuente - 2, color="#555555")
+        for ruta in graficos.guardar(
+                fig, directorio / f"M14_qmax_vs_periodo{sufijo}", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+    return 1
 
-    # 2. Un hidrograma por punto, con los periodos superpuestos.
-    for punto in puntos:
+
+def _figuras_hidrograma(graficos, estilo, directorio, base, resultado,
+                        hidrogramas, periodos, sufijo: str) -> int:
+    """Un hidrograma por punto de interes, con los periodos superpuestos."""
+    escritas = 0
+    for punto in sorted({h["elemento"] for h in hidrogramas}):
         curvas: dict[str, tuple[list[float], list[float]]] = {}
         for periodo in periodos:
-            pasos = [h for h in resultado.hidrogramas
-                     if h["elemento"] == punto and h["periodo_retorno"] == periodo]
+            pasos = [h for h in hidrogramas
+                     if h["elemento"] == punto
+                     and h["periodo_retorno"] == periodo]
             if pasos:
                 pasos.sort(key=lambda h: h["minuto"])
                 curvas[f"T = {periodo} anos"] = (
@@ -1193,12 +1281,77 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
             graficos.leyenda(ax, estilo)
             ax.set_ylim(bottom=0)
             ax.set_xlim(left=0)
+            fig.text(0.01, -0.04, NOTA_ESCENARIO[sufijo],
+                     fontsize=estilo.tamano_fuente - 2, color="#555555")
+            nombre_punto = punto.replace(" ", "_")
             for ruta in graficos.guardar(
-                    fig, directorio / f"M14_hidrograma_{punto.replace(' ', '_')}",
+                    fig,
+                    directorio / f"M14_hidrograma_{nombre_punto}{sufijo}",
                     estilo):
                 resultado.productos.append(rutas.relativa(ruta, base))
             escritas += 1
-    logger.info("%d figura(s) escritas", escritas)
+    return escritas
+
+
+def _figura_escenarios(graficos, estilo, directorio, base, resultado) -> int:
+    """
+    Los dos escenarios de cambio climatico, en barras por periodo de retorno.
+
+    BARRAS Y NO DOS LINEAS. Lo que se compara son valores de una categoria
+    ordenada pero discreta, ocho periodos de retorno, y el interes esta en la
+    DIFERENCIA entre las dos barras de cada par, no en la forma de la curva:
+    esa ya la dan las dos figuras de Qmax contra periodo. Con dos lineas sobre
+    escala logaritmica la separacion se lee como una franja constante y el
+    aporte del factor, que baja del 27 al 21 % al crecer el periodo, se pierde.
+    """
+    filas = resultado.escenarios
+    if not filas:
+        return 0
+    etiquetas = [str(f["periodo_retorno"]) for f in filas]
+    referencia = [float(f["q_referencia_m3s"]) for f in filas]
+    diseno = [float(f["q_diseno_m3s"]) for f in filas]
+    posiciones = list(range(len(filas)))
+    ancho = 0.38
+
+    with graficos.figura(
+            estilo,
+            titulo="Caudal de diseño y de referencia por periodo de retorno",
+            etiqueta_x="Periodo de retorno (años)",
+            etiqueta_y="Caudal pico (m3/s)") as (fig, ax):
+        # EL DE DISENO LLEVA EL COLOR DE LA PALETA y el de referencia un gris.
+        # Con los dos en colores de identificacion, el segundo color de la
+        # paleta es rojo y la figura ponia el enfasis en el escenario que NO
+        # es de diseno: el rojo se lee como el valor critico.
+        ax.bar([p - ancho / 2 for p in posiciones], referencia, ancho,
+               color="#9e9e9e", label="Sin factor (referencia)")
+        ax.bar([p + ancho / 2 for p in posiciones], diseno, ancho,
+               color=estilo.color(0), label="Con factor (diseño)")
+        # EL APORTE EN PORCENTAJE, SOBRE CADA PAR. Es el dato que la figura
+        # tiene que dejar leer y no se deduce de la altura de las barras: a
+        # T 500 la diferencia absoluta es la mayor de todas y la relativa la
+        # menor.
+        for posicion, fila, alto in zip(posiciones, filas, diseno):
+            aporte = fila.get("aporte_factor_pct")
+            if aporte is None:
+                continue
+            ax.annotate(f"+{float(aporte):.1f} %",
+                        (posicion, alto), textcoords="offset points",
+                        xytext=(0, 4), ha="center",
+                        fontsize=estilo.tamano_fuente - 3, color="#555555")
+        ax.set_xticks(posiciones)
+        ax.set_xticklabels(etiquetas)
+        ax.set_ylim(bottom=0)
+        graficos.leyenda(ax, estilo)
+        fig.text(0.01, -0.04,
+                 f"Sitio de proyecto: {resultado.punto_de_proyecto}. El "
+                 "escenario de diseño es el que lleva el factor; el de "
+                 "referencia representa la lluvia registrada y no es una "
+                 "alternativa de diseño.",
+                 fontsize=estilo.tamano_fuente - 2, color="#555555")
+        for ruta in graficos.guardar(
+                fig, directorio / "M14_escenarios_cc", estilo):
+            resultado.productos.append(rutas.relativa(ruta, base))
+    return 1
 
 
 def _escribir_csv(destino: Path, filas, delimitador: str) -> None:

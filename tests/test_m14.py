@@ -582,5 +582,61 @@ class PruebaEscenariosDeCambioClimatico(unittest.TestCase):
         self.assertEqual(m14.comparar_escenarios({}, {}, "Sink-1"), [])
 
 
+class PruebaTablaAncha(unittest.TestCase):
+    """
+    La tabla del informe, una fila por elemento y una columna por periodo.
+
+    SE USA PARA LOS DOS ESCENARIOS. La plantilla presenta 'Qmax Vs. Periodo de
+    Retorno (sin cambio climatico)' y la misma tabla con el factor aplicado, y
+    las dos tienen que salir con la misma forma: si difirieran, la declaracion
+    de una de las dos quedaria sin emparejar y su tabla se quedaria vacia en el
+    informe, sin que nada lo advirtiera.
+    """
+
+    FILAS = [
+        {"elemento": "Sink-1", "tipo": "Sink", "area_km2": 120.0,
+         "periodo_retorno": "100", "qmax_m3s": 73.666, "t_pico_h": 6.5},
+        {"elemento": "Sink-1", "tipo": "Sink", "area_km2": 120.0,
+         "periodo_retorno": "2.33", "qmax_m3s": 13.98, "t_pico_h": 6.75},
+    ]
+
+    def test_las_columnas_van_en_orden_de_periodo(self) -> None:
+        # HEC-HMS reordena las corridas alfabeticamente al guardar, y una tabla
+        # de caudales con T100 antes que T15 se lee mal.
+        filas = m14.tabla_ancha(self.FILAS, ["2.33", "100"])
+        claves = [c for c in filas[0] if c.startswith("q_T")]
+        self.assertEqual(claves, ["q_T2_33_m3s", "q_T100_m3s"])
+
+    def test_el_punto_decimal_pasa_a_guion_bajo(self) -> None:
+        # Es la misma sustitucion que el M13 hace en los nombres de las
+        # meteorologias, porque HEC-HMS no admite el punto en un identificador.
+        filas = m14.tabla_ancha(self.FILAS, ["2.33"])
+        self.assertAlmostEqual(filas[0]["q_T2_33_m3s"], 13.98)
+
+    def test_un_periodo_sin_corrida_queda_vacio_y_no_se_salta(self) -> None:
+        """
+        Saltarlo correria las columnas.
+
+        Si una corrida no converge, su periodo no tiene fila. Omitir la columna
+        dejaria la tabla del informe con siete encabezados y seis datos, y el
+        caudal de cada periodo bajo el encabezado del siguiente.
+        """
+        filas = m14.tabla_ancha(self.FILAS, ["2.33", "5", "100"])
+        self.assertIsNone(filas[0]["q_T5_m3s"])
+        self.assertIsNone(filas[0]["tp_T5_h"])
+
+    def test_los_dos_escenarios_dan_la_misma_forma(self) -> None:
+        referencia = [dict(f, qmax_m3s=f["qmax_m3s"] / 1.2) for f in self.FILAS]
+        periodos = ["2.33", "100"]
+        self.assertEqual(list(m14.tabla_ancha(self.FILAS, periodos)[0]),
+                         list(m14.tabla_ancha(referencia, periodos)[0]))
+
+    def test_una_fila_por_elemento(self) -> None:
+        mezcla = self.FILAS + [dict(self.FILAS[0], elemento="J24")]
+        filas = m14.tabla_ancha(mezcla, ["2.33", "100"])
+        self.assertEqual(sorted(f["elemento"] for f in filas),
+                         ["J24", "Sink-1"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
