@@ -359,10 +359,11 @@ tablas:
   # en las crecientes frecuentes porque el umbral de perdidas amplifica mas
   # cuando la lluvia es pequena.
   #
-  # FALTA EL PERIODO DE 500 ANOS EN LAS DOS. La cadena lo calcula y la tabla de
-  # la plantilla tiene siete columnas, no ocho. Es una decision del consultor
-  # sobre su documento, anotada aqui para que no se pierda: anadir la columna
-  # exige tocar el Word, y declarar aqui una columna que la tabla no tiene
+  # LOS OCHO PERIODOS, incluido el de 500 anos. Las tablas de la plantilla
+  # traian siete columnas y la declaracion listaba siete: todo cuadraba y el
+  # caudal de 500 anos, que el modelo produce, no llegaba a ninguna tabla. La
+  # columna se anadio al documento con tools/consolidar_plantilla.py, que es
+  # donde hay que anadirla: declarar aqui una columna que la tabla no tiene
   # dejaria el informe con un dato sin celda donde ponerlo.
   - numero: "5-11"
     leyenda: "Qmax Vs. Periodo de Retorno (sin cambio climático)"
@@ -371,7 +372,7 @@ tablas:
     filtro:
       tipo: "Sink"
     columnas: [q_T2_33_m3s, q_T5_m3s, q_T10_m3s, q_T15_m3s, q_T25_m3s,
-               q_T50_m3s, q_T100_m3s]
+               q_T50_m3s, q_T100_m3s, q_T500_m3s]
 
   - numero: "5-12"
     leyenda: "Qmax Vs. Periodo de Retorno (con cambio climático)"
@@ -385,7 +386,7 @@ tablas:
     filtro:
       tipo: "Sink"
     columnas: [q_T2_33_m3s, q_T5_m3s, q_T10_m3s, q_T15_m3s, q_T25_m3s,
-               q_T50_m3s, q_T100_m3s]
+               q_T50_m3s, q_T100_m3s, q_T500_m3s]
 
 # =============================================================================
 # LAS VEINTISIETE ESTAN DECLARADAS

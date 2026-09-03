@@ -119,6 +119,45 @@ class ResultadoM15:
 # =============================================================================
 # Lectura de la plantilla
 # =============================================================================
+def marcar_campos_para_actualizar(documento) -> int:
+    """
+    Marca los campos de Word como sucios, para que se recalculen al abrir.
+
+    POR QUE HACE FALTA. Las leyendas se numeran con campos SEQ y los indices de
+    contenido, de ilustraciones y de tablas son campos TOC. Todos conservan su
+    ULTIMO RESULTADO EN CACHE, que es el del informe del que se derivo la
+    plantilla: por eso una leyenda dice "Tabla -." y otra "Tabla 5-10" cuando
+    en el documento le corresponde otro numero. Insertar una tabla nueva no
+    renumera nada por si solo.
+
+    El atributo 'w:dirty' es la forma que el formato prevé para decir que el
+    resultado guardado ya no vale. Word lo recalcula al abrir el documento; con
+    eso las leyendas nuevas entran en la secuencia de su capitulo y los indices
+    recogen lo que se anadio, sin que haya que pulsar Ctrl+E y F9.
+
+    NO TODO VISOR LO HONRA. LibreOffice y las vistas previas web muestran el
+    valor en cache, de modo que el numero correcto se ve al abrirlo en Word.
+    Por eso el aviso de que hay que actualizar no desaparece: se rebaja a
+    recordatorio.
+
+    Devuelve cuantos campos se marcaron.
+    """
+    from docx.oxml.ns import qn
+
+    marcados = 0
+    for elemento in documento.element.body.iter():
+        if elemento.tag == qn("w:fldChar"):
+            # Solo el de apertura: el separador y el de cierre no llevan la
+            # instruccion, y marcarlos no significa nada.
+            if elemento.get(qn("w:fldCharType")) != "begin":
+                continue
+        elif elemento.tag != qn("w:fldSimple"):
+            continue
+        elemento.set(qn("w:dirty"), "true")
+        marcados += 1
+    return marcados
+
+
 def clasificar(texto: str) -> tuple[str, str]:
     """
     Tipo de instrucción y su argumento.
@@ -748,6 +787,10 @@ def ejecutar(
                     len(resultado.tablas_llenadas),
                     resultado.analisis_pendientes)
 
+    marcados = marcar_campos_para_actualizar(documento)
+    logger.info("%d campo(s) marcados para que Word los actualice al abrir",
+                marcados)
+
     salida = (Path(ruta_salida) if ruta_salida is not None
               else rutas.directorio("resultados", base, crear=True) / str(
                   configuracion.obtener("informe.archivo")))
@@ -992,9 +1035,12 @@ def _resumir(resultado: ResultadoM15) -> list[Hallazgo]:
 
     hallazgos.append(Hallazgo(
         INFORMATIVO, "informe.actualizar_campos",
-        "los índices de contenido, de ilustraciones y de tablas son campos de "
-        "Word y conservan su texto en caché: al abrir el documento hay que "
-        "responder que sí a la actualización, o pulsar Ctrl+E y F9.",
+        "los campos del documento (las leyendas numeradas y los índices de "
+        "contenido, de ilustraciones y de tablas) quedan MARCADOS para que "
+        "Word los recalcule al abrirlo, de modo que las leyendas nuevas entran "
+        "en la numeración de su capítulo sin hacer nada. Si el visor no lo "
+        "honra, y LibreOffice y las vistas previas web no lo hacen, se ven los "
+        "números en caché: abrirlo en Word, o pulsar Ctrl+E y F9.",
     ))
     return hallazgos
 

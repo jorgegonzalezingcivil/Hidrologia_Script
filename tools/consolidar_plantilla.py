@@ -862,6 +862,9 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
     # --- 6b. Las ocho instrucciones de redaccion nueva -----------------------
     hechos.extend(consolidar_redaccion_nueva(documento, escribir))
 
+    # --- 6e. Columnas que faltaban en una tabla ya existente -----------------
+    hechos.extend(consolidar_columnas_nuevas(documento, escribir))
+
     # --- 6d. Figuras de los dos escenarios de cambio climatico ---------------
     hechos.extend(consolidar_figuras_de_escenario(documento, escribir))
 
@@ -906,6 +909,86 @@ def _leyenda(objetos, texto: str):
                 and texto in objeto.text):
             return indice, objeto
     return -1, None
+
+
+# -----------------------------------------------------------------------------
+# EL PERIODO DE RETORNO DE 500 ANOS, QUE FALTABA EN LAS DOS TABLAS DE CAUDALES
+#
+# La doctrina del estudio calcula ocho periodos y las tablas de la plantilla
+# traian siete columnas. No era un descuido visible: la declaracion tambien
+# listaba siete, de modo que todo cuadraba y el caudal de 500 anos, que el
+# modelo produce y el informe cita en el texto, no llegaba a ninguna tabla.
+# -----------------------------------------------------------------------------
+COLUMNAS_NUEVAS = (
+    ("Qmax Vs. Periodo de Retorno (sin cambio climático)", "500"),
+    ("Qmax Vs. Periodo de Retorno (con cambio climático)", "500"),
+)
+
+
+def _anadir_columna(tabla, encabezado: str) -> None:
+    """
+    Anade una columna por la derecha, repartiendo de nuevo el ancho.
+
+    HAY QUE EXTENDER LA CELDA COMBINADA. La primera fila de estas tablas es una
+    sola celda con 'gridSpan' sobre todas las columnas; anadir la columna sin
+    tocarla dejaria el titulo cubriendo siete de ocho y Word mostraria la tabla
+    descuadrada.
+    """
+    import copy
+
+    from docx.oxml.ns import qn
+
+    rejilla = tabla._tbl.find(qn("w:tblGrid"))
+    definiciones = rejilla.findall(qn("w:gridCol"))
+    total = sum(int(d.get(qn("w:w")) or 0) for d in definiciones)
+    columnas = len(definiciones) + 1
+    rejilla.append(copy.deepcopy(definiciones[-1]))
+    for definicion in rejilla.findall(qn("w:gridCol")):
+        definicion.set(qn("w:w"), str(total // columnas))
+
+    for fila in tabla._tbl.findall(qn("w:tr")):
+        celdas = fila.findall(qn("w:tc"))
+        propiedades = celdas[-1].find(qn("w:tcPr"))
+        combinada = (propiedades.find(qn("w:gridSpan"))
+                     if propiedades is not None else None)
+        if len(celdas) == 1 and combinada is not None:
+            combinada.set(qn("w:val"), str(columnas))
+            continue
+        nueva = copy.deepcopy(celdas[-1])
+        fila.append(nueva)
+        for celda in fila.findall(qn("w:tc")):
+            propiedades = celda.find(qn("w:tcPr"))
+            ancho = (propiedades.find(qn("w:tcW"))
+                     if propiedades is not None else None)
+            if ancho is not None:
+                ancho.set(qn("w:w"), str(5000 // columnas))
+
+    # La fila de los periodos lleva su etiqueta; las de datos quedan vacias,
+    # porque las llena el M15 con los caudales de cada estudio.
+    m15._fijar_texto(tabla.rows[1].cells[-1], encabezado)
+    for fila in tabla.rows[2:]:
+        m15._fijar_texto(fila.cells[-1], "")
+
+
+def consolidar_columnas_nuevas(documento, escribir: bool) -> list[str]:
+    """Anade a cada tabla declarada la columna que le faltaba."""
+    hechos: list[str] = []
+    for leyenda, encabezado in COLUMNAS_NUEVAS:
+        objetos = _indexar(documento)
+        indice, _ = _leyenda(objetos, leyenda)
+        if indice < 0 or objetos[indice + 1][0] != "t":
+            hechos.append(f"NO SE ENCONTRO la tabla '{leyenda}'")
+            continue
+        tabla = objetos[indice + 1][1]
+        if any(celda.text.strip() == encabezado
+               for celda in tabla.rows[1].cells):
+            hechos.append(f"YA TIENE la columna '{encabezado}': {leyenda}")
+            continue
+        if escribir:
+            _anadir_columna(tabla, encabezado)
+        hechos.append(f"'{leyenda}': columna '{encabezado}' anadida, "
+                      f"{len(tabla.columns)} columna(s)")
+    return hechos
 
 
 def _modelo_con_campos(objetos, etiqueta: str):
@@ -1100,6 +1183,22 @@ BLOQUES_NUEVOS = (
             "solas un cambio de parámetro: con pocos años, el ajuste de "
             "frecuencia lo decide un único año extremo. La condición de cada "
             "pareja se indica en la tabla.",
+            "El resultado del contraste debe leerse teniendo en cuenta la "
+            "REGULACIÓN AGUAS ARRIBA de las estaciones disponibles. Ambas "
+            "registran una corriente que recibe la operación de un embalse "
+            "situado aguas arriba de ellas, de modo que su serie de caudales "
+            "medios diarios no representa la respuesta natural de la cuenca a "
+            "la lluvia: incorpora las descargas de fondo, los vertimientos y "
+            "las captaciones, que responden a criterios de operación y no a la "
+            "creciente. En la estación de registro largo el caudal observado "
+            "supera de forma sistemática al modelado en todos los periodos "
+            "contrastados, lo que es coherente con una serie que contabiliza "
+            "aportes que el modelo de creciente no simula, y no permite "
+            "concluir que el modelo subestime la respuesta de la cuenca. En "
+            "sentido contrario, tampoco puede tomarse como confirmación un "
+            "contraste favorable sobre una serie regulada. Por esta razón la "
+            "verificación se declara como acotamiento y no como validación, y "
+            "no se ajustó ningún parámetro a partir de ella.",
             "Cuando un estudio no dispone de ninguna estación de caudal "
             "utilizable, la verificación externa no es posible y se recurre a "
             "comprobaciones de consistencia interna del propio modelo: que el "
@@ -1188,6 +1287,42 @@ def consolidar_figuras_de_escenario(documento, escribir: bool) -> list[str]:
     return hechos
 
 
+def _completar_parrafos(documento, bloque, escribir: bool) -> list[str]:
+    """
+    Pone los parrafos del bloque que todavia no esten, en su orden.
+
+    Cada uno se inserta detras del anterior de su propia lista, de modo que un
+    parrafo intercalado despues cae en su sitio y no al final del bloque.
+    """
+    leyenda = str(bloque["leyenda"])
+    parrafos = list(bloque.get("parrafos") or ())
+    if not parrafos:
+        return [f"YA INSERTADA: {leyenda}"]
+
+    presentes = {p.text.strip(): p for p in _parrafos(documento)
+                 if p.text.strip()}
+    faltan = [t for t in parrafos if t not in presentes]
+    if not faltan:
+        return [f"YA INSERTADA: {leyenda}"]
+
+    hechos: list[str] = []
+    for texto in faltan:
+        posicion = parrafos.index(texto)
+        anterior = next((parrafos[i] for i in range(posicion - 1, -1, -1)
+                         if parrafos[i] in presentes), None)
+        if anterior is None:
+            hechos.append(f"{leyenda}: no hay parrafo anterior con el que "
+                          f"situar '{texto[:40]}...'")
+            continue
+        if escribir:
+            nuevo = documento.add_paragraph(texto, style="Normal")
+            presentes[anterior]._element.addnext(nuevo._element)
+            presentes[texto] = nuevo
+        hechos.append(f"{leyenda}: parrafo anadido tras "
+                      f"'{anterior[:35]}...'")
+    return hechos
+
+
 def consolidar_bloques_nuevos(documento, escribir: bool) -> list[str]:
     """Inserta la instruccion, la leyenda y la tabla de cada bloque declarado."""
     declaracion = m15.leer_declaracion_tablas(
@@ -1210,7 +1345,12 @@ def consolidar_bloques_nuevos(documento, escribir: bool) -> list[str]:
 
         objetos = _indexar(documento)
         if _leyenda(objetos, leyenda)[0] >= 0:
-            hechos.append(f"YA INSERTADA: {leyenda}")
+            # YA INSERTADO NO ES 'NO HAY NADA QUE HACER'. La declaracion es la
+            # fuente de verdad del bloque: si despues se le anade un parrafo,
+            # volver a ejecutar tiene que llevarlo al documento y no darlo por
+            # hecho. Solo se completa la prosa; la tabla y las figuras ya
+            # existen y volver a ponerlas las duplicaria.
+            hechos.extend(_completar_parrafos(documento, bloque, escribir))
             continue
 
         # --- de donde se copia el formato ---

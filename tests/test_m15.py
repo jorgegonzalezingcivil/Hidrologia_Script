@@ -588,6 +588,20 @@ class PruebaSeccionDeVerificacion(unittest.TestCase):
                    if m15.clasificar(p.text)[0] == "figura"}
         self.assertTrue(esperados <= pedidos, esperados - pedidos)
 
+    def test_explica_la_regulacion_aguas_arriba(self) -> None:
+        """
+        Sin esto, la tabla se leeria como que el modelo subestima.
+
+        Las dos estaciones registran una corriente regulada por un embalse
+        aguas arriba, de modo que su serie de medias diarias contabiliza
+        descargas y vertimientos que el modelo de creciente no simula. El
+        contraste acota, no valida, y el informe tiene que decirlo donde estan
+        las cifras y no solo en una nota.
+        """
+        textos = " ".join(p.text for p in self.parrafos)
+        self.assertIn("REGULACIÓN AGUAS ARRIBA", textos)
+        self.assertIn("no permite concluir que el modelo subestime", textos)
+
     def test_dice_que_no_se_calibro(self) -> None:
         """
         Es la afirmacion que el informe tiene que sostener ante interventoria.
@@ -598,6 +612,57 @@ class PruebaSeccionDeVerificacion(unittest.TestCase):
         textos = " ".join(p.text for p in self.parrafos)
         self.assertIn("no se realizó una calibración del modelo", textos)
         self.assertIn("sin modificar ningún parámetro", textos)
+
+
+class PruebaCamposParaActualizar(unittest.TestCase):
+    """
+    Los campos del documento se marcan para que Word los recalcule.
+
+    LAS LEYENDAS NO SE RENUMERAN SOLAS. Se componen con campos SEQ que
+    conservan su ultimo resultado en cache, el del informe del que se derivo la
+    plantilla: por eso unas dicen 'Tabla -.' y otras un numero que no les
+    corresponde. Insertar una tabla nueva no cambia eso, y el consultor tenia
+    que acordarse de pulsar Ctrl+E y F9.
+    """
+
+    def _documento(self):
+        import docx
+
+        documento = docx.Document()
+        parrafo = documento.add_paragraph()
+        for tipo in ("begin", "separate", "end"):
+            run = parrafo.add_run()
+            elemento = run._element.makeelement(
+                "{http://schemas.openxmlformats.org/wordprocessingml/2006/"
+                "main}fldChar", {})
+            elemento.set(
+                "{http://schemas.openxmlformats.org/wordprocessingml/2006/"
+                "main}fldCharType", tipo)
+            run._element.append(elemento)
+        return documento
+
+    def test_marca_el_campo_de_apertura(self) -> None:
+        documento = self._documento()
+        self.assertEqual(m15.marcar_campos_para_actualizar(documento), 1)
+
+    def test_no_marca_el_separador_ni_el_cierre(self) -> None:
+        # No llevan la instruccion del campo: marcarlos no significa nada y
+        # ensucia el XML sin efecto.
+        from docx.oxml.ns import qn
+
+        documento = self._documento()
+        m15.marcar_campos_para_actualizar(documento)
+        marcados = [e.get(qn("w:fldCharType"))
+                    for e in documento.element.body.iter()
+                    if e.get(qn("w:dirty")) == "true"]
+        self.assertEqual(marcados, ["begin"])
+
+    def test_un_documento_sin_campos_no_es_error(self) -> None:
+        import docx
+
+        documento = docx.Document()
+        documento.add_paragraph("sin campos")
+        self.assertEqual(m15.marcar_campos_para_actualizar(documento), 0)
 
 
 class PruebaFigurasDeEscenario(unittest.TestCase):
