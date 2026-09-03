@@ -267,12 +267,31 @@ def mapa_etiqueta_variable(series_por_variable: dict) -> dict[str, str]:
     return mapa
 
 
+# Fuera de esta franja un ano no es una fecha de operacion de una estacion,
+# es un dato mal leido. El catalogo trae fechas en milisegundos de epoca y
+# tomar sus cuatro primeras cifras daba anos como 9979 o 1300.
+ANIO_MINIMO_PLAUSIBLE = 1800
+ANIO_MAXIMO_PLAUSIBLE = 2100
+
+
 def anio_de_fecha(fecha: str) -> int | None:
-    """Año de una fecha ISO ya normalizada por el M04."""
+    """
+    Ano de una fecha del catalogo, o None si no es plausible.
+
+    SE RECHAZA EL ANO IMPOSIBLE Y NO SE DEVUELVE IGUAL. Con '99792000000',
+    que son milisegundos de epoca, las cuatro primeras cifras dan el ano 9979:
+    la figura de longitud de las series salia con el eje hasta el ano 10.000 y
+    todas las series reales aplastadas en una linea. El M03 normaliza la fecha
+    en su origen; esto es la segunda barrera, para que un formato nuevo del
+    servicio no vuelva a atravesar la cadena sin ser visto.
+    """
     texto = (fecha or "").strip()
     if len(texto) < 4 or not texto[:4].isdigit():
         return None
-    return int(texto[:4])
+    anio = int(texto[:4])
+    if not ANIO_MINIMO_PLAUSIBLE <= anio <= ANIO_MAXIMO_PLAUSIBLE:
+        return None
+    return anio
 
 
 def estado_por_suspension(

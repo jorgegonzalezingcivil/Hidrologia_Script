@@ -2144,12 +2144,10 @@ def _figuras_crudas_por_estacion(graficos, estilo, configuracion, base,
                     texto.set_rotation(90)
                 if incompletos:
                     # Al pie y no sobre el titulo, que es donde lo pisaba.
-                    fig.text(0.5, 0.005,
-                             f"{len(incompletos)} año(s) sin los doce meses no "
-                             "se representan",
-                             ha="center",
-                             fontsize=individual.tamano_fuente - 2,
-                             color="#8a6d3b")
+                    graficos.nota(
+                        fig,
+                        f"{len(incompletos)} año(s) sin los doce meses no se "
+                        "representan", individual, color="#8a6d3b")
                 fig.tight_layout()
                 graficos.guardar(
                     fig,
@@ -2178,11 +2176,9 @@ def _figuras_crudas_por_estacion(graficos, estilo, configuracion, base,
                 # cuarenta años en enero y seis en mayo no dice lo mismo en los
                 # dos meses, y la figura sola no lo delata.
                 cuantos = [mensuales[m][1] for m in presentes]
-                fig.text(0.5, 0.005,
-                         f"cada mes promedia entre {min(cuantos)} y "
-                         f"{max(cuantos)} años",
-                         ha="center", fontsize=individual.tamano_fuente - 2,
-                         color="#555555")
+                graficos.nota(
+                    fig, f"cada mes promedia entre {min(cuantos)} y "
+                    f"{max(cuantos)} años", individual)
                 fig.tight_layout()
                 graficos.guardar(
                     fig,
@@ -2288,11 +2284,9 @@ def _figuras_de_anomalos_por_estacion(graficos, estilo, configuracion, base,
                 ax.legend(manejadores, etiquetas, loc="upper center",
                           bbox_to_anchor=(0.5, -0.12), frameon=False,
                           fontsize=individual.tamano_fuente - 1)
-            fig.text(0.5, 0.005,
-                     f"{len(marcados)} valor(es) marcado(s) por «{metodo}». "
-                     "Se marcan, no se eliminan.",
-                     ha="center", fontsize=individual.tamano_fuente - 2,
-                     color="#555555")
+            graficos.nota(
+                fig, f"{len(marcados)} valor(es) marcado(s) por «{metodo}». "
+                "Se marcan, no se eliminan.", individual)
             graficos.guardar(fig, carpeta / _sin_tildes(nombre), individual)
             escritas += 1
 
@@ -2346,8 +2340,7 @@ def _figuras_por_estacion(graficos, estilo, configuracion, base, resultado,
                    f"   |   {fila.get('n_vecinas', 0)} vecina(s)")
             if doble.get("hay_quiebre"):
                 pie += "   |   quiebre, factor " + str(doble.get("razon_pendientes"))
-            ax.annotate(pie, xy=(0, -0.16), xycoords="axes fraction",
-                        fontsize=individual.tamano_fuente - 2, color="#555555")
+            graficos.nota(fig, pie, individual)
             fig.tight_layout()
             graficos.guardar(fig, carpeta / str(fila["codigo"]), individual)
             escritas += 1

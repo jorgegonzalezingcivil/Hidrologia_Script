@@ -242,16 +242,67 @@ def _es_titulo_de_formula(parrafo) -> bool:
             and parrafo.text.strip().lower().startswith("fórmula de"))
 
 
+def _quitar_ecuaciones(elemento) -> int:
+    """
+    Borra los objetos de ecuacion de un parrafo clonado.
+
+    UNA ECUACION NO ESTA EN LOS RUNS. Va en un elemento 'm:oMath' aparte, de
+    modo que reescribir el texto de los runs la deja intacta: el parrafo
+    clonado mostraba la formula del modelo Y ADEMAS el texto nuevo. Ocurrio en
+    las cinco formulas de tiempo de concentracion que se anadieron, y no solo
+    en su expresion: cada linea de 'Donde' salia precedida por la ecuacion de
+    Ventura Heras, que era el parrafo del que se clonaban.
+    """
+    quitadas = 0
+    for hijo in list(elemento.iter()):
+        etiqueta = hijo.tag if isinstance(hijo.tag, str) else ""
+        if etiqueta.endswith("}oMath") or etiqueta.endswith("}oMathPara"):
+            padre = hijo.getparent()
+            if padre is not None:
+                padre.remove(hijo)
+                quitadas += 1
+    return quitadas
+
+
 def _clonar(modelo, texto: str):
     """Copia un parrafo con su estilo y le pone otro texto."""
     import copy
 
     nuevo = copy.deepcopy(modelo._element)
+    _quitar_ecuaciones(nuevo)
     from docx.text.paragraph import Paragraph
 
     parrafo = Paragraph(nuevo, modelo._parent)
     _fijar_parrafo(parrafo, texto)
     return nuevo
+
+
+# Las formulas de tiempo de concentracion que se anadieron arrastrando la
+# ecuacion del modelo. La reparacion recorre su bloque y la quita.
+def reparar_ecuaciones_clonadas(documento, escribir: bool) -> list[str]:
+    """Quita la ecuacion heredada de los parrafos de las formulas anadidas."""
+    from docx.text.paragraph import Paragraph
+
+    titulos = {titulo for titulo, _, _ in FORMULAS_NUEVAS}
+    parrafos = [Paragraph(h, documento)
+                for h in documento.element.body.iterchildren()
+                if h.tag.endswith("}p")]
+    hechos: list[str] = []
+    dentro, actual = False, ""
+    for parrafo in parrafos:
+        texto = parrafo.text.strip()
+        if _es_titulo_de_formula(parrafo):
+            dentro, actual = texto in titulos, texto
+            continue
+        if not dentro or not texto:
+            continue
+        if "oMath" not in parrafo._element.xml:
+            continue
+        if escribir:
+            _quitar_ecuaciones(parrafo._element)
+        hechos.append(f"ecuacion heredada quitada de '{actual}': "
+                      f"{texto[:45]}...")
+    return hechos
 
 
 def consolidar_tiempo_concentracion(documento, escribir: bool) -> list[str]:
@@ -918,6 +969,15 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
     # --- 4. Seccion de tiempo de concentracion -------------------------------
     hechos.extend(consolidar_tiempo_concentracion(documento, escribir))
 
+    # --- 4b. Ecuaciones heredadas en las formulas anadidas -------------------
+    hechos.extend(reparar_ecuaciones_clonadas(documento, escribir))
+
+    # --- 4d. El marcador de las isoyetas por fase ----------------------------
+    hechos.extend(insertar_marcador_de_isoyetas(documento, escribir))
+
+    # --- 4c. Leyendas y figuras que no se corresponden -----------------------
+    hechos.extend(corregir_parejas(documento, escribir))
+
     # --- 5. Las cuatro secciones de revision teorica -------------------------
     hechos.extend(consolidar_revision_teorica(documento, escribir))
 
@@ -1054,6 +1114,173 @@ def consolidar_columnas_nuevas(documento, escribir: bool) -> list[str]:
         hechos.append(f"'{leyenda}': columna '{encabezado}' anadida, "
                       f"{len(tabla.columns)} columna(s)")
     return hechos
+
+
+# -----------------------------------------------------------------------------
+# LEYENDAS Y FIGURAS QUE NO SE CORRESPONDEN
+#
+# La plantilla arrastra parejas mal emparejadas del informe de referencia: una
+# leyenda que anuncia una cosa sobre una figura que muestra otra, o una
+# instruccion que pide el archivo equivocado. No lo detecta nada, porque las
+# dos partes existen y el M15 coloca lo que le piden.
+#
+# Se corrige AQUI y no en informe_correcciones.yaml, por la misma razon que las
+# dos que ya se corrigieron: el repositorio es la fuente de verdad de
+# templates/informe_base.docx y el defecto se arregla en su sitio.
+# -----------------------------------------------------------------------------
+FIGURA_EQUIVOCADA = (
+    ("Tiempo de Rezago Subcuencas", "M05_estaciones.png",
+     "M10_mapa_rezago.png",
+     "la leyenda anuncia el tiempo de rezago y pedia el mapa de estaciones"),
+    ("Análisis de Zonas de Precipitación", "M05_complemento.png",
+     "M11_zonas.png",
+     "la leyenda anuncia las zonas y pedia el grafico de complemento de datos"),
+)
+
+# (archivo que pide la instruccion, leyenda vieja, leyenda nueva, motivo)
+LEYENDA_EQUIVOCADA = (
+    ("M10_pendiente_contraste.png", "Áreas microcuencas",
+     "Contraste de Pendientes por Método",
+     "la figura contrasta pendientes, no areas"),
+    ("M10_pendiente_por_resolucion.png", "Áreas microcuencas",
+     "Pendiente Media según Resolución del DEM",
+     "la figura es de pendiente por resolucion, no de areas"),
+    ("M10_distribucion_altimetrica.png", "Distribución Áreas microcuencas",
+     "Distribución Altimétrica de la Cuenca",
+     "la figura es la distribucion por cotas, no por areas"),
+    ("M12a_cambio_climatico.png", "Cantidad de Datos Incompletos Precipitación",
+     "Factores de Cambio Climático",
+     "la leyenda es la de otra figura del informe de referencia"),
+    ("M18_mapa_precipitacion.png",
+     "Series de Precipitación Mensual Zona de Proyecto",
+     "Precipitación Media Anual por Subcuenca",
+     "la figura es un mapa por subcuenca, no una serie"),
+    ("M18a_mapa_temperatura.png",
+     "Registros Históricos Temperatura Mínima Apto. Vanguardia",
+     "Temperatura Media por Subcuenca",
+     "la figura es un mapa y la leyenda nombra la estacion del estudio de "
+     "referencia"),
+    ("M18a_serie_mensual_cuenca.png",
+     "Registros Históricos Temperatura Mínima Apto. Vanguardia",
+     "Serie Mensual de Temperatura de la Cuenca",
+     "la figura es la serie de la cuenca, no la de una estacion ajena"),
+    ("M18_mapa_etr.png", "Mapa EVP Subcuencas", "Mapa EVTR Subcuencas",
+     "la figura es de evapotranspiracion REAL y la leyenda decia potencial"),
+    ("M18_etr_dispersion.png", "Series EVTR Sitio de Proyecto",
+     "EVTR contra Precipitación por Subcuenca",
+     "la figura es una dispersion, no una serie"),
+    ("M18_etr_comparacion.png", "Series EVTR Sitio de Proyecto",
+     "Comparación de Formulaciones de EVTR",
+     "la figura compara metodos, no es una serie"),
+    ("M19_curva_de_duracion.png",
+     "Curva de Duración de Caudales Medios Qda. NN",
+     "Curva de Duración de Caudales Medios",
+     "la leyenda nombra la corriente del estudio de referencia"),
+)
+
+
+def corregir_parejas(documento, escribir: bool) -> list[str]:
+    """Corrige la figura que una leyenda pide, o la leyenda de una figura."""
+    from docx.text.paragraph import Paragraph
+
+    parrafos = [Paragraph(h, documento)
+                for h in documento.element.body.iterchildren()
+                if h.tag.endswith("}p")]
+    hechos: list[str] = []
+
+    for leyenda, pedia, debe, motivo in FIGURA_EQUIVOCADA:
+        for indice, parrafo in enumerate(parrafos):
+            if parrafo.style.name != "Caption" or leyenda not in parrafo.text:
+                continue
+            for siguiente in parrafos[indice + 1: indice + 3]:
+                if m15.clasificar(siguiente.text)[1] != pedia:
+                    continue
+                if escribir:
+                    _fijar_parrafo(siguiente,
+                                   siguiente.text.replace(pedia, debe))
+                hechos.append(f"'{leyenda}': {pedia} -> {debe} ({motivo})")
+                break
+
+    for archivo, vieja, nueva, motivo in LEYENDA_EQUIVOCADA:
+        for indice, parrafo in enumerate(parrafos):
+            if m15.clasificar(parrafo.text)[1] != archivo:
+                continue
+            # LA LEYENDA VA ANTES DE LA INSTRUCCION en las figuras. No es un
+            # descuido de la plantilla: es su composicion.
+            for anterior in reversed(parrafos[max(0, indice - 3): indice]):
+                if anterior.style.name != "Caption":
+                    continue
+                if vieja not in anterior.text:
+                    break
+                if escribir:
+                    _fijar_leyenda_de_figura(anterior, nueva)
+                hechos.append(f"{archivo}: '{vieja}' -> '{nueva}' ({motivo})")
+                break
+    return hechos
+
+
+def _fijar_leyenda_de_figura(parrafo, leyenda: str) -> None:
+    """Cambia el texto de una leyenda sin tocar sus campos de numeracion."""
+    puesto = False
+    for run in parrafo.runs:
+        xml = run._element.xml
+        if "fldChar" in xml or "instrText" in xml:
+            continue
+        if not puesto and run.text.strip().startswith("."):
+            run.text = f". {leyenda}"
+            puesto = True
+        elif puesto:
+            run.text = ""
+    if not puesto:
+        _fijar_parrafo(parrafo, f"{parrafo.text.split('.')[0]}. {leyenda}")
+
+
+def insertar_marcador_de_isoyetas(documento, escribir: bool) -> list[str]:
+    """
+    Deja en la plantilla la leyenda que pide las isoyetas por fase ENSO.
+
+    EL INFORME LAS CITA Y NO EXISTIAN. El texto dice "De la Ilustracion 4-5 a
+    la Ilustracion 4-8" y esas cuatro ilustraciones solo estaban en el indice
+    de figuras, con las paginas del informe de referencia. La cadena produce
+    los cuatro campos y ninguno llegaba al documento: una referencia cruzada a
+    figuras inexistentes, que Word muestra como error al actualizar campos.
+
+    Se inserta una leyenda con el marcador que el M15 reconoce, y este coloca
+    las cuatro con su nombre de fase.
+    """
+    from docx.text.paragraph import Paragraph
+
+    marcador = "Precipitación Total Mensual Multianual por Fase ENSO"
+    parrafos = [Paragraph(h, documento)
+                for h in documento.element.body.iterchildren()
+                if h.tag.endswith("}p")]
+    if any(marcador in p.text for p in parrafos):
+        return ["YA INSERTADO el marcador de las isoyetas por fase"]
+
+    ancla = next((p for p in parrafos
+                  if p.style.name == "Caption"
+                  and "Contraste Espacial Fases ENSO" in p.text), None)
+    if ancla is None:
+        return ["NO SE ENCONTRO donde insertar el marcador de las isoyetas"]
+    modelo_fuente = next((p for p in parrafos
+                          if p.style.name == "Fuente"), None)
+    modelo_figura = next((p for p in parrafos
+                          if m15.clasificar(p.text)[0] == "figura"), None)
+    if modelo_fuente is None or modelo_figura is None:
+        return ["NO SE ENCONTRO de que copiar el formato del marcador"]
+    if not escribir:
+        return [f"insertaria el marcador '{marcador}'"]
+
+    leyenda = _clonar_leyenda(ancla, marcador)
+    hueco = _clonar(modelo_figura, "")
+    fuente = _clonar(modelo_fuente, "Fuente: IDEAM, INCOHISA, 2024.")
+    # VA ANTES del contraste entre fases: primero cada fase y despues su
+    # comparacion, que es el orden en que el texto las cita.
+    elemento = ancla._element
+    for pieza in (leyenda, hueco, fuente):
+        elemento.addprevious(pieza)
+    return [f"insertado el marcador '{marcador}', que el M15 llena con las "
+            "cuatro isoyetas por fase"]
 
 
 def _modelo_con_campos(objetos, etiqueta: str):
@@ -1537,7 +1764,27 @@ def consolidar_bloques_nuevos(documento, escribir: bool) -> list[str]:
     return hechos
 
 
+def _consola_utf8() -> None:
+    """
+    Deja la salida en UTF-8, sea cual sea la pagina de codigos.
+
+    LA CONSOLA DE WINDOWS ES CP1252 y no sabe escribir los simbolos de las
+    formulas. Al informar de la reparacion de la formula de Clark, que lleva
+    una raiz cuadrada, el proceso moria con UnicodeEncodeError DESPUES de haber
+    guardado el documento: el trabajo estaba hecho y la herramienta parecia
+    haber fallado, que es la peor combinacion posible.
+    """
+    for flujo in (sys.stdout, sys.stderr):
+        reconfigurar = getattr(flujo, "reconfigure", None)
+        if reconfigurar is not None:
+            try:
+                reconfigurar(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
 def main() -> int:
+    _consola_utf8()
     analizador = argparse.ArgumentParser(description=__doc__)
     analizador.add_argument("--escribir", action="store_true",
                             help="aplica los cambios; sin esto solo los lista")

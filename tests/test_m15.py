@@ -233,10 +233,26 @@ class PruebaCorrecciones(unittest.TestCase):
         self.assertEqual(len(plan), len(self.correcciones))
 
     def test_sin_desempate_la_leyenda_repetida_es_ambigua(self) -> None:
-        # 'Areas microcuencas' encabeza tres instrucciones de esta plantilla.
-        suelta = {m15._normalizar_leyenda("Áreas microcuencas"): {
-            "leyenda": "Áreas microcuencas", "archivo": "x.png"}}
-        plan, ambiguas, _s = m15.planear_correcciones(self.documento, suelta)
+        """
+        Una leyenda que encabeza dos instrucciones no identifica ninguna.
+
+        SE COMPRUEBA SOBRE UN DOCUMENTO PROPIO Y NO SOBRE LA PLANTILLA. Antes
+        se apoyaba en que 'Areas microcuencas' encabezaba tres instrucciones de
+        la plantilla, y al corregir dos de esas tres parejas mal emparejadas la
+        prueba dejo de comprobar nada: su premisa era un defecto del documento,
+        no una propiedad del mecanismo.
+        """
+        import docx
+
+        documento = docx.Document()
+        for _ in range(2):
+            documento.add_paragraph("Ilustración 1-1. Leyenda repetida",
+                                    style="Caption")
+            documento.add_paragraph("Colocar Figura: vieja.png")
+
+        suelta = {m15._normalizar_leyenda("Leyenda repetida"): {
+            "leyenda": "Leyenda repetida", "archivo": "x.png"}}
+        plan, ambiguas, _s = m15.planear_correcciones(documento, suelta)
         self.assertEqual(plan, {})
         self.assertEqual(len(ambiguas), 1)
 

@@ -4147,10 +4147,10 @@ def _figuras_de_delimitacion(graficos, configuracion, base, resultado, estilo,
                                                      foreground="white")])
         if prefijo:
             # Bajo la leyenda, no sobre el titulo: ahi lo pisaba.
-            fig.text(0.5, 0.005,
-                     f"los identificadores se rotulan sin el prefijo «{prefijo}»",
-                     ha="center", fontsize=amplio.tamano_fuente - 2,
-                     color="#555555")
+            graficos.nota(
+                fig,
+                f"los identificadores se rotulan sin el prefijo «{prefijo}»",
+                amplio)
         if imagen is not None:
             graficos.barra_de_color(fig, ax, imagen, amplio,
                                     "Elevación (m s. n. m.)")

@@ -340,6 +340,26 @@ def figura(
         plt.rcParams.update(previo)
 
 
+def nota(fig: Any, texto: str, estilo: Estilo, color: str = "#555555") -> Any:
+    """
+    Pie de figura, SIEMPRE por debajo de todo lo demas.
+
+    POR QUE UN AYUDANTE Y NO UN fig.text EN CADA SITIO. Habia treinta y cinco
+    pies repartidos por los modulos con tres convenciones distintas, y dos de
+    ellas caian encima de algo: 'ax.annotate(xy=(0, -0.16), axes fraction)' se
+    superponia a la etiqueta del eje x, y 'fig.text(0.5, 0.005)' quedaba dentro
+    de la figura, sobre esa misma etiqueta. El pie de una figura de doble masa
+    tapaba justamente el nombre del eje.
+
+    La 'y' negativa saca el texto FUERA del area de la figura, y como se guarda
+    con recorte ajustado el lienzo se agranda para incluirlo. Es la convencion
+    que ya funcionaba en la mayoria de los modulos; aqui queda en un solo sitio
+    para que no vuelva a divergir.
+    """
+    return fig.text(0.01, -0.06, texto, ha="left",
+                    fontsize=max(estilo.tamano_fuente - 2, 5), color=color)
+
+
 def guardar(fig: Any, destino_sin_extension: Path, estilo: Estilo) -> list[Path]:
     """
     Escribe la figura en cada formato declarado y devuelve las rutas escritas.

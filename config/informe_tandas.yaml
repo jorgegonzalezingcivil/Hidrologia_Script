@@ -34,6 +34,7 @@ version: 1
 tandas:
 
   - subcarpeta: "precipitacion_cruda"
+    marcador: "Precipitación Total Histórica Nombre Estación"
     leyenda: "Precipitación Total Histórica {nombre}"
     fuente: "Fuente: IDEAM, 2024."
     nombra: estacion
@@ -84,6 +85,7 @@ tandas:
       interanual y afectaría al análisis de frecuencia posterior.
 
   - subcarpeta: "enso"
+    marcador: "Comparación ENSO Precipitación Vs. Nombre Estación"
     leyenda: "Comparación ENSO Precipitación Vs. {nombre}"
     fuente: "Fuente: INCOHISA, 2024."
     nombra: estacion
@@ -96,6 +98,7 @@ tandas:
       eliminaría del análisis justamente los años que definen los extremos.
 
   - subcarpeta: "histograma_pdf"
+    marcador: "Histograma Pmax Nombre Estación"
     leyenda: "Histograma Pmax {nombre}"
     fuente: "Fuente: INCOHISA, 2024."
     nombra: estacion
@@ -107,6 +110,7 @@ tandas:
       derecha, que es la que gobierna los periodos de retorno altos.
 
   - subcarpeta: "papel_probabilidad"
+    marcador: "Ajuste Distribución de Probabilidad Acacías"
     # LA INSTRUCCION LA NOMBRA DE OTRA FORMA. Dice "papel de probabilidad", con
     # la preposicion, y la carpeta se llama 'papel_probabilidad': sin declarar
     # el alias la tanda no se colocaba y no habia forma de saber por que, tan
@@ -134,3 +138,46 @@ tandas:
       pluviométrica, que agrupa las subcuencas en zonas de lámina homogénea, y
       cada subcuenca recibe en el modelo el hietograma de su zona y no el
       promedio de la cuenca.
+
+  # SIN INSTRUCCION, SOLO MARCADOR. La plantilla no pide esta carpeta con un
+  # "Agregar graficos" sino dejando su leyenda con el hueco de la figura sin
+  # llenar, que es la otra forma que tiene de pedir algo. La cadena producia
+  # los dieciseis graficos y no llegaba ninguno al informe.
+  - subcarpeta: "ciclo_anual"
+    marcador: "Promedio Mensual Precipitación Total Nombre Estación"
+    leyenda: "Promedio Mensual Precipitación Total {nombre}"
+    fuente: "Fuente: IDEAM, 2024."
+    nombra: estacion
+    parrafo: >-
+      El ciclo anual medio de la estación {nombre} muestra el reparto de la
+      precipitación a lo largo del año, con la dispersión entre años de cada
+      mes. Es la lectura que sostiene el carácter bimodal del régimen y la que
+      permite comprobar que la estación responde al mismo patrón climático
+      regional que las demás, condición para tratarlas en conjunto en la
+      interpolación espacial.
+
+  # LAS ISOYETAS POR FASE, que el informe cita y no colocaba. El texto dice "De
+  # la Ilustracion 4-5 a la 4-8" y esas cuatro ilustraciones solo existian en
+  # el indice de figuras, con las paginas del informe de referencia: la cadena
+  # producia los cuatro campos y ninguno llegaba al documento.
+  #
+  # SE NOMBRAN POR ARCHIVO Y CON DICCIONARIO. El nombre del archivo es
+  # 'nina.png' y la leyenda dice 'Ano Nina', que no se deduce quitando guiones.
+  - subcarpeta: "isoyetas_fase"
+    marcador: "Precipitación Total Mensual Multianual por Fase ENSO"
+    leyenda: "Precipitación Total Mensual Multianual Año {nombre}"
+    fuente: "Fuente: IDEAM, INCOHISA, 2024."
+    nombra: declarado
+    nombres:
+      compuesto: "Compuesto"
+      neutral: "Neutro"
+      nina: "Niña"
+      nino: "Niño"
+    parrafo: >-
+      El campo de precipitación total mensual multianual del año {nombre}
+      muestra la distribución espacial de la lámina sobre el área de influencia
+      bajo esa condición del fenómeno ENSO. Los cuatro campos conservan el mismo
+      patrón general, con los mayores acumulados hacia las zonas de mayor
+      elevación, y lo que cambia entre fases es la magnitud y no la geometría.
+      Por esa razón la zonificación pluviométrica derivada del campo medio
+      conserva su validez bajo las tres condiciones.

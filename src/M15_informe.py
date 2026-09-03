@@ -333,9 +333,18 @@ def nombres_de_estaciones(ruta: Path, delimitador: str) -> dict[str, str]:
     return indice
 
 
-def nombre_de_figura(archivo: str, nombra: str, estaciones) -> str:
-    """Como se llama en la leyenda la figura de un archivo de la tanda."""
+def nombre_de_figura(archivo: str, nombra: str, estaciones,
+                     nombres=None) -> str:
+    """
+    Como se llama en la leyenda la figura de un archivo de la tanda.
+
+    'declarado' toma el nombre de un diccionario de la tanda: el archivo se
+    llama 'nina.png' y la leyenda dice 'Ano Nina', que no se deduce quitando
+    guiones ni poniendo tildes.
+    """
     tallo = Path(archivo).stem
+    if nombra == "declarado":
+        return str((nombres or {}).get(tallo, tallo))
     if nombra == "periodo":
         encaje = re.search(r"T([0-9]+(?:[_.][0-9]+)?)", tallo)
         return encaje.group(1).replace("_", ",") if encaje else tallo
@@ -391,11 +400,12 @@ def resolver_tanda(parrafo, subcarpetas, tandas, individuales, ancho,
         for imagen in sorted(carpeta.glob("*.png")):
             nombre = nombre_de_figura(imagen.name,
                                       str(entrada.get("nombra", "archivo")),
-                                      estaciones)
+                                      estaciones, entrada.get("nombres"))
             leyenda = Paragraph(copy.deepcopy(modelo_leyenda._element),
                                 modelo_leyenda._parent)
             _fijar_leyenda(leyenda, str(entrada["leyenda"]).format(
                 nombre=nombre))
+            _sin_resaltado(leyenda)
             figura = documento.add_paragraph(style="No Spacing")
             poner_figura(figura, imagen, ancho)
             fuente = documento.add_paragraph(str(entrada.get("fuente", "")),
@@ -416,6 +426,22 @@ def resolver_tanda(parrafo, subcarpetas, tandas, individuales, ancho,
     return puestas
 
 
+def _sin_resaltado(parrafo) -> None:
+    """
+    Quita el resaltado de un parrafo ya resuelto.
+
+    LA LEYENDA MODELO VIENE MARCADA. La plantilla resalta en amarillo lo que
+    hay que revisar en cada estudio, y la leyenda de la que se clonan las de
+    una tanda es una de esas: al clonarla, las 156 figuras colocadas salieron
+    con el resaltado puesto. El informe pasaba de una treintena de marcas
+    amarillas a doscientas, y entre ellas se perdian las que si reclaman
+    revision. Una leyenda ya escrita, con su figura debajo, no esta pendiente
+    de nada.
+    """
+    for run in parrafo.runs:
+        run.font.highlight_color = None
+
+
 def _fijar_leyenda(parrafo, leyenda: str) -> None:
     """Cambia el texto de una leyenda clonada sin tocar sus campos SEQ."""
     puesto = False
@@ -430,6 +456,74 @@ def _fijar_leyenda(parrafo, leyenda: str) -> None:
             run.text = ""
     if not puesto and parrafo.runs:
         parrafo.runs[-1].text = f". {leyenda}"
+
+
+def resolver_marcadores_de_tanda(documento, tandas, individuales, ancho,
+                                 estaciones, colocadas) -> list[dict[str, str]]:
+    """
+    Coloca las tandas que la plantilla pide dejando su leyenda sin figura.
+
+    LA PLANTILLA PIDE DE DOS FORMAS. Una es la instruccion en verde "Agregar
+    graficos de la subcarpeta X"; la otra es dejar la leyenda escrita con un
+    hueco donde va el nombre ("Precipitacion Total Historica Nombre Estacion")
+    y el parrafo de la figura vacio. La segunda no se estaba atendiendo: la
+    cadena producia los dieciseis graficos de ciclo anual y ninguno llegaba al
+    informe.
+
+    Y CUANDO LA TANDA YA SE COLOCO POR SU INSTRUCCION, la leyenda con hueco se
+    queda detras como una figura vacia con su fuente debajo. Aqui se retira:
+    cinco quedaron asi en el informe, con el texto 'Nombre Estacion' a la
+    vista.
+
+    Devuelve las figuras colocadas por esta via.
+    """
+    from docx.text.paragraph import Paragraph
+
+    por_marcador = {}
+    for entrada in tandas.values():
+        marcador = str(entrada.get("marcador", "")).strip()
+        if marcador:
+            por_marcador[_normalizar_leyenda(marcador)] = entrada
+
+    puestas: list[dict[str, str]] = []
+    cuerpo = list(documento.element.body.iterchildren())
+    for indice, hijo in enumerate(cuerpo):
+        if not hijo.tag.endswith("}p"):
+            continue
+        leyenda = Paragraph(hijo, documento)
+        if leyenda.style.name != "Caption" or not leyenda.text.strip():
+            continue
+        entrada = por_marcador.get(_normalizar_leyenda(leyenda.text))
+        if entrada is None:
+            continue
+        # El trio es leyenda, parrafo de figura VACIO y linea de fuente. Si el
+        # parrafo trae imagen, la figura esta puesta y no hay nada que hacer.
+        sobrantes = [hijo]
+        for siguiente in cuerpo[indice + 1: indice + 3]:
+            if not siguiente.tag.endswith("}p"):
+                break
+            parrafo = Paragraph(siguiente, documento)
+            if "<w:drawing>" in siguiente.xml:
+                sobrantes = []
+                break
+            if parrafo.style.name in ("No Spacing", "Fuente")                     and not parrafo.text.strip():
+                sobrantes.append(siguiente)
+            elif parrafo.style.name == "Fuente":
+                sobrantes.append(siguiente)
+            else:
+                break
+        if not sobrantes:
+            continue
+        if str(entrada["subcarpeta"]) not in colocadas:
+            puestas.extend(resolver_tanda(
+                leyenda, [str(entrada["subcarpeta"])], tandas, individuales,
+                ancho, estaciones, documento, leyenda))
+            sobrantes = [s for s in sobrantes if s is not hijo]
+        for sobrante in sobrantes:
+            padre = sobrante.getparent()
+            if padre is not None:
+                padre.remove(sobrante)
+    return puestas
 
 
 def leer_identidad(ruta: Path) -> dict[str, Any]:
@@ -1212,6 +1306,15 @@ def ejecutar(
                     len(resultado.tablas_llenadas),
                     len(resultado.analisis_resueltos),
                     resultado.analisis_pendientes)
+
+    # Las tandas que la plantilla pide dejando su leyenda con el hueco.
+    if modelo_leyenda is not None:
+        colocadas = {p["subcarpeta"] for p in resultado.tandas_puestas}
+        extra = resolver_marcadores_de_tanda(
+            documento, tandas, individuales, ancho, estaciones_nombradas,
+            colocadas)
+        resultado.tandas_puestas.extend(extra)
+        resultado.figuras_puestas.extend(p["archivo"] for p in extra)
 
     # LA PROSA HEREDADA, antes de guardar. Va sobre el documento ya resuelto y
     # no sobre la plantilla, porque lo que importa es lo que se entrega.

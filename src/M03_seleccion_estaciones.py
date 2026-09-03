@@ -44,6 +44,7 @@ import argparse
 import csv
 import itertools
 import json
+import datetime as _dt
 import sys
 import time
 from dataclasses import dataclass, field
@@ -617,9 +618,47 @@ def _normalizar(fila: dict[str, str], mapa_campos: dict[str, str]) -> dict[str, 
         "depto": leer("departamento"),
         "municipio": leer("municipio"),
         "subzona": leer("subzona"),
-        "f_instal": leer("fecha_instalacion"),
-        "f_suspen": leer("fecha_suspension"),
+        "f_instal": fecha_de_catalogo(leer("fecha_instalacion")),
+        "f_suspen": fecha_de_catalogo(leer("fecha_suspension")),
     }
+
+
+def fecha_de_catalogo(valor) -> str:
+    """
+    Normaliza a AAAAMMDD una fecha del Catalogo Nacional de Estaciones.
+
+    EL CATALOGO MEZCLA DOS FORMATOS. Unas estaciones traen la fecha como
+    'AAAAMMDD' y otras como MILISEGUNDOS DE EPOCA, incluidos valores negativos
+    para las anteriores a 1970. Medido sobre este estudio: 16 de 55 estaciones
+    vienen en la segunda forma.
+
+    LEIDA COMO TEXTO, LA SEGUNDA FORMA DA UN ANO ABSURDO. Tomar las cuatro
+    primeras cifras de '99792000000' devuelve el ano 9979, y de
+    '-312940800000' no devuelve nada. Con eso la figura de longitud de las
+    series salia con el eje hasta el ano 10.000 y todas las series reales
+    aplastadas en una linea vertical, y la clasificacion por antiguedad de la
+    suspension quedaba decidida por una cifra sin sentido.
+
+    Es un punto fragil ante cambios del servicio externo, que es donde la
+    seccion 2 de CLAUDE.md manda poner un adaptador.
+    """
+    texto = str(valor or "").strip()
+    if not texto:
+        return ""
+    # Una fecha ya normalizada empieza por un ano plausible.
+    if len(texto) == 8 and texto.isdigit() and 1800 <= int(texto[:4]) <= 2100:
+        return texto
+    try:
+        milisegundos = int(float(texto))
+    except (TypeError, ValueError):
+        return texto
+    try:
+        momento = _dt.datetime(1970, 1, 1, tzinfo=_dt.timezone.utc) +             _dt.timedelta(milliseconds=milisegundos)
+    except (OverflowError, OSError, ValueError):
+        return texto
+    if not 1800 <= momento.year <= 2100:
+        return texto
+    return momento.strftime("%Y%m%d")
 
 
 def verificar_categorias(
@@ -1110,6 +1149,25 @@ def ejecutar(
             resultado.total_catalogo, resultado.con_coordenadas,
             resultado.en_area, len(resultado.seleccionadas),
         )
+
+    # EL CATALOGO MEZCLA DOS FORMATOS DE FECHA y hay que decirlo: es un punto
+    # fragil ante cambios del servicio externo, y leer mal la fecha no produce
+    # ningun error, solo un ano absurdo aguas abajo.
+    en_epoca = 0
+    for estacion in resultado.seleccionadas:
+        for campo in ("f_instal", "f_suspen"):
+            valor = str(getattr(estacion, campo, "") or "").strip()
+            if valor and not (len(valor) == 8 and valor.isdigit()):
+                en_epoca += 1
+    if en_epoca:
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "estaciones.fecha_no_normalizada",
+            f"{en_epoca} fecha(s) del catálogo no quedaron en formato AAAAMMDD "
+            "ni pudieron convertirse. El Catálogo Nacional mezcla ese formato "
+            "con milisegundos de época, y una fecha mal leída no produce error: "
+            "da un año absurdo que después decide la longitud teórica de la "
+            "serie y la clasificación por antigüedad de la suspensión.",
+        ))
 
     if not resultado.seleccionadas:
         resultado.hallazgos.append(Hallazgo(
