@@ -908,6 +908,27 @@ def _leyenda(objetos, texto: str):
     return -1, None
 
 
+def _modelo_con_campos(objetos, etiqueta: str):
+    """
+    Una leyenda de esa clase que numere con campos, para clonarla.
+
+    SE EXIGE QUE TENGA CAMPOS. La plantilla mezcla leyendas numeradas con
+    campos SEQ y leyendas con el numero escrito a mano; clonando una de las
+    segundas, la leyenda nueva no entraria en la secuencia del capitulo y su
+    numero se quedaria fijo mientras las demas se renumeran.
+    """
+    for _, objeto in objetos:
+        if getattr(objeto, "style", None) is None:
+            continue
+        if objeto.style.name != "Caption" or not objeto.text.strip():
+            continue
+        if objeto.text.strip().split()[0].rstrip(".") != etiqueta:
+            continue
+        if any("fldChar" in run._element.xml for run in objeto.runs):
+            return objeto
+    return None
+
+
 def _clonar_leyenda(modelo, leyenda: str):
     """
     Copia una leyenda conservando sus campos de numeracion.
@@ -1029,6 +1050,75 @@ BLOQUES_NUEVOS = (
         "fuente": "Fuente: EAAB, INCOHISA, 2024.",
         "motivo": "la curva del embalse no estaba declarada en la plantilla",
     },
+    {
+        "leyenda": "Verificación de crecientes contra caudal observado",
+        # Entra en 'Calibracion del Modelo', que traia la teoria de como se
+        # calibra y nada mas. Es su sitio: lo que se hizo es lo que se hace
+        # cuando NO se puede calibrar, y ponerlo en 'Resultados' lo presentaria
+        # como un resultado del modelo en vez de como su contraste.
+        "numero": "5-12",
+        # SE ANCLA EN EL PARRAFO Y NO EN UNA LEYENDA. La seccion de
+        # 'Calibracion del Modelo' no tiene ninguna tabla ni figura de la que
+        # colgarse: trae un solo parrafo de teoria y detras empieza
+        # 'Resultados'. Anclando en la primera leyenda de esa seccion, el
+        # bloque quedaba al otro lado del titulo, presentando la verificacion
+        # como un resultado del modelo y no como su contraste.
+        "tras_parrafo": "La calibración de un modelo lluvia-escorrentía",
+        "fuente": "Fuente: IDEAM, INCOHISA, 2024.",
+        "motivo": "la verificacion tenia productos y no estaba en el informe",
+        "parrafos": (
+            "En este estudio no se realizó una calibración del modelo. Sobre "
+            "la corriente de interés no existen series de caudal medidas en el "
+            "sitio de proyecto, de modo que no hay un hidrograma observado "
+            "contra el cual ajustar los parámetros. Lo que sí es posible, y es "
+            "lo que se presenta a continuación, es una VERIFICACIÓN: contrastar "
+            "los caudales que el modelo produce contra los caudales observados "
+            "en las estaciones limnimétricas disponibles dentro de la cuenca, "
+            "sin modificar ningún parámetro para acercarse a ellos. La "
+            "distinción no es de matiz. Si los parámetros se hubieran ajustado "
+            "para reproducir estas cifras, la coincidencia posterior dejaría de "
+            "ser evidencia de que el modelo es adecuado y pasaría a ser el "
+            "resultado de haberla buscado.",
+            "El contraste se hace sobre el caudal máximo instantáneo de cada "
+            "periodo de retorno, y el dato disponible es el máximo de los "
+            "caudales MEDIOS DIARIOS registrados. Como el pico instantáneo de "
+            "un día siempre es mayor o igual que la media de ese día, el valor "
+            "observado constituye una COTA INFERIOR del pico real. De ahí que "
+            "la prueba sea de un solo lado: un caudal modelado por debajo de "
+            "esa cota es demasiado bajo con certeza, mientras que uno por "
+            "encima no queda demostrado correcto, únicamente no refutado. Sobre "
+            "cada serie se ajusta además una distribución de frecuencia y se "
+            "acompaña la banda de confianza correspondiente, que expresa hasta "
+            "qué punto el número de años de registro permite afirmar algo sobre "
+            "el periodo de retorno contrastado. Los periodos cuyo caudal sería "
+            "una extrapolación de la distribución, y no una observación, no se "
+            "verifican: contrastarlos compararía dos extrapolaciones.",
+            "Las estaciones con menos años de registro de los que se exigen "
+            "para verificar se contrastan como INDICATIVAS. Aportan cobertura "
+            "sobre ramas de la cuenca que de otro modo quedarían sin ningún "
+            "contraste, pero no cuentan para el veredicto ni sostienen por sí "
+            "solas un cambio de parámetro: con pocos años, el ajuste de "
+            "frecuencia lo decide un único año extremo. La condición de cada "
+            "pareja se indica en la tabla.",
+            "Cuando un estudio no dispone de ninguna estación de caudal "
+            "utilizable, la verificación externa no es posible y se recurre a "
+            "comprobaciones de consistencia interna del propio modelo: que el "
+            "caudal crezca de forma monótona con el periodo de retorno, que "
+            "escale con el área de drenaje entre puntos anidados dentro del "
+            "rango habitual en crecientes, y que el tiempo al pico guarde "
+            "relación con el tiempo de concentración calculado. Estas "
+            "comprobaciones acotan el resultado, pero no demuestran que el "
+            "caudal sea correcto, y esa limitación debe declararse.",
+        ),
+        "figuras": (
+            ("Verificación de crecientes en la estación de mayor registro",
+             "M14c_verificacion_J24.png"),
+            ("Contraste indicativo en la estación de registro corto",
+             "M14c_verificacion_J29.png"),
+            ("Media móvil de 24 horas del hidrograma modelado",
+             "M14c_media_movil_24h.png"),
+        ),
+    },
 )
 
 INSTRUCCION = ("Completar la Tabla {numero} con datos del estudio, "
@@ -1141,8 +1231,28 @@ def consolidar_bloques_nuevos(documento, escribir: bool) -> list[str]:
                           "que copiar el formato")
             continue
 
+        modelo_grafico = _modelo_con_campos(objetos, "Gráfico")
+        modelo_colocar = next(
+            (o for c, o in objetos
+             if c == "p" and m15.clasificar(o.text)[0] == "figura"), None)
+        if bloque.get("figuras") and (modelo_grafico is None
+                                      or modelo_colocar is None):
+            hechos.append("NO SE ENCONTRO leyenda de gráfico o instruccion de "
+                          "figura de la que copiar el formato")
+            continue
+
         # --- donde va ---
-        if bloque.get("tras_tabla"):
+        if bloque.get("tras_parrafo"):
+            fragmento = str(bloque["tras_parrafo"])
+            ancla = next((o for c, o in objetos
+                          if c == "p" and o.text.strip().startswith(fragmento)),
+                         None)
+            if ancla is None:
+                hechos.append(f"NO SE ENCONTRO el parrafo que empieza por "
+                              f"'{fragmento[:40]}...'")
+                continue
+            despues = True
+        elif bloque.get("tras_tabla"):
             indice, _ = _leyenda(objetos, str(bloque["tras_tabla"]))
             if indice < 0:
                 hechos.append(f"NO SE ENCONTRO la tabla "
@@ -1189,8 +1299,21 @@ def consolidar_bloques_nuevos(documento, escribir: bool) -> list[str]:
                 m15._fijar_texto(celda, "")
         fuente = _clonar(modelo_fuente, str(bloque["fuente"]))
 
+        # LA PROSA VA DELANTE DE LA TABLA. Explica que se hizo y con que
+        # criterio; puesta detras, el lector llega a las cifras sin saber que
+        # esta mirando.
+        piezas = [documento.add_paragraph(texto, style="Normal")._element
+                  for texto in bloque.get("parrafos") or ()]
+        piezas += [instruccion, leyenda_nueva, tabla._tbl, fuente]
+        # EN LAS FIGURAS LA LEYENDA VA ANTES de la instruccion, al contrario
+        # que en las tablas. No es un descuido de la plantilla: es su
+        # composicion, y el M15 empareja contando con ella.
+        for titulo, archivo in bloque.get("figuras") or ():
+            piezas.append(_clonar_leyenda(modelo_grafico, titulo))
+            piezas.append(_clonar(modelo_colocar, f"Colocar Figura: {archivo}"))
+            piezas.append(_clonar(modelo_fuente, str(bloque["fuente"])))
+
         elemento = ancla._element
-        piezas = [instruccion, leyenda_nueva, tabla._tbl, fuente]
         if despues:
             # addnext deja cada pieza justo detras del ancla, de modo que hay
             # que ir moviendo el ancla o el bloque sale al reves.

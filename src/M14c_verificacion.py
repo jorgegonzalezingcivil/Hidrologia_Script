@@ -922,6 +922,11 @@ def _contrastar(pareja, hidrogramas, periodos_todos, confianza, repeticiones,
             "union": pareja.union, "codigo": pareja.codigo,
             "estacion": pareja.nombre, "anios": pareja.anios,
             "indicativa": pareja.indicativa,
+            # EL MISMO DATO EN PALABRAS, para la tabla del informe. Una columna
+            # que diga 'True' obliga al lector a saber que significa, y la
+            # distincion no es menor: una pareja indicativa NO cuenta para el
+            # veredicto ni sostiene por si sola un cambio de parametro.
+            "contraste": "Indicativa" if pareja.indicativa else "Verificación",
             "periodo_retorno": periodo,
             "observado_media_diaria_m3s": round(d["cuantil"], 3),
             "banda_inferior_m3s": round(d["inferior"], 3),

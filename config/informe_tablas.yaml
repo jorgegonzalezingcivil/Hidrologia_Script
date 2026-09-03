@@ -460,3 +460,37 @@ tablas:
       - "Descarga (m³/s)"
     columnas: [embalse, cota_msnm, volumen_miles_m3, volumen_hm3,
                lamina_sobre_cresta_m, descarga_m3s]
+
+  - numero: "5-12"
+    leyenda: "Verificación de crecientes contra caudal observado"
+    fuente: "data/02_procesado/hidrologia/verificacion_crecientes.csv"
+    encabezados: 1
+    # ES UNA VERIFICACION Y NO UNA CALIBRACION, y la tabla tiene que dejarlo
+    # ver: no se ajusto ningun parametro para acercarse a estas cifras. Si se
+    # hubiera hecho, la coincidencia posterior dejaria de ser evidencia de que
+    # el modelo es bueno y pasaria a ser el resultado de haberla buscado.
+    #
+    # LA COMPARACION ES DE UN SOLO LADO. El dato observado es el maximo de los
+    # caudales MEDIOS DIARIOS, y el pico instantaneo de un dia siempre supera a
+    # la media de ese dia: por eso la columna se llama cota inferior del pico.
+    # Un modelo por debajo de ella es demasiado bajo con certeza; uno por
+    # encima no queda demostrado correcto, solo no refutado.
+    #
+    # LA COLUMNA 'CONTRASTE' NO ES DECORATIVA. Una pareja indicativa tiene
+    # menos anios de los que se exigen para verificar y NO cuenta para el
+    # veredicto: aporta cobertura sobre una rama de la cuenca que si no
+    # quedaria sin contraste, pero con tan pocos anios el ajuste lo decide un
+    # solo ano extremo.
+    titulos:
+      - "Estación"
+      - "Años"
+      - "Contraste"
+      - "Tr (años)"
+      - "Cota inferior del pico (m³/s)"
+      - "Banda inferior (m³/s)"
+      - "Banda superior (m³/s)"
+      - "Pico modelado (m³/s)"
+      - "Holgura (%)"
+    columnas: [estacion, anios, contraste, periodo_retorno,
+               cota_inferior_del_pico_m3s, banda_inferior_m3s,
+               banda_superior_m3s, pico_modelado_m3s, holgura_pct]

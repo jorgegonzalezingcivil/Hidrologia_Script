@@ -535,6 +535,71 @@ class PruebaNombreDeArchivoConTilde(unittest.TestCase):
             "M06_isoyetas.png")
 
 
+class PruebaSeccionDeVerificacion(unittest.TestCase):
+    """
+    La verificacion de crecientes va en 'Calibracion del Modelo'.
+
+    NO ES UN DETALLE DE MAQUETACION. Lo que se presenta es lo que se hace
+    cuando NO se puede calibrar, y colocado bajo 'Resultados' se leeria como un
+    resultado del modelo en lugar de como su contraste. Paso de verdad: la
+    primera insercion se ancló en una leyenda y el bloque quedó al otro lado
+    del titulo, porque esa seccion no tiene ninguna tabla ni figura propia de
+    la que colgarse.
+    """
+
+    def setUp(self) -> None:
+        plantilla = _RAIZ_REPO / "templates" / "informe_base.docx"
+        if not plantilla.is_file():
+            self.skipTest("la plantilla saneada no esta en el repositorio")
+        import docx_plantilla as dp
+        from docx.text.paragraph import Paragraph
+
+        documento = dp.abrir(plantilla)
+        self.parrafos = [Paragraph(hijo, documento)
+                         for hijo in documento.element.body.iterchildren()
+                         if hijo.tag.endswith("}p")]
+
+    def _posicion(self, condicion) -> int:
+        for indice, parrafo in enumerate(self.parrafos):
+            if condicion(parrafo):
+                return indice
+        return -1
+
+    def test_esta_antes_del_titulo_de_resultados(self) -> None:
+        calibracion = self._posicion(
+            lambda p: p.style.name == "Heading 3"
+            and "Calibración del Modelo" in p.text)
+        resultados = self._posicion(
+            lambda p: p.style.name == "Heading 3"
+            and p.text.strip() == "Resultados")
+        tabla = self._posicion(
+            lambda p: p.style.name == "Caption"
+            and "Verificación de crecientes contra" in p.text)
+        self.assertNotEqual(tabla, -1, "la leyenda no esta en la plantilla")
+        self.assertLess(calibracion, tabla)
+        self.assertLess(tabla, resultados)
+
+    def test_las_tres_figuras_piden_archivos_distintos(self) -> None:
+        # Es la misma clase de fallo que hubo en los dos escenarios de cambio
+        # climatico: instrucciones distintas apuntando al mismo archivo.
+        esperados = {"M14c_verificacion_J24.png", "M14c_verificacion_J29.png",
+                     "M14c_media_movil_24h.png"}
+        pedidos = {m15.clasificar(p.text)[1] for p in self.parrafos
+                   if m15.clasificar(p.text)[0] == "figura"}
+        self.assertTrue(esperados <= pedidos, esperados - pedidos)
+
+    def test_dice_que_no_se_calibro(self) -> None:
+        """
+        Es la afirmacion que el informe tiene que sostener ante interventoria.
+
+        Si los parametros se hubieran ajustado para reproducir estas cifras, la
+        coincidencia dejaria de ser evidencia de que el modelo es adecuado.
+        """
+        textos = " ".join(p.text for p in self.parrafos)
+        self.assertIn("no se realizó una calibración del modelo", textos)
+        self.assertIn("sin modificar ningún parámetro", textos)
+
+
 class PruebaFigurasDeEscenario(unittest.TestCase):
     """
     Las cinco figuras de los dos escenarios piden cinco archivos distintos.

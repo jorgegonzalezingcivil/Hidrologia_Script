@@ -330,5 +330,33 @@ End:
         self.assertEqual(afectados, set())
 
 
+class PruebaColumnaDeContraste(unittest.TestCase):
+    """
+    La condicion de cada pareja, en palabras, para la tabla del informe.
+
+    POR QUE NO BASTA CON 'indicativa'. Una columna que diga 'True' obliga al
+    lector a saber que significa, y la distincion no es menor: una pareja
+    indicativa tiene menos anios de los que se exigen para verificar, NO cuenta
+    para el veredicto y no sostiene por si sola un cambio de parametro, porque
+    con pocos anios el ajuste de frecuencia lo decide un solo ano extremo.
+    """
+
+    def test_las_dos_columnas_dicen_lo_mismo(self) -> None:
+        ruta = (_RAIZ_REPO.parent / "Estudios" / "refugio_del_valle" / "data"
+                / "02_procesado" / "hidrologia" / "verificacion_crecientes.csv")
+        if not ruta.is_file():
+            self.skipTest("no hay productos de verificacion de un estudio")
+        import csv
+
+        with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+            filas = list(csv.DictReader(manejador, delimiter=";"))
+        self.assertTrue(filas)
+        for fila in filas:
+            with self.subTest(estacion=fila["estacion"]):
+                indicativa = fila["indicativa"].strip().lower() == "true"
+                self.assertEqual(fila["contraste"] == "Indicativa", indicativa)
+                self.assertIn(fila["contraste"], ("Indicativa", "Verificación"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
