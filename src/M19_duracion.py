@@ -265,6 +265,19 @@ def indice_de_retencion(curva: Sequence[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+# Decimales con que se PRESENTA un indice adimensional. Dos, que es la
+# precision con que se puede defender: el IRH y el indice de variabilidad se
+# calculan sobre una serie MODELADA, no medida, y escribir cuatro cifras
+# sugiere una resolucion que el dato no tiene.
+#
+# LOS PRODUCTOS CONSERVAN LA PRECISION COMPLETA. Redondear el CSV borraria de
+# que lado del umbral cayo el indice, que es justamente lo que hay que poder
+# comprobar despues: aqui el IRH da 0,6957 y el umbral de la regla es 0,70, de
+# modo que a dos decimales se lee 0,70 y ya no se sabe si estaba por encima o
+# por debajo. Se redondea al presentarlo, nunca al decidir ni al registrar.
+DECIMALES_INDICE = 2
+
+
 # Rangos con que el IDEAM interpreta el indice en el Estudio Nacional del Agua.
 # Van en el codigo y no en data/referencia porque no son un parametro de
 # calculo: son la lectura cualitativa del numero, y cambiarlos no cambia ningun
@@ -483,7 +496,7 @@ def _hallazgos(resultado, configuracion) -> None:
         resultado.hallazgos.append(Hallazgo(
             ADVERTENCIA if variabilidad > 10 else INFORMATIVO,
             "regimen.variabilidad",
-            f"indice de variabilidad Q10/Q90 de {variabilidad:.1f}. Es la "
+            f"indice de variabilidad Q10/Q90 de {variabilidad:.{DECIMALES_INDICE}f}. Es la "
             "lectura rapida del regimen: valores bajos indican un caudal "
             "sostenido y valores altos crecidas y estiajes marcados. NO cambia "
             "con el reescalado, porque el factor es multiplicativo y afecta por "
@@ -540,7 +553,8 @@ def _hallazgos(resultado, configuracion) -> None:
             float(configuracion.obtener("caudal_ambiental.cdc_si_irh_mayor")))
         resultado.hallazgos.append(Hallazgo(
             ADVERTENCIA, "regimen.irh_en_el_filo",
-            f"el IRH de {irh['irh']:.4f} queda a {margen:.4f} del umbral de "
+            f"el IRH se presenta como {irh['irh']:.{DECIMALES_INDICE}f} y su "
+            f"valor calculado, {irh['irh']:.4f}, queda a {margen:.4f} del umbral de "
             f"{ambiental['umbral_irh']:g}, es decir EN EL FILO de la regla. Al "
             f"otro lado del umbral el caudal ambiental seria {otro:.4f} m3/s en "
             f"lugar de {ambiental['caudal_ambiental_m3s']:.4f}, una diferencia "
