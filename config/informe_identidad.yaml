@@ -84,6 +84,10 @@ ajenos:
     que_es: "el caudal ambiental del estudio de referencia"
   - termino: "9.71 l/s"
     que_es: "el Q95 del estudio de referencia"
+  - termino: "69.69 l/s"
+    que_es: >-
+      el caudal medio multianual del estudio de referencia. Estaba en la
+      conclusion del balance, que este estudio cierra en 2.281,8 l/s.
   - termino: "disminución de precipitación"
     que_es: >-
       la proyeccion de cambio climatico del estudio de referencia. En este

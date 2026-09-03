@@ -95,6 +95,7 @@ PATRON_ANALISIS = re.compile(
     r"^\s*(?:Analizar"
     r"|Agregar\s+an[aá]lisis"
     r"|Escribir"
+    r"|Redactar"
     r"|Describir"
     r"|Explicar"
     r"|Incluir\s+un\s+p[aá]rrafo"
@@ -231,12 +232,17 @@ def leer_analisis(ruta: Path) -> dict[str, list[str]]:
                 # lo que la plantilla pide de cada estudio.
                 "resaltar": bool(entrada.get("resaltar", False)),
                 "falta": str(entrada.get("falta", "")).strip(),
+                # EL ESTILO IMPORTA EN LAS CONCLUSIONES. Van en lista, y un
+                # parrafo 'Normal' entre ellas rompe la numeracion y se lee
+                # como si no formara parte del listado.
+                "estilo": str(entrada.get("estilo", "Normal")).strip()
+                          or "Normal",
             }
     return analisis
 
 
 def resolver_analisis(parrafo, redactado: Sequence[str], documento,
-                      resaltar: bool = False) -> int:
+                      resaltar: bool = False, estilo: str = "Normal") -> int:
     """
     Sustituye la instruccion en verde por los parrafos redactados.
 
@@ -252,7 +258,12 @@ def resolver_analisis(parrafo, redactado: Sequence[str], documento,
 
     anterior = parrafo._element
     for texto in redactado:
-        nuevo = documento.add_paragraph(texto, style="Normal")
+        try:
+            nuevo = documento.add_paragraph(texto, style=estilo)
+        except KeyError:
+            # UN ESTILO QUE LA PLANTILLA NO DEFINE no puede detener el informe:
+            # se escribe con el de cuerpo y el parrafo entra igual.
+            nuevo = documento.add_paragraph(texto, style="Normal")
         if resaltar:
             # ROSA, que es el unico criterio posible: TIENE QUE SER UN COLOR
             # QUE LA PLANTILLA NO USE. Ya emplea el verde para lo que hay que
@@ -1149,7 +1160,8 @@ def ejecutar(
                 redactado = analisis.get(_normalizar_leyenda(argumento))
                 if redactado:
                     resolver_analisis(parrafo, redactado["parrafos"],
-                                      documento, redactado["resaltar"])
+                                      documento, redactado["resaltar"],
+                                      redactado["estilo"])
                     resultado.analisis_resueltos.append(argumento)
                     if redactado["resaltar"]:
                         resultado.analisis_incompletos.append(
@@ -1180,7 +1192,8 @@ def ejecutar(
                             if redactado:
                                 resolver_analisis(
                                     parrafo, redactado["parrafos"], documento,
-                                    redactado["resaltar"])
+                                    redactado["resaltar"],
+                                    redactado["estilo"])
                                 resultado.analisis_resueltos.append(argumento)
                                 if redactado["resaltar"]:
                                     resultado.analisis_incompletos.append(
