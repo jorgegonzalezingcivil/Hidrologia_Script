@@ -1067,6 +1067,7 @@ def _analizar_argumentos(argv=None):
     analizador.add_argument("--raiz", type=Path, default=None)
     analizador.add_argument("--config", type=Path, default=None)
     analizador.add_argument("--json", type=Path, default=None)
+    analizador.add_argument("--silencioso", action="store_true")
     return analizador.parse_args(argv)
 
 
@@ -1076,7 +1077,8 @@ def main(argv=None) -> int:
     try:
         codigo, _ = ejecutar(
             raiz=argumentos.raiz, ruta_config=argumentos.config,
-            ruta_json=argumentos.json)
+            ruta_json=argumentos.json,
+            consola=not argumentos.silencioso)
     except (ErrorConfiguracion, ErrorRutas, ErrorFormato,
             ErrorHidrologia) as error:
         print(f"{MODULO}: {error}", file=sys.stderr)

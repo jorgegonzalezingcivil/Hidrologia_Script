@@ -538,11 +538,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     analizador.add_argument("--json", type=Path, default=None)
     analizador.add_argument("--sin-copiar", action="store_true",
                             help="solo verifica y reporta, no arma el paquete")
+    analizador.add_argument("--silencioso", action="store_true")
     argumentos = analizador.parse_args(argv)
     try:
         codigo, _ = ejecutar(
             raiz=argumentos.raiz, ruta_config=argumentos.config,
-            ruta_json=argumentos.json, copiar=not argumentos.sin_copiar)
+            ruta_json=argumentos.json, copiar=not argumentos.sin_copiar,
+            consola=not argumentos.silencioso)
     except (ErrorConfiguracion, ErrorRutas, ErrorFormato) as error:
         print(f"{MODULO}: {error}", file=sys.stderr)
         return SALIDA_ERROR

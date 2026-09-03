@@ -70,10 +70,18 @@ SALIDA_ERROR = 3
 DECLARACION = "config/cadena.yaml"
 
 # Códigos que devuelven los módulos, según la convención del proyecto.
+#
+# EL 2 NO ES NUESTRO: es el que devuelve argparse cuando el módulo no reconoce
+# un argumento, y por eso aparece ANTES de que el módulo escriba una sola línea
+# de log. Estaba rotulado como "advertencias en modo estricto", que ningún
+# módulo devuelve, y ese rótulo costó una investigación entera: la cadena se
+# detuvo en el M11 y el mensaje mandaba a mirar sus advertencias cuando el
+# problema era que no admitía el '--silencioso' que la propia cadena le pasa.
+# Un rótulo equivocado es peor que ninguno, porque se cree.
 _SIGNIFICADO = {
     0: "correcto",
     1: "hallazgos bloqueantes",
-    2: "advertencias en modo estricto",
+    2: "argumento que el módulo no reconoce (argparse)",
     3: "error de configuración o de insumos",
 }
 

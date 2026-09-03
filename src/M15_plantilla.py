@@ -438,6 +438,7 @@ def main(argv=None) -> int:
     analizador = argparse.ArgumentParser(description=DESCRIPCION)
     analizador.add_argument("--raiz", type=Path, default=None)
     analizador.add_argument("--config", type=Path, default=None)
+    analizador.add_argument("--silencioso", action="store_true")
     argumentos = analizador.parse_args(argv)
 
     try:
@@ -457,12 +458,13 @@ def main(argv=None) -> int:
         print(f"{MODULO}: {error}", file=sys.stderr)
         return SALIDA_ERROR
 
-    print(f"Plantilla: {detalle['destino']} ({detalle['kb']} KB)")
-    print(f"  marcadores puestos      {detalle['marcadores']}")
-    print(f"  tablas quitadas         {detalle['tablas_quitadas']}")
-    print(f"  imagenes quitadas       {detalle['imagenes_quitadas']}")
-    print(f"  leyendas quitadas       {detalle['leyendas_quitadas']}")
-    print(f"Inventario: {catalogo}")
+    if not argumentos.silencioso:
+        print(f"Plantilla: {detalle['destino']} ({detalle['kb']} KB)")
+        print(f"  marcadores puestos      {detalle['marcadores']}")
+        print(f"  tablas quitadas         {detalle['tablas_quitadas']}")
+        print(f"  imagenes quitadas       {detalle['imagenes_quitadas']}")
+        print(f"  leyendas quitadas       {detalle['leyendas_quitadas']}")
+        print(f"Inventario: {catalogo}")
     return SALIDA_CORRECTA
 
 

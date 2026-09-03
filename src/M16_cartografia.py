@@ -1013,12 +1013,14 @@ def main() -> int:
                             help="nombre exacto de una plancha; repetible")
     analizador.add_argument("--sin-exportar", action="store_true",
                             help="compone el proyecto y no llama a QGIS")
+    analizador.add_argument("--silencioso", action="store_true")
     argumentos = analizador.parse_args()
     try:
         codigo, _ = ejecutar(
             raiz=argumentos.raiz, ruta_config=argumentos.config,
             ruta_json=argumentos.json, exportar=not argumentos.sin_exportar,
-            solo=tuple(argumentos.solo))
+            solo=tuple(argumentos.solo),
+            consola=not argumentos.silencioso)
     except (ErrorConfiguracion, ErrorRutas, ErrorFormato) as error:
         print(f"{MODULO}: {error}", file=sys.stderr)
         return SALIDA_ERROR

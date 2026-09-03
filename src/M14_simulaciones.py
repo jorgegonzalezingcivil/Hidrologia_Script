@@ -1474,6 +1474,7 @@ def _analizar_argumentos(argv=None):
     analizador.add_argument(
         "--sin-computar", dest="computar", action="store_false", default=None,
         help="lee los DSS que ya existen en lugar de volver a computar")
+    analizador.add_argument("--silencioso", action="store_true")
     return analizador.parse_args(argv)
 
 
@@ -1483,7 +1484,8 @@ def main(argv=None) -> int:
     try:
         codigo, _ = ejecutar(
             raiz=argumentos.raiz, ruta_config=argumentos.config,
-            ruta_json=argumentos.json, computar=argumentos.computar)
+            ruta_json=argumentos.json, computar=argumentos.computar,
+            consola=not argumentos.silencioso)
     except (ErrorConfiguracion, ErrorRutas, ErrorFormato,
             ErrorHidrologia) as error:
         print(f"{MODULO}: {error}", file=sys.stderr)

@@ -17,7 +17,7 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 
 ## Figuras disponibles
 
-89 figuras en `data/05_resultados/graficos`.
+94 figuras en `data/05_resultados/graficos`.
 
 
 ### M03
@@ -103,10 +103,15 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 
 ### M14
 
+- `{{figura: M14_escenarios_cc | }}`
 - `{{figura: M14_hidrograma_J24 | }}`
+- `{{figura: M14_hidrograma_J24_referencia | }}`
 - `{{figura: M14_hidrograma_J29 | }}`
+- `{{figura: M14_hidrograma_J29_referencia | }}`
 - `{{figura: M14_hidrograma_Sink-1 | }}`
+- `{{figura: M14_hidrograma_Sink-1_referencia | }}`
 - `{{figura: M14_qmax_vs_periodo | }}`
+- `{{figura: M14_qmax_vs_periodo_referencia | }}`
 - `{{figura: M14_sensibilidad_hipotesis | }}`
 
 ### M14c
@@ -162,7 +167,7 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 
 ## Tablas disponibles
 
-69 tablas bajo `data/02_procesado`. La ruta del marcador es la relativa a ese directorio, sin extensión.
+72 tablas bajo `data/02_procesado`. La ruta del marcador es la relativa a ese directorio, sin extensión.
 
 - `{{tabla: M09_subcuencas_pequenas | }}`
 - `{{tabla: balance/balance_mensual | }}`
@@ -188,8 +193,11 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 - `{{tabla: frecuencia/pmax24h_serie | }}`
 - `{{tabla: hidrologia/abstraccion_inicial | }}`
 - `{{tabla: hidrologia/balance_subcuencas | }}`
+- `{{tabla: hidrologia/embalses | }}`
+- `{{tabla: hidrologia/escenarios_cc | }}`
 - `{{tabla: hidrologia/hidrogramas | }}`
 - `{{tabla: hidrologia/qmax_por_periodo | }}`
+- `{{tabla: hidrologia/qmax_por_periodo_referencia | }}`
 - `{{tabla: hidrologia/resultados_por_elemento | }}`
 - `{{tabla: hidrologia/transito | }}`
 - `{{tabla: hidrologia/verificacion_crecientes | }}`
@@ -236,7 +244,7 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 
 ## Familias de hallazgos
 
-366 hallazgos en 27 módulos, agrupados en 56 familias. El prefijo del marcador puede ser la familia entera o una clave concreta.
+370 hallazgos en 27 módulos, agrupados en 56 familias. El prefijo del marcador puede ser la familia entera o una clave concreta.
 
 | familia | hallazgos |
 |---|---|
@@ -249,8 +257,9 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 | `{{hallazgos: importar}}` | 8 |
 | `{{hallazgos: verificacion}}` | 8 |
 | `{{hallazgos: balance}}` | 8 |
+| `{{hallazgos: consistencia}}` | 7 |
 | `{{hallazgos: adoptado}}` | 6 |
-| `{{hallazgos: consistencia}}` | 6 |
+| `{{hallazgos: informe}}` | 6 |
 | `{{hallazgos: regimen}}` | 6 |
 | `{{hallazgos: frecuencia}}` | 5 |
 | `{{hallazgos: subcuencas}}` | 5 |
@@ -261,7 +270,6 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 | `{{hallazgos: cambio_climatico}}` | 4 |
 | `{{hallazgos: hietograma}}` | 4 |
 | `{{hallazgos: modelo}}` | 4 |
-| `{{hallazgos: informe}}` | 4 |
 | `{{hallazgos: infiltracion}}` | 4 |
 | `{{hallazgos: dem}}` | 3 |
 | `{{hallazgos: calibracion}}` | 3 |
@@ -278,6 +286,7 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 | `{{hallazgos: tiempo_concentracion}}` | 2 |
 | `{{hallazgos: arf}}` | 2 |
 | `{{hallazgos: transito}}` | 2 |
+| `{{hallazgos: escenarios}}` | 2 |
 | `{{hallazgos: computo}}` | 2 |
 | `{{hallazgos: anexos}}` | 2 |
 | `{{hallazgos: etp}}` | 2 |
@@ -293,7 +302,6 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 | `{{hallazgos: altitud}}` | 1 |
 | `{{hallazgos: gradiente}}` | 1 |
 | `{{hallazgos: zonificacion}}` | 1 |
-| `{{hallazgos: escenarios}}` | 1 |
 | `{{hallazgos: meteorologia}}` | 1 |
 | `{{hallazgos: planchas}}` | 1 |
 

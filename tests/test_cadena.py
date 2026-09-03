@@ -219,5 +219,42 @@ class PruebaInterpretes(unittest.TestCase):
         self.assertTrue(encontrados["qgis"].is_absolute())
 
 
+class PruebaBanderaSilenciosa(unittest.TestCase):
+    """
+    Todo modulo de la cadena tiene que admitir '--silencioso'.
+
+    ES EL FALLO QUE HUBO. El corredor anade esa bandera al comando de CADA
+    modulo, y doce de ellos no la declaraban: argparse abortaba con codigo 2
+    antes de escribir una linea de log, y la cadena no podia pasar del M11.
+    Nadie lo habia notado porque el estudio siempre se corrio modulo a modulo.
+
+    La prueba lee la declaracion y no una lista escrita aqui: un modulo nuevo
+    queda cubierto sin tocarla.
+    """
+
+    def test_cada_script_declarado_la_admite(self) -> None:
+        import yaml
+
+        declaracion = _RAIZ_REPO / "config" / "cadena.yaml"
+        if not declaracion.is_file():
+            self.skipTest("no esta la declaracion de la cadena")
+        with declaracion.open(encoding="utf-8") as manejador:
+            datos = yaml.safe_load(manejador) or {}
+        pasos = [p for p in datos.get("pasos") or []
+                 if str(p.get("estado", "")) == "disponible"
+                 and str(p.get("script", "")).strip()]
+        self.assertTrue(pasos, "la declaracion no trae pasos disponibles")
+        for paso in pasos:
+            ruta = _RAIZ_REPO / str(paso["script"])
+            with self.subTest(modulo=paso.get("modulo")):
+                if not ruta.is_file():
+                    continue
+                self.assertIn('"--silencioso"',
+                              ruta.read_text(encoding="utf-8"),
+                              f"{ruta.name} no declara --silencioso y la cadena "
+                              "se lo pasa: argparse aborta con codigo 2")
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
