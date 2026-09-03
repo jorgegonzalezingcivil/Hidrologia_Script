@@ -62,3 +62,63 @@ ajenos:
       corresponder a una estacion legitima de otro estudio.
   - termino: "AOC71597"
     que_es: "la orden de servicio del estudio de referencia"
+
+  # SEGUNDA TANDA. La primera lista solo cubria los nombres mas visibles y
+  # dejaba pasar prosa que afirma resultados del estudio de referencia sin
+  # nombrarlo: sus estaciones, sus cifras de caudal ambiental y su capitulo de
+  # analisis hidraulico, que este estudio no realizo. Se descubrio volcando los
+  # parrafos resaltados del documento ya generado, no de la plantilla.
+  - termino: "Qda. NN"
+    que_es: "como el estudio de referencia nombra su corriente en el balance"
+  - termino: "Acacías"
+    que_es: "una estacion del estudio de referencia, en el Meta"
+  - termino: "MANZANARES"
+    que_es: "una estacion del estudio de referencia"
+  - termino: "SALINAS DE UPIN"
+    que_es: "una estacion del estudio de referencia"
+  - termino: "ICA V"
+    que_es: "una estacion del estudio de referencia"
+  - termino: "Departamento del Meta"
+    que_es: "el departamento del estudio de referencia"
+  - termino: "23.04 l/s"
+    que_es: "el caudal ambiental del estudio de referencia"
+  - termino: "9.71 l/s"
+    que_es: "el Q95 del estudio de referencia"
+  - termino: "disminución de precipitación"
+    que_es: >-
+      la proyeccion de cambio climatico del estudio de referencia. En este
+      estudio la proyeccion es de INCREMENTO, del 10,58 por ciento, y el
+      parrafo afirma lo contrario de lo que el modelo aplica.
+
+# -----------------------------------------------------------------------------
+# PARRAFOS DE UN ANALISIS QUE ESTA CADENA NO REALIZA
+#
+# La plantilla cubre un entregable mas amplio que el de la cadena: su titulo es
+# "Estudios hidrologicos, modelacion hidraulica de cauces y analisis de
+# socavacion", y la cadena produce el primero de los tres. Las conclusiones de
+# los otros dos siguen en el documento con las cifras del estudio de
+# referencia: profundidades de socavacion, galibo, ampliacion del puente,
+# gradacion del enrocado. No las detecta la comprobacion de identidad porque no
+# nombran a nadie.
+#
+# NO SE BORRAN. Sirven de modelo de redaccion para cuando el analisis
+# hidraulico exista, y borrarlas obligaria a rehacerlas desde cero. Se marcan
+# en ROSA para que no puedan confundirse con una conclusion de este estudio.
+# -----------------------------------------------------------------------------
+fuera_de_alcance:
+  motivo: >-
+    corresponde a la modelacion hidraulica y al analisis de socavacion, que no
+    forman parte de este estudio hidrologico. Las cifras son las del informe de
+    referencia y hay que reescribirlas cuando ese analisis se realice.
+  fragmentos:
+    - "Se construyó ll modelo hidráulico en 1D"
+    - "Se observó que el estribo izquierdo del puente"
+    - "Se construyó el modelo hidráulico 2D"
+    - "El análisis de socavación para la creciente de periodo de retorno"
+    - "En cuanto a la socavación local en estribos"
+    - "De acuerdo con el análisis del software utilizado no se tiene socavación"
+    - "A partir de los resultados de lámina de agua de creciente de 100 años"
+    - "Se recomienda la ampliación de la longitud del puente"
+    - "Se recomienda la instalación de un enrocado de protección"
+    - "Se recomienda tener en cuenta las alturas de lámina de agua"
+    - "Para los análisis de socavación se utiliza los resultados de las granulometrías"

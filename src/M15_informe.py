@@ -130,7 +130,10 @@ class ResultadoM15:
     tablas_sin_fuente: list[str] = field(default_factory=list)
     analisis_pendientes: int = 0
     analisis_resueltos: list[str] = field(default_factory=list)
+    analisis_incompletos: list[dict[str, str]] = field(default_factory=list)
     identidad_ajena: list[dict[str, str]] = field(default_factory=list)
+    fuera_de_alcance: list[str] = field(default_factory=list)
+    fuera_de_alcance_motivo: str = ""
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -200,17 +203,27 @@ def leer_analisis(ruta: Path) -> dict[str, list[str]]:
 
     with ruta.open(encoding="utf-8") as manejador:
         datos = yaml.safe_load(manejador) or {}
-    analisis: dict[str, list[str]] = {}
+    analisis: dict[str, dict[str, Any]] = {}
     for entrada in datos.get("analisis") or []:
         instruccion = str(entrada.get("instruccion", "")).strip()
         parrafos = [str(p).strip() for p in entrada.get("parrafos") or []
                     if str(p).strip()]
         if instruccion and parrafos:
-            analisis[_normalizar_leyenda(instruccion)] = parrafos
+            analisis[_normalizar_leyenda(instruccion)] = {
+                "parrafos": parrafos,
+                # LO QUE NO SE PUDO RESOLVER SE MARCA, no se deja pasar. Un
+                # parrafo escrito sobre un dato que falta se lee igual que uno
+                # completo, y en un entregable eso es peor que un hueco: nadie
+                # vuelve a mirarlo. El color lo distingue del verde, que marca
+                # lo que la plantilla pide de cada estudio.
+                "resaltar": bool(entrada.get("resaltar", False)),
+                "falta": str(entrada.get("falta", "")).strip(),
+            }
     return analisis
 
 
-def resolver_analisis(parrafo, redactado: Sequence[str], documento) -> int:
+def resolver_analisis(parrafo, redactado: Sequence[str], documento,
+                      resaltar: bool = False) -> int:
     """
     Sustituye la instruccion en verde por los parrafos redactados.
 
@@ -222,9 +235,20 @@ def resolver_analisis(parrafo, redactado: Sequence[str], documento) -> int:
 
     Devuelve cuantos parrafos se escribieron.
     """
+    from docx.enum.text import WD_COLOR_INDEX
+
     anterior = parrafo._element
     for texto in redactado:
         nuevo = documento.add_paragraph(texto, style="Normal")
+        if resaltar:
+            # ROSA, que es el unico criterio posible: TIENE QUE SER UN COLOR
+            # QUE LA PLANTILLA NO USE. Ya emplea el verde para lo que hay que
+            # escribir en cada estudio (577 runs), el amarillo para lo que hay
+            # que revisar (255) y el turquesa en leyendas y fuentes (34).
+            # Marcar con cualquiera de los tres enterraria estos avisos entre
+            # los suyos, que es como no marcarlos.
+            for run in nuevo.runs:
+                run.font.highlight_color = WD_COLOR_INDEX.PINK
         anterior.addnext(nuevo._element)
         anterior = nuevo._element
     parrafo._element.getparent().remove(parrafo._element)
@@ -239,9 +263,12 @@ def leer_identidad(ruta: Path) -> dict[str, Any]:
 
     with ruta.open(encoding="utf-8") as manejador:
         datos = yaml.safe_load(manejador) or {}
+    fuera = datos.get("fuera_de_alcance") or {}
     return {"propios": [str(c) for c in datos.get("propios") or []],
             "ajenos": [d for d in datos.get("ajenos") or []
-                       if str(d.get("termino", "")).strip()]}
+                       if str(d.get("termino", "")).strip()],
+            "fuera_motivo": str(fuera.get("motivo", "")).strip(),
+            "fuera": [str(f) for f in fuera.get("fragmentos") or []]}
 
 
 def revisar_identidad(parrafos, ajenos, propios) -> list[dict[str, str]]:
@@ -287,6 +314,37 @@ def revisar_identidad(parrafos, ajenos, propios) -> list[dict[str, str]]:
                 "parrafo": texto,
             })
     return encontrados
+
+
+def marcar_fuera_de_alcance(documento, fragmentos) -> list[str]:
+    """
+    Resalta los parrafos de un analisis que esta cadena no realiza.
+
+    LA PLANTILLA CUBRE MAS DE LO QUE LA CADENA PRODUCE. Su titulo es "Estudios
+    hidrologicos, modelacion hidraulica de cauces y analisis de socavacion", y
+    aqui se resuelve el primero de los tres. Las conclusiones de los otros dos
+    seguian en el documento con las cifras del informe de referencia: una
+    profundidad de socavacion, un galibo, una ampliacion de puente y una
+    gradacion de enrocado, todas presentadas como resultado de este estudio.
+
+    NO LAS DETECTA LA COMPROBACION DE IDENTIDAD, porque no nombran a nadie: son
+    frases tecnicas correctas sobre un analisis que no se hizo.
+
+    NO SE BORRAN. Sirven de modelo de redaccion para cuando ese analisis
+    exista. Se marcan para que no puedan leerse como conclusion de este estudio.
+    """
+    from docx.enum.text import WD_COLOR_INDEX
+
+    marcados = []
+    for parrafo in documento.paragraphs:
+        texto = parrafo.text.strip()
+        if not texto or not any(texto.startswith(f) for f in fragmentos):
+            continue
+        for run in parrafo.runs:
+            if run.text.strip():
+                run.font.highlight_color = WD_COLOR_INDEX.PINK
+        marcados.append(texto)
+    return marcados
 
 
 def clasificar(texto: str) -> tuple[str, str]:
@@ -895,8 +953,13 @@ def ejecutar(
             if tipo == "analisis":
                 redactado = analisis.get(_normalizar_leyenda(argumento))
                 if redactado:
-                    resolver_analisis(parrafo, redactado, documento)
+                    resolver_analisis(parrafo, redactado["parrafos"],
+                                      documento, redactado["resaltar"])
                     resultado.analisis_resueltos.append(argumento)
+                    if redactado["resaltar"]:
+                        resultado.analisis_incompletos.append(
+                            {"instruccion": argumento,
+                             "falta": redactado["falta"]})
                 else:
                     resultado.analisis_pendientes += 1
             elif tipo == "figura":
@@ -920,9 +983,14 @@ def ejecutar(
                             redactado = analisis.get(
                                 _normalizar_leyenda(argumento))
                             if redactado:
-                                resolver_analisis(parrafo, redactado,
-                                                  documento)
+                                resolver_analisis(
+                                    parrafo, redactado["parrafos"], documento,
+                                    redactado["resaltar"])
                                 resultado.analisis_resueltos.append(argumento)
+                                if redactado["resaltar"]:
+                                    resultado.analisis_incompletos.append(
+                                        {"instruccion": argumento,
+                                         "falta": redactado["falta"]})
                             else:
                                 resultado.analisis_pendientes += 1
                         elif tipo == "figura":
@@ -950,6 +1018,9 @@ def ejecutar(
         if resultado.identidad_ajena:
             logger.warning("%d parrafo(s) nombran el estudio de referencia",
                            len(resultado.identidad_ajena))
+        resultado.fuera_de_alcance = marcar_fuera_de_alcance(
+            documento, identidad.get("fuera") or [])
+        resultado.fuera_de_alcance_motivo = identidad.get("fuera_motivo", "")
 
     marcados = marcar_campos_para_actualizar(documento)
     logger.info("%d campo(s) marcados para que Word los actualice al abrir",
@@ -1105,6 +1176,37 @@ def _resolver_tabla(cuerpo, posicion, tablas, parrafos, numero, declaracion,
 def _resumir(resultado: ResultadoM15) -> list[Hallazgo]:
     """Lo que el módulo resolvió y lo que queda por hacer a mano."""
     hallazgos: list[Hallazgo] = []
+
+    if resultado.fuera_de_alcance:
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "informe.fuera_de_alcance",
+            f"{len(resultado.fuera_de_alcance)} párrafo(s) del documento "
+            f"quedan RESALTADOS EN ROSA porque su contenido "
+            f"{resultado.fuera_de_alcance_motivo} No se borran: sirven de "
+            "modelo de redacción. Pero tal como están afirman como resultado "
+            "de este estudio unas cifras que no le corresponden.",
+        ))
+
+    if resultado.analisis_incompletos:
+        detalle = "; ".join(f"'{d['instruccion'][:45]}': {d['falta']}"
+                            for d in resultado.analisis_incompletos)
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "informe.analisis_incompleto",
+            f"{len(resultado.analisis_incompletos)} análisis quedaron "
+            "redactados pero les falta un dato que la cadena no puede aportar. "
+            "Van RESALTADOS EN ROSA en el documento, para que se vean al "
+            "revisarlo: un párrafo escrito sobre un dato que falta se lee igual "
+            f"que uno completo, y eso es peor que un hueco. {detalle}",
+        ))
+
+    if resultado.analisis_resueltos:
+        hallazgos.append(Hallazgo(
+            INFORMATIVO, "informe.analisis_redactados",
+            f"{len(resultado.analisis_resueltos)} instrucción(es) de redacción "
+            "se resolvieron con el texto declarado en la configuración del "
+            "estudio. La instrucción se retiró del documento, de modo que lo "
+            "que queda en verde es lo que sigue pendiente.",
+        ))
 
     if resultado.identidad_ajena:
         terminos = sorted({d["termino"] for d in resultado.identidad_ajena})
