@@ -41,6 +41,11 @@ NOMBRES = (
     ("Comparación Caudales e Influencia Cambo Climático",
      "Comparación Caudales e Influencia Cambio Climático",
      "decia 'Cambo Climatico'"),
+    ("los parámetros del tránsito de Muskingum-Cunge y el tiempo de rezago",
+     "los parámetros del tránsito de crecientes y el tiempo de rezago",
+     "el parrafo de calibracion nombraba el metodo de transito que el modelo "
+     "ya no usa; va por sustitucion porque es una frase dentro de un parrafo "
+     "largo que no hay razon para reescribir entero"),
 )
 
 # -----------------------------------------------------------------------------
@@ -414,6 +419,66 @@ PARRAFOS_TEORIA = (
      "hidráulica del tramo.",
      "ataba X = 0,2 'como el caso de estudio'; X se calcula por tramo y en "
      "este estudio la mediana da 0,4976, no 0,2"),
+
+    # --- Transito, segunda vuelta -------------------------------------------
+    # Los dos parrafos anteriores se escribieron cuando la cadena adoptaba
+    # Muskingum-Cunge. El consultor cambio despues el metodo a Muskingum con K
+    # y X declaradas por clase de pendiente, y el texto quedo afirmando lo
+    # contrario de lo que hace el modelo: 62 de 63 elementos de transito del
+    # .basin dicen 'Route: Muskingum'. Es el mismo defecto que el consultor
+    # habia senalado la primera vez, reaparecido por el otro lado.
+    ("Existen varios métodos para propagación de crecientes en ríos y "
+     "canales. Se calculan aquí dos: el método de Muskingum, desarrollado por "
+     "McCarthy en conexión con estudios de propagación del río Muskingum, en "
+     "Ohio, Estados Unidos, que hace uso de la ecuación de continuidad con "
+     "parámetros K y X constantes; y el método de Muskingum-Cunge, que "
+     "resuelve la misma ecuación pero deriva K y X de la hidráulica del tramo "
+     "en cada subtramo y cada paso de tiempo, sin necesidad de calibrarlos "
+     "contra hidrogramas observados. El método adoptado para los resultados "
+     "del modelo es Muskingum-Cunge; Muskingum se presenta como "
+     "parametrización alterna, de parámetros constantes.",
+     "Existen varios métodos para propagación de crecientes en ríos y "
+     "canales. Se calculan aquí dos: el método de Muskingum, desarrollado por "
+     "McCarthy en conexión con estudios de propagación del río Muskingum, en "
+     "Ohio, Estados Unidos, que hace uso de la ecuación de continuidad con "
+     "parámetros K y X constantes por tramo; y el método de Muskingum-Cunge, "
+     "que resuelve la misma ecuación pero deriva K y X de la hidráulica del "
+     "tramo, a partir de su geometría, su pendiente y su resistencia. El "
+     "método adoptado para los resultados del modelo es el de Muskingum, con "
+     "K y X declarados por clase de pendiente del tramo; Muskingum-Cunge se "
+     "calcula en paralelo y sus parámetros se reportan como contraste, de "
+     "modo que la tabla de tránsito permite comparar el valor declarado con "
+     "el que resultaría de la linealización.",
+     "el modelo corre Muskingum clasico (62 tramos con 'Route: Muskingum' en "
+     "el .basin) y el texto decia que el adoptado era Muskingum-Cunge"),
+
+    ("El parámetro K puede tomarse como el tiempo que le toma a la onda "
+     "recorrer la longitud total del tramo en estudio. X es una constante "
+     "entre 0 y 0,5 que refleja cuánto atenúa el tramo la onda de creciente: "
+     "valores cercanos a 0,5 la trasladan casi sin atenuarla y valores "
+     "cercanos a 0 la asimilan al comportamiento de un embalse de nivel "
+     "horizontal. En ausencia de hidrogramas observados con que calibrarlos, K "
+     "y X se obtienen aquí por linealización de Cunge en un caudal de "
+     "referencia, a partir de la geometría, la pendiente y la resistencia "
+     "hidráulica del tramo.",
+     "El parámetro K puede tomarse como el tiempo que le toma a la onda "
+     "recorrer la longitud total del tramo en estudio, y se obtiene aquí como "
+     "el cociente entre su longitud y una celeridad de onda asignada según la "
+     "clase de pendiente del tramo. X es una constante entre 0 y 0,5 que "
+     "refleja cuánto atenúa el tramo la onda de creciente: valores cercanos a "
+     "0,5 la trasladan casi sin atenuarla y valores cercanos a 0 la asimilan "
+     "al comportamiento de un embalse de nivel horizontal; también se asigna "
+     "por clase de pendiente. La linealización de Cunge se calcula igualmente "
+     "y su valor de X se reporta al lado del adoptado. Sobre la geometría "
+     "disponible esa linealización arroja valores de X próximos a 0,5, es "
+     "decir, traslación prácticamente sin atenuación, lo que superpone en el "
+     "punto de entrega los picos de los tributarios; en ausencia de "
+     "hidrogramas observados con que dirimirlo, se adoptan parámetros "
+     "declarados y el contraste queda documentado.",
+     "K y X no salen de la linealizacion de Cunge: se declaran por clase de "
+     "pendiente, y la columna 'celeridad_origen' de la tabla de transito dice "
+     "'declarada' en los 62 tramos"),
+
 )
 
 # Frases que se insertan despues de un parrafo ancla, porque describen algo

@@ -1185,15 +1185,18 @@ def _escribir_figuras(configuracion, base, resultado, logger) -> None:
     # plantilla los presenta uno detras del otro, y una sola figura con las
     # dieciseis curvas superpuestas no se leeria: los hidrogramas de los dos
     # escenarios se cruzan y comparten la escala.
+    metodo = nombre_del_transito(configuracion.obtener(
+        "hec_hms.transito.metodo_adoptado", ""))
     escritas = _figura_qmax(graficos, estilo, directorio, base, resultado,
-                            resultado.resultados, periodos, "")
+                            resultado.resultados, periodos, "", metodo)
     escritas += _figuras_hidrograma(graficos, estilo, directorio, base,
                                     resultado, resultado.hidrogramas,
                                     periodos, "")
     if resultado.resultados_referencia:
         escritas += _figura_qmax(
             graficos, estilo, directorio, base, resultado,
-            resultado.resultados_referencia, periodos, SUFIJO_REFERENCIA)
+            resultado.resultados_referencia, periodos, SUFIJO_REFERENCIA,
+            metodo)
         escritas += _figuras_hidrograma(
             graficos, estilo, directorio, base, resultado,
             resultado.hidrogramas_referencia, periodos, SUFIJO_REFERENCIA)
@@ -1216,19 +1219,54 @@ NOTA_ESCENARIO = {
 }
 
 
+NOMBRE_DEL_TRANSITO = {
+    "muskingum": "Muskingum",
+    "muskingum_cunge": "Muskingum-Cunge",
+}
+
+
+def nombre_del_transito(metodo: str) -> str:
+    """
+    Como se llama en el informe el metodo de transito que corre el modelo.
+
+    NO SE ESCRIBE EN EL PIE DE LA FIGURA. Estuvo escrito, y cuando el consultor
+    cambio el metodo a Muskingum el pie siguio diciendo Muskingum-Cunge: una
+    afirmacion falsa sobre el metodo, impresa en el informe, que nada
+    comprobaba. Sale de la configuracion, que es la que el M13 honra al
+    escribir el modelo.
+    """
+    clave = str(metodo or "").strip().lower()
+    return NOMBRE_DEL_TRANSITO.get(clave, clave or "no declarado")
+
+
 def _figura_qmax(graficos, estilo, directorio, base, resultado, filas,
-                 periodos, sufijo: str) -> int:
-    """Caudal maximo contra periodo de retorno, un trazo por punto."""
-    puntos = sorted({f["elemento"] for f in filas})
-    series: dict[str, tuple[list[float], list[float]]] = {}
-    for punto in puntos:
-        pares = [(float(p), f["qmax_m3s"]) for p in periodos
-                 for f in filas
-                 if f["elemento"] == punto and f["periodo_retorno"] == p]
-        if pares:
-            series[punto] = ([x for x, _ in pares], [y for _, y in pares])
-    if not series:
+                 periodos, sufijo: str, metodo: str) -> int:
+    """
+    Caudal maximo contra periodo de retorno EN EL NODO DE DESCARGA.
+
+    SOLO EL SITIO DE PROYECTO, y no un trazo por cada punto con hidrograma. La
+    figura acompana en el informe a la tabla de caudales de diseno, que es la
+    del punto de entrega y la que alimenta la modelacion hidraulica: con las
+    curvas de los puntos intermedios encima, la del sitio de proyecto deja de
+    distinguirse y el lector puede tomar de la figura un caudal que no es el
+    que la tabla declara. Los puntos intermedios tienen su propia figura de
+    hidrograma, que es donde interesan.
+    """
+    punto = resultado.punto_de_proyecto
+    pares = [(float(p), f["qmax_m3s"]) for p in periodos
+             for f in filas
+             if f["elemento"] == punto and f["periodo_retorno"] == p]
+    if not pares:
+        # No se dibuja una figura con otro punto en su lugar: llevaria el pie
+        # que dice 'Sitio de proyecto' sobre un caudal que no es el suyo.
+        resultado.hallazgos.append(Hallazgo(
+            ADVERTENCIA, "graficos.sin_punto_de_proyecto",
+            f"no hay resultados del punto de entrega '{punto}' para dibujar "
+            f"la curva de caudal contra periodo de retorno"
+            f"{' del escenario de referencia' if sufijo else ''}. La figura "
+            "no se escribe."))
         return 0
+    series = {punto: ([x for x, _ in pares], [y for _, y in pares])}
     with graficos.figura(
             estilo, titulo="Caudal máximo contra periodo de retorno",
             etiqueta_x="Periodo de retorno (años)",
@@ -1241,7 +1279,7 @@ def _figura_qmax(graficos, estilo, directorio, base, resultado, filas,
         fig.text(0.01, -0.04,
                  f"Sitio de proyecto: {resultado.punto_de_proyecto}. "
                  "Modelo HEC-HMS, SCS Curve Number y SCS Unit Hydrograph, "
-                 f"tránsito Muskingum-Cunge. {NOTA_ESCENARIO[sufijo]}",
+                 f"tránsito {metodo}. {NOTA_ESCENARIO[sufijo]}",
                  fontsize=estilo.tamano_fuente - 2, color="#555555")
         for ruta in graficos.guardar(
                 fig, directorio / f"M14_qmax_vs_periodo{sufijo}", estilo):

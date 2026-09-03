@@ -582,6 +582,38 @@ class PruebaEscenariosDeCambioClimatico(unittest.TestCase):
         self.assertEqual(m14.comparar_escenarios({}, {}, "Sink-1"), [])
 
 
+class PruebaNombreDelTransito(unittest.TestCase):
+    """
+    El pie de la figura dice que metodo de transito corrio el modelo.
+
+    ESTUVO ESCRITO A MANO. Decia 'Muskingum-Cunge', y cuando el consultor
+    cambio el metodo adoptado a Muskingum el pie siguio diciendo lo mismo: una
+    afirmacion falsa sobre el metodo, impresa en el informe, que nada
+    comprobaba. Sale de la configuracion, que es la que el M13 honra al
+    escribir el .basin.
+    """
+
+    def test_los_dos_metodos_que_la_cadena_escribe(self) -> None:
+        self.assertEqual(m14.nombre_del_transito("muskingum"), "Muskingum")
+        self.assertEqual(m14.nombre_del_transito("muskingum_cunge"),
+                         "Muskingum-Cunge")
+
+    def test_no_distingue_mayusculas_ni_espacios(self) -> None:
+        self.assertEqual(m14.nombre_del_transito("  MUSKINGUM "), "Muskingum")
+
+    def test_un_metodo_sin_declarar_se_dice(self) -> None:
+        # Callarlo dejaria el pie afirmando un metodo por omision; decirlo
+        # hace visible que la configuracion no lo declara.
+        self.assertEqual(m14.nombre_del_transito(""), "no declarado")
+        self.assertEqual(m14.nombre_del_transito(None), "no declarado")
+
+    def test_un_metodo_desconocido_se_muestra_tal_cual(self) -> None:
+        # Un metodo nuevo en la configuracion tiene que verse en la figura,
+        # no convertirse en el nombre de otro.
+        self.assertEqual(m14.nombre_del_transito("lag_and_route"),
+                         "lag_and_route")
+
+
 class PruebaTablaAncha(unittest.TestCase):
     """
     La tabla del informe, una fila por elemento y una columna por periodo.
