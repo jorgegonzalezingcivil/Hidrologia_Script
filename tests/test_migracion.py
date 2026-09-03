@@ -96,8 +96,16 @@ class PruebaMigracionCompleta(unittest.TestCase):
         # Una configuracion de la version 1: sin esquema_version, con la ruta
         # antigua y sin el bloque de ampliacion.
         (self.temporal / "config" / "config.yaml").write_text(
+            # Un estudio de la version 1 ya traia estos bloques: son
+            # anteriores a la cadena de migraciones y ninguna receta los
+            # introduce, de modo que tienen que estar aqui para que las que
+            # cuelgan de ellos encuentren su ancla.
             "proyecto:\n"
             '  nombre: "Prueba"\n'
+            '  responsable: ""\n'
+            "\n"
+            "caudal_ambiental:\n"
+            '  metodo_adoptado: "qirh"\n'
             "\n"
             "estaciones:\n"
             "  buffer_adicional_km: 5.0\n"

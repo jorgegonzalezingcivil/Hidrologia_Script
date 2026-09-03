@@ -1,0 +1,64 @@
+# =============================================================================
+# IDENTIDAD DEL ESTUDIO EN EL INFORME  (insumo del M15)
+# -----------------------------------------------------------------------------
+# QUE PROBLEMA RESUELVE. La plantilla se derivo de un informe del consultor ya
+# entregado (CLAUDE.md, seccion 10) y conserva su redaccion. Esa redaccion
+# nombra al estudio del que salio, y arrastra sus cifras: el informe de este
+# estudio llego a decir "un IRH de 0.87 para la Quebrada No. 2, lo que las
+# clasifica como Muy Alta" cuando la cadena habia calculado 0,70, y a citar un
+# caudal ambiental de 23,04 l/s cuando este estudio da 551 l/s.
+#
+# NO LO DETECTABA NADA. Un parrafo asi no es una instruccion en verde, no es
+# una tabla sin llenar y no es una figura que falte: es prosa correcta, bien
+# escrita, sobre otro proyecto. El M15 la copiaba intacta y el informe salia
+# afirmando resultados ajenos con toda naturalidad. Es el peor modo de fallo
+# posible en un entregable, porque no se ve.
+#
+# COMO SE COMPRUEBA. Aqui se declaran los terminos que identifican al informe
+# de referencia. El M15 busca cada uno en la prosa del documento y reporta el
+# parrafo que lo contenga, SALVO que el estudio lo declare como propio en su
+# configuracion: un termino puede coincidir legitimamente, y de hecho ocurre,
+# porque el contratante de este estudio es el mismo del de referencia.
+#
+# NO ES UN FILTRO NI UNA CORRECCION AUTOMATICA. Reescribir la frase exigiria
+# saber que dice el estudio nuevo, y eso no se deduce. Se reporta, con el
+# parrafo entero, y el consultor decide.
+# =============================================================================
+
+version: 1
+
+# Claves de la configuracion del estudio cuyo valor es un identificador PROPIO.
+# Un termino ajeno que coincida con uno de estos no se reporta.
+propios:
+  - proyecto.nombre
+  - proyecto.contratante
+  - proyecto.consultor
+  - proyecto.corriente
+  - proyecto.municipio
+  - proyecto.departamento
+  - proyecto.autoridad_ambiental
+
+# Terminos del informe de referencia. 'que_es' explica de que se trata, para
+# que el hallazgo diga por que se reporta y no solo que aparecio.
+ajenos:
+  - termino: "Quebrada No. 2"
+    que_es: "la corriente del estudio de referencia"
+  - termino: "Villavicencio"
+    que_es: "el municipio del estudio de referencia"
+  - termino: "CORMACARENA"
+    que_es: "la autoridad ambiental del estudio de referencia"
+  - termino: "Juanambú"
+    que_es: "el proyecto del estudio de referencia"
+  - termino: "Juananmbú"
+    que_es: "el proyecto del estudio de referencia, con la errata del original"
+  - termino: "Maizaro"
+    que_es: "un cuerpo de agua del estudio de referencia"
+  - termino: "Calatrava"
+    que_es: "un cuerpo de agua del estudio de referencia"
+  - termino: "Apto. Vanguardia"
+    que_es: >-
+      la estacion de temperatura del estudio de referencia. Se declara con el
+      prefijo 'Apto.' y no como 'Vanguardia' a secas porque el nombre podria
+      corresponder a una estacion legitima de otro estudio.
+  - termino: "AOC71597"
+    que_es: "la orden de servicio del estudio de referencia"

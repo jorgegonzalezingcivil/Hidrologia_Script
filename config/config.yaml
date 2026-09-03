@@ -14,7 +14,7 @@
 # configuración vieja se detiene con 'clave ausente', que al menos es ruidoso,
 # pero corregirlo a mano en cada proyecto es trabajo repetido y propenso a que
 # dos estudios acaben con doctrina distinta sin que nadie lo advierta.
-esquema_version: 15
+esquema_version: 17
 
 proyecto:
   nombre: "Estudio Hidrológico - PLANTILLA"
@@ -22,6 +22,21 @@ proyecto:
   consultor: ""
   anio_estudio: 2026            # controla el filtro de estaciones suspendidas
   responsable: ""
+
+  # LA IDENTIDAD DEL ESTUDIO, para el informe. La plantilla conserva la
+  # redaccion del informe de referencia del que se derivo, y esa redaccion
+  # nombra al proyecto de aquel: su corriente, su municipio y su autoridad
+  # ambiental. El M15 comprueba que no queden esos nombres en el entregable
+  # (ver config/informe_identidad.yaml) y necesita saber cuales son los de
+  # ESTE estudio para no reportar una coincidencia legitima.
+  #
+  # NO SE DEDUCEN DE LOS DATOS. La cadena conoce la subzona hidrografica,
+  # porque la interseca en el M01, pero no el nombre de la corriente del
+  # proyecto ni el municipio: los declara el consultor.
+  corriente: ""
+  municipio: ""
+  departamento: ""
+  autoridad_ambiental: ""
 
 # -----------------------------------------------------------------------------
 # ENTORNOS DE EJECUCIÓN
@@ -1890,6 +1905,24 @@ caudal_ambiental:
   cdc_si_irh_mayor: 85
   metodo_adoptado: "qirh"
 
+  # DE QUE LADO DEL UMBRAL SE ADOPTA, cuando el indice cae en el filo.
+  #
+  # LA REGLA ES UN ESCALON. Con el IRH a unas milesimas del umbral, el lado no
+  # lo decide la hidrologia sino la cifra decimal en que se corta, y el indice
+  # se apoya en una serie MODELADA, no medida. Medido en Refugio del Valle: IRH
+  # de 0,6957 contra un umbral de 0,70, que a dos decimales se presenta como
+  # 0,70, y entre un lado y otro el caudal ambiental pasa de 0,8891 a 0,5512
+  # m3/s, un 38 por ciento.
+  #
+  # Vacio: manda el valor calculado, y el modulo advierte si queda en el filo.
+  # 'inferior': se reserva el percentil de IRH bajo, que da un caudal MAYOR.
+  # 'superior': se reserva el de IRH alto, que da un caudal menor.
+  #
+  # Declararlo no es forzar el resultado: es dejar escrito quien tomo la
+  # decision, que es lo que la seccion 7 de CLAUDE.md exige de toda decision
+  # con margen. Sin esto la elegia el redondeo y no quedaba constancia.
+  lado_del_umbral: ""
+
 # -----------------------------------------------------------------------------
 # GRÁFICAS DE LOS MÓDULOS DE ANÁLISIS
 # -----------------------------------------------------------------------------
@@ -1979,6 +2012,18 @@ informe:
   # plantilla del consultor no se toca y la copia saneada se regenera:
   # una correccion escrita en ella se perderia sin aviso.
   correcciones: "config/informe_correcciones.yaml"
+
+  # Terminos del informe de referencia que no deben quedar en el entregable.
+  # Un parrafo heredado es prosa correcta sobre otro proyecto y no lo detecta
+  # ninguna otra comprobacion: no es instruccion, ni tabla vacia, ni figura
+  # que falte. Ver el encabezado del archivo.
+  identidad: "config/informe_identidad.yaml"
+
+  # Los analisis redactados de ESTE estudio, que sustituyen las instrucciones
+  # en verde. Vive en el estudio y no en la herramienta: un analisis habla de
+  # los numeros de su proyecto, y en la plantilla compartida los llevaria al
+  # siguiente. Sin el archivo, cada instruccion se queda en verde.
+  analisis: "config/analisis.yaml"
 
   # Decimales de toda cifra que el modulo escriba en una tabla. Solo
   # afecta a lo que ya trae parte decimal: un anio o un codigo de

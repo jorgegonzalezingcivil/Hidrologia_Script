@@ -319,3 +319,45 @@ migraciones:
     claves_nuevas:
       - clave: "cambio_climatico.comparar_escenarios"
         despues_de: "cambio_climatico.aplicar"
+
+  - desde: 15
+    hasta: 16
+    titulo: "El lado del umbral del IRH, cuando el indice cae en el filo"
+    motivo: >-
+      La regla del caudal ambiental es un escalon y el IRH de este estudio cayo
+      a 0,0043 del umbral. De un lado a otro el caudal ambiental cambia un 38
+      por ciento, y el lado lo decidia la cifra decimal en que se corta un
+      indice calculado sobre una serie MODELADA, no medida.
+
+      Pasa a poderse declarar. Vacio conserva el comportamiento anterior, el
+      valor calculado, con su advertencia; 'inferior' o 'superior' fijan el
+      lado y el modulo lo registra como decision del consultor.
+
+    claves_nuevas:
+      - clave: "caudal_ambiental.lado_del_umbral"
+        despues_de: "caudal_ambiental.metodo_adoptado"
+
+  - desde: 16
+    hasta: 17
+    titulo: "La identidad del estudio, para comprobar la prosa del informe"
+    motivo: >-
+      La plantilla conserva la redaccion del informe de referencia del que se
+      derivo, y esa redaccion nombra al proyecto de aquel. El informe de este
+      estudio llego a decir "un IRH de 0.87 para la Quebrada No. 2, lo que las
+      clasifica como Muy Alta" cuando la cadena habia calculado 0,70, y a citar
+      un caudal ambiental de 23,04 l/s cuando este estudio da 551 l/s.
+
+      No lo detectaba nada: no es una instruccion en verde, ni una tabla sin
+      llenar, ni una figura que falte, sino prosa correcta sobre otro proyecto.
+      El M15 lo comprueba ahora, y para no reportar coincidencias legitimas
+      necesita saber cuales son los nombres propios de este estudio.
+
+    claves_nuevas:
+      - clave: "proyecto.corriente"
+        despues_de: "proyecto.responsable"
+      - clave: "proyecto.municipio"
+        despues_de: "proyecto.corriente"
+      - clave: "proyecto.departamento"
+        despues_de: "proyecto.municipio"
+      - clave: "proyecto.autoridad_ambiental"
+        despues_de: "proyecto.departamento"

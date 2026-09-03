@@ -303,6 +303,7 @@ def caudal_ambiental(
     curva: Sequence[dict[str, Any]], irh: float, umbral: float,
     percentil_si_menor: float, percentil_si_mayor: float,
     metodo_adoptado: str = "qirh",
+    lado_adoptado: str = "",
 ) -> dict[str, Any]:
     """
     Caudal ambiental por los dos métodos, y el adoptado.
@@ -325,7 +326,21 @@ def caudal_ambiental(
     ErrorHidrologia
         Si el método adoptado no es ninguno de los dos.
     """
-    percentil = (percentil_si_menor if irh < umbral else percentil_si_mayor)
+    # EL LADO DEL UMBRAL PUEDE VENIR DECLARADO, y entonces manda sobre el
+    # calculado. La regla es un ESCALON: cuando el indice cae a unas milesimas
+    # del umbral, el lado no lo decide la hidrologia sino la cifra decimal en
+    # que se corta, y el indice se apoya en una serie modelada, no medida.
+    # Dejarlo al redondeo seria dejar que un detalle de formato decidiera
+    # cuanta agua se reserva; declararlo lo convierte en lo que es, una
+    # decision del consultor, y queda escrita en la configuracion del estudio.
+    debajo = irh < umbral
+    if lado_adoptado in ("inferior", "superior"):
+        debajo = lado_adoptado == "inferior"
+    elif lado_adoptado:
+        raise ErrorHidrologia(
+            f"el lado del umbral {lado_adoptado!r} no es 'inferior', "
+            "'superior' ni vacio.")
+    percentil = (percentil_si_menor if debajo else percentil_si_mayor)
     valores = {
         "q95": caudal_para_excedencia(curva, 95.0),
         "qirh": caudal_para_excedencia(curva, percentil),
@@ -338,11 +353,16 @@ def caudal_ambiental(
         "irh": round(irh, 4),
         "umbral_irh": umbral,
         "percentil_aplicado": percentil,
+        "lado_adoptado": lado_adoptado or ("inferior" if debajo
+                                          else "superior"),
+        "lado_declarado": bool(lado_adoptado),
         "regla": ("IRH por debajo del umbral: se reserva el percentil "
                   f"{percentil_si_menor:g}, que da un caudal MAYOR"
-                  if irh < umbral else
+                  if debajo else
                   "IRH en el umbral o por encima: se reserva el percentil "
-                  f"{percentil_si_mayor:g}"),
+                  f"{percentil_si_mayor:g}")
+                 + (", lado adoptado por decision declarada del consultor"
+                    if lado_adoptado else ""),
         "q95_m3s": round(valores["q95"], 5),
         "qirh_m3s": round(valores["qirh"], 5),
         "metodo_adoptado": metodo_adoptado,
@@ -452,7 +472,9 @@ def ejecutar(
                 float(configuracion.obtener("caudal_ambiental.umbral_irh")),
                 float(configuracion.obtener("caudal_ambiental.cdc_si_irh_menor")),
                 float(configuracion.obtener("caudal_ambiental.cdc_si_irh_mayor")),
-                str(configuracion.obtener("caudal_ambiental.metodo_adoptado")))
+                str(configuracion.obtener("caudal_ambiental.metodo_adoptado")),
+                str(configuracion.obtener(
+                    "caudal_ambiental.lado_del_umbral", "") or ""))
             resultado.ambiental.update(caudal_disponible(
                 resultado.irh["caudal_medio_m3s"],
                 resultado.ambiental["caudal_ambiental_m3s"]))
@@ -546,13 +568,24 @@ def _hallazgos(resultado, configuracion) -> None:
     # cifra que la propia cadena no conoce con esa precision.
     margen = abs(irh["irh"] - ambiental["umbral_irh"])
     if margen < 0.05:
+        # EL OTRO LADO ES EL CONTRARIO DEL ADOPTADO, no el contrario del
+        # calculado. Con el lado declarado por el consultor los dos podian
+        # coincidir, y el aviso decia que al otro lado el caudal seria el
+        # mismo, con una diferencia del cero por ciento: el dato que da sentido
+        # al aviso desaparecia justo cuando se habia tomado la decision.
         otro = caudal_para_excedencia(
             resultado.curva,
             float(configuracion.obtener("caudal_ambiental.cdc_si_irh_menor"))
-            if irh["irh"] >= ambiental["umbral_irh"] else
+            if ambiental["lado_adoptado"] == "superior" else
             float(configuracion.obtener("caudal_ambiental.cdc_si_irh_mayor")))
         resultado.hallazgos.append(Hallazgo(
-            ADVERTENCIA, "regimen.irh_en_el_filo",
+            # DECLARADO EL LADO, DEJA DE SER UNA DECISION PENDIENTE. Sigue
+            # reportandose, porque el informe tiene que presentar los dos
+            # valores y decir cual se adopto, pero ya no reclama una decision
+            # que esta tomada: una advertencia que no se puede atender se
+            # aprende a ignorar, y entonces deja de avisar de nada.
+            INFORMATIVO if ambiental.get("lado_declarado") else ADVERTENCIA,
+            "regimen.irh_en_el_filo",
             f"el IRH se presenta como {irh['irh']:.{DECIMALES_INDICE}f} y su "
             f"valor calculado, {irh['irh']:.4f}, queda a {margen:.4f} del umbral de "
             f"{ambiental['umbral_irh']:g}, es decir EN EL FILO de la regla. Al "
@@ -561,9 +594,15 @@ def _hallazgos(resultado, configuracion) -> None:
             f"del {100.0 * abs(otro - ambiental['caudal_ambiental_m3s']) / ambiental['caudal_ambiental_m3s']:.0f} "
             "por ciento. La regla es un ESCALON y aqui se decide en la tercera "
             "cifra decimal, que la cadena no conoce con esa precision: el "
-            "indice se apoya en una serie modelada, no medida. El informe debe "
-            "presentar los dos valores y el consultor decidir con criterio, no "
-            "dejar que lo decida el redondeo.",
+            "indice se apoya en una serie modelada, no medida. "
+            + (f"El consultor declaro el lado "
+               f"{ambiental['lado_adoptado'].upper()} en la configuracion del "
+               "estudio, de modo que el resultado NO lo decide el redondeo. El "
+               "informe debe presentar los dos valores y esa decision."
+               if ambiental.get("lado_declarado") else
+               "El informe debe presentar los dos valores y el consultor "
+               "decidir con criterio, no dejar que lo decida el redondeo: se "
+               "declara en 'caudal_ambiental.lado_del_umbral'."),
         ))
 
 

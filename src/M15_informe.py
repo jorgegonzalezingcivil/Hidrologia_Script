@@ -112,6 +112,8 @@ class ResultadoM15:
     tablas_llenadas: list[dict[str, Any]] = field(default_factory=list)
     tablas_sin_fuente: list[str] = field(default_factory=list)
     analisis_pendientes: int = 0
+    analisis_resueltos: list[str] = field(default_factory=list)
+    identidad_ajena: list[dict[str, str]] = field(default_factory=list)
     productos: list[str] = field(default_factory=list)
     hallazgos: list[Hallazgo] = field(default_factory=list)
 
@@ -156,6 +158,118 @@ def marcar_campos_para_actualizar(documento) -> int:
         elemento.set(qn("w:dirty"), "true")
         marcados += 1
     return marcados
+
+
+def leer_analisis(ruta: Path) -> dict[str, list[str]]:
+    """
+    Los analisis redactados para ESTE estudio, indexados por su instruccion.
+
+    POR QUE VIVE EN EL ESTUDIO Y NO EN LA PLANTILLA. Un analisis dice que
+    significan los numeros de este proyecto: la plantilla es compartida y
+    escribirlo alli llevaria las cifras de un estudio al siguiente, que es
+    exactamente el fallo que el informe ya tuvo con la prosa heredada del
+    informe de referencia.
+
+    LA CLAVE ES EL TEXTO DE LA INSTRUCCION, normalizado igual que las leyendas:
+    sin distinguir mayusculas, tildes ni espacios de mas. La plantilla numera
+    sus figuras con campos SEQ sin resultado en cache, de modo que la
+    instruccion dice 'Analizar Grafico 5-1.' con el numero que traia el informe
+    del que se copio, y ese numero es lo unico estable que hay para
+    identificarla.
+    """
+    if not ruta.is_file():
+        return {}
+    import yaml
+
+    with ruta.open(encoding="utf-8") as manejador:
+        datos = yaml.safe_load(manejador) or {}
+    analisis: dict[str, list[str]] = {}
+    for entrada in datos.get("analisis") or []:
+        instruccion = str(entrada.get("instruccion", "")).strip()
+        parrafos = [str(p).strip() for p in entrada.get("parrafos") or []
+                    if str(p).strip()]
+        if instruccion and parrafos:
+            analisis[_normalizar_leyenda(instruccion)] = parrafos
+    return analisis
+
+
+def resolver_analisis(parrafo, redactado: Sequence[str], documento) -> int:
+    """
+    Sustituye la instruccion en verde por los parrafos redactados.
+
+    SE REEMPLAZA LA INSTRUCCION, no se escribe encima. El primer run de la
+    instruccion lleva el resaltado verde, y reutilizarlo dejaria el analisis
+    marcado como si siguiera pendiente: el consultor tendria que quitar el
+    resaltado a mano en cada uno, y el recuento de pendientes del modulo
+    seguiria contandolos.
+
+    Devuelve cuantos parrafos se escribieron.
+    """
+    anterior = parrafo._element
+    for texto in redactado:
+        nuevo = documento.add_paragraph(texto, style="Normal")
+        anterior.addnext(nuevo._element)
+        anterior = nuevo._element
+    parrafo._element.getparent().remove(parrafo._element)
+    return len(redactado)
+
+
+def leer_identidad(ruta: Path) -> dict[str, Any]:
+    """Los terminos del informe de referencia y las claves propias del estudio."""
+    if not ruta.is_file():
+        return {}
+    import yaml
+
+    with ruta.open(encoding="utf-8") as manejador:
+        datos = yaml.safe_load(manejador) or {}
+    return {"propios": [str(c) for c in datos.get("propios") or []],
+            "ajenos": [d for d in datos.get("ajenos") or []
+                       if str(d.get("termino", "")).strip()]}
+
+
+def revisar_identidad(parrafos, ajenos, propios) -> list[dict[str, str]]:
+    """
+    Busca en la prosa del informe los terminos del estudio de referencia.
+
+    ES EL FALLO QUE NO SE VE. Un parrafo heredado de la plantilla es prosa
+    correcta y bien escrita sobre OTRO proyecto: no es una instruccion en
+    verde, ni una tabla sin llenar, ni una figura que falte. El modulo lo
+    copiaba intacto y el informe salia afirmando resultados ajenos. Aqui llego
+    a decir que el IRH era 0,87 y el caudal ambiental 23,04 l/s.
+
+    NO SE CORRIGE, SE REPORTA. Reescribir la frase exige saber que dice el
+    estudio nuevo, y eso no se deduce del termino que sobra.
+
+    UN TERMINO DECLARADO COMO PROPIO NO SE REPORTA. Puede coincidir de verdad:
+    el contratante de este estudio es el mismo que el del de referencia, y
+    senalarlo seria ruido que ensena a ignorar el aviso.
+
+    Se ignoran las leyendas y las instrucciones: una leyenda con el nombre
+    ajeno se corrige al corregir su figura, y el indice de tablas repite cada
+    leyenda una segunda vez.
+    """
+    propios_normalizados = {str(v).strip().lower()
+                            for v in propios if str(v).strip()}
+    encontrados: list[dict[str, str]] = []
+    for parrafo in parrafos:
+        texto = parrafo.text.strip()
+        if not texto or clasificar(texto)[0]:
+            continue
+        if getattr(parrafo, "style", None) is not None and parrafo.style.name in (
+                "Caption", "table of figures", "TOC 1", "TOC 2", "TOC 3"):
+            continue
+        for entrada in ajenos:
+            termino = str(entrada["termino"])
+            if termino not in texto:
+                continue
+            if termino.strip().lower() in propios_normalizados:
+                continue
+            encontrados.append({
+                "termino": termino,
+                "que_es": str(entrada.get("que_es", "")).strip(),
+                "parrafo": texto,
+            })
+    return encontrados
 
 
 def clasificar(texto: str) -> tuple[str, str]:
@@ -722,6 +836,12 @@ def ejecutar(
     correcciones = leer_correcciones(ruta_correcciones)
     sustituciones = leer_sustituciones(ruta_correcciones)
     decimales = int(configuracion.obtener("informe.decimales", 2))
+    # LOS ANALISIS SON DEL ESTUDIO, no de la plantilla: hablan de sus numeros.
+    # Sin el archivo, cada instruccion se queda en verde y se cuenta, que es el
+    # comportamiento de siempre.
+    analisis = leer_analisis(rutas.resolver(
+        configuracion.obtener("informe.analisis", "config/analisis.yaml"),
+        base))
 
     resultado = ResultadoM15(plantilla=str(origen))
 
@@ -756,7 +876,12 @@ def ejecutar(
                 continue
             tipo, argumento = clasificar(parrafo.text)
             if tipo == "analisis":
-                resultado.analisis_pendientes += 1
+                redactado = analisis.get(_normalizar_leyenda(argumento))
+                if redactado:
+                    resolver_analisis(parrafo, redactado, documento)
+                    resultado.analisis_resueltos.append(argumento)
+                else:
+                    resultado.analisis_pendientes += 1
             elif tipo == "figura":
                 _resolver_figura(parrafo, argumento, [graficos, individuales],
                                  ancho, resultado, base, plan)
@@ -775,7 +900,14 @@ def ejecutar(
                     for parrafo in celda.paragraphs:
                         tipo, argumento = clasificar(parrafo.text)
                         if tipo == "analisis":
-                            resultado.analisis_pendientes += 1
+                            redactado = analisis.get(
+                                _normalizar_leyenda(argumento))
+                            if redactado:
+                                resolver_analisis(parrafo, redactado,
+                                                  documento)
+                                resultado.analisis_resueltos.append(argumento)
+                            else:
+                                resultado.analisis_pendientes += 1
                         elif tipo == "figura":
                             _resolver_figura(
                                 parrafo, argumento, [graficos, individuales],
@@ -783,9 +915,24 @@ def ejecutar(
                                 plan)
 
         logger.info("%d figura(s) puestas, %d tabla(s) llenadas, %d analisis "
-                    "sin tocar", len(resultado.figuras_puestas),
+                    "redactados, %d sin tocar", len(resultado.figuras_puestas),
                     len(resultado.tablas_llenadas),
+                    len(resultado.analisis_resueltos),
                     resultado.analisis_pendientes)
+
+    # LA PROSA HEREDADA, antes de guardar. Va sobre el documento ya resuelto y
+    # no sobre la plantilla, porque lo que importa es lo que se entrega.
+    identidad = leer_identidad(rutas.resolver(
+        configuracion.obtener("informe.identidad",
+                              "config/informe_identidad.yaml"), base))
+    if identidad:
+        propios = [configuracion.obtener(clave, "")
+                   for clave in identidad["propios"]]
+        resultado.identidad_ajena = revisar_identidad(
+            documento.paragraphs, identidad["ajenos"], propios)
+        if resultado.identidad_ajena:
+            logger.warning("%d parrafo(s) nombran el estudio de referencia",
+                           len(resultado.identidad_ajena))
 
     marcados = marcar_campos_para_actualizar(documento)
     logger.info("%d campo(s) marcados para que Word los actualice al abrir",
@@ -941,6 +1088,22 @@ def _resolver_tabla(cuerpo, posicion, tablas, parrafos, numero, declaracion,
 def _resumir(resultado: ResultadoM15) -> list[Hallazgo]:
     """Lo que el módulo resolvió y lo que queda por hacer a mano."""
     hallazgos: list[Hallazgo] = []
+
+    if resultado.identidad_ajena:
+        terminos = sorted({d["termino"] for d in resultado.identidad_ajena})
+        muestra = "; ".join(
+            f"\"{d['termino']}\" ({d['que_es']}): {d['parrafo'][:110]}..."
+            for d in resultado.identidad_ajena[:3])
+        hallazgos.append(Hallazgo(
+            BLOQUEANTE, "informe.identidad_ajena",
+            f"{len(resultado.identidad_ajena)} párrafo(s) del informe nombran "
+            f"el estudio de referencia del que se derivó la plantilla, con "
+            f"{len(terminos)} término(s) distintos: {', '.join(terminos)}. NO "
+            "es una instrucción sin resolver ni una tabla vacía: es prosa "
+            "correcta sobre otro proyecto, y con ella el informe afirma como "
+            "propios datos que no lo son. Hay que reescribir cada párrafo con "
+            f"los de este estudio. Los primeros: {muestra}",
+        ))
 
     hallazgos.append(Hallazgo(
         INFORMATIVO, "informe.resuelto",

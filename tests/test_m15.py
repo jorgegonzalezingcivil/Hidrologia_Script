@@ -614,6 +614,141 @@ class PruebaSeccionDeVerificacion(unittest.TestCase):
         self.assertIn("sin modificar ningún parámetro", textos)
 
 
+class PruebaIdentidadAjena(unittest.TestCase):
+    """
+    La prosa heredada del informe de referencia.
+
+    ES EL FALLO QUE NO SE VE. Un parrafo heredado es prosa correcta y bien
+    escrita sobre OTRO proyecto: no es una instruccion en verde, ni una tabla
+    sin llenar, ni una figura que falte. El informe de este estudio llego a
+    decir que el IRH era 0,87 y el caudal ambiental 23,04 l/s, que son las
+    cifras del estudio del que se copio la plantilla.
+    """
+
+    AJENOS = [
+        {"termino": "Quebrada No. 2", "que_es": "la corriente de referencia"},
+        {"termino": "Constructora Amarilo", "que_es": "el contratante"},
+    ]
+
+    class _Parrafo:
+        def __init__(self, texto, estilo="Normal"):
+            self.text = texto
+            self.style = type("E", (), {"name": estilo})()
+
+    def test_reporta_el_parrafo_con_el_termino_ajeno(self) -> None:
+        parrafos = [self._Parrafo("La Quebrada No. 2 nace en el cerro.")]
+        hallados = m15.revisar_identidad(parrafos, self.AJENOS, [])
+        self.assertEqual(len(hallados), 1)
+        self.assertEqual(hallados[0]["termino"], "Quebrada No. 2")
+
+    def test_un_termino_declarado_como_propio_no_se_reporta(self) -> None:
+        """
+        Puede coincidir de verdad, y de hecho coincide.
+
+        El contratante de este estudio es el mismo que el del de referencia.
+        Senalarlo seria ruido, y un aviso que casi siempre sobra se aprende a
+        ignorar: entonces deja de avisar de lo que importa.
+        """
+        parrafos = [self._Parrafo("Se recibió de Constructora Amarilo el dato.")]
+        hallados = m15.revisar_identidad(parrafos, self.AJENOS,
+                                         ["Constructora Amarilo"])
+        self.assertEqual(hallados, [])
+
+    def test_no_mira_las_leyendas_ni_las_instrucciones(self) -> None:
+        # Una leyenda con el nombre ajeno se corrige al corregir su figura, y
+        # el indice de tablas repite cada leyenda una segunda vez.
+        parrafos = [
+            self._Parrafo("Tabla 5-1. Quebrada No. 2", "Caption"),
+            self._Parrafo("Colocar Figura: Quebrada No. 2.png"),
+            self._Parrafo("Analizar Gráfico 5-1 de la Quebrada No. 2."),
+        ]
+        self.assertEqual(m15.revisar_identidad(parrafos, self.AJENOS, []), [])
+
+    def test_un_parrafo_con_dos_terminos_se_reporta_dos_veces(self) -> None:
+        # Cada uno exige su propia correccion; contarlo una vez escondería la
+        # segunda.
+        parrafos = [self._Parrafo("La Quebrada No. 2, de Constructora Amarilo.")]
+        self.assertEqual(len(m15.revisar_identidad(parrafos, self.AJENOS, [])),
+                         2)
+
+    def test_sin_terminos_declarados_no_hay_nada_que_revisar(self) -> None:
+        parrafos = [self._Parrafo("Un párrafo cualquiera.")]
+        self.assertEqual(m15.revisar_identidad(parrafos, [], []), [])
+
+
+class PruebaAnalisisRedactados(unittest.TestCase):
+    """
+    Los analisis del estudio sustituyen su instruccion en verde.
+
+    VIVEN EN EL ESTUDIO Y NO EN LA PLANTILLA. Un analisis dice que significan
+    los numeros de ESTE proyecto; escrito en la plantilla, que es compartida,
+    los llevaria al siguiente estudio, que es justo el fallo que el informe ya
+    tuvo con la prosa heredada.
+    """
+
+    def setUp(self) -> None:
+        self.temporal = Path(tempfile.mkdtemp())
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self.temporal, ignore_errors=True)
+
+    def _archivo(self, contenido: str) -> Path:
+        ruta = self.temporal / "analisis.yaml"
+        ruta.write_text(contenido, encoding="utf-8")
+        return ruta
+
+    def test_se_indexa_por_la_instruccion_normalizada(self) -> None:
+        # La instruccion lleva el numero que traia el informe del que se copio
+        # el apartado, y es lo unico estable que hay para identificarla.
+        ruta = self._archivo(
+            "analisis:\n"
+            "  - instruccion: \"Analizar Gráfico 5-1.\"\n"
+            "    parrafos:\n"
+            "      - \"El hidrograma crece de forma monótona.\"\n")
+        leido = m15.leer_analisis(ruta)
+        self.assertIn(m15._normalizar_leyenda("analizar grafico 5-1."), leido)
+
+    def test_una_entrada_sin_parrafos_no_se_toma(self) -> None:
+        # Dejaria la instruccion resuelta sin escribir nada, y el analisis
+        # desapareceria del informe sin que nadie lo echara de menos.
+        ruta = self._archivo(
+            "analisis:\n"
+            "  - instruccion: \"Analizar Gráfico 5-1.\"\n"
+            "    parrafos: []\n")
+        self.assertEqual(m15.leer_analisis(ruta), {})
+
+    def test_un_archivo_ausente_no_es_error(self) -> None:
+        # Significa que aun no se ha redactado ninguno, no que falte algo: las
+        # instrucciones se quedan en verde y el modulo las cuenta.
+        self.assertEqual(m15.leer_analisis(self.temporal / "no_existe.yaml"),
+                         {})
+
+    def test_la_instruccion_se_quita_y_no_se_reescribe(self) -> None:
+        """
+        Reutilizar el parrafo dejaria el analisis marcado en verde.
+
+        El primer run de la instruccion lleva el resaltado, y escribir encima
+        lo conserva: el consultor tendria que quitarlo a mano en cada uno y el
+        recuento de pendientes seguiria contandolos.
+        """
+        import docx
+
+        documento = docx.Document()
+        documento.add_paragraph("antes")
+        instruccion = documento.add_paragraph("Analizar Gráfico 5-1.")
+        documento.add_paragraph("después")
+
+        escritos = m15.resolver_analisis(
+            instruccion, ["Primer párrafo.", "Segundo párrafo."], documento)
+
+        self.assertEqual(escritos, 2)
+        textos = [p.text for p in documento.paragraphs if p.text.strip()]
+        self.assertEqual(textos,
+                         ["antes", "Primer párrafo.", "Segundo párrafo.",
+                          "después"])
+
+
 class PruebaCamposParaActualizar(unittest.TestCase):
     """
     Los campos del documento se marcan para que Word los recalcule.
