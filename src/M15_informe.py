@@ -81,7 +81,24 @@ SALIDA_ERROR = 3
 PATRON_FIGURA = re.compile(r"^\s*Colocar\s+Figura\s*:\s*(.+?)\s*$", re.I)
 PATRON_TABLA = re.compile(r"^\s*Completar\s+la\s+Tabla\s+([0-9]+[-‐-―]?[0-9]*)",
                           re.I)
-PATRON_ANALISIS = re.compile(r"^\s*Analizar\b", re.I)
+# LA PLANTILLA NO PIDE REDACCION SOLO CON 'Analizar'. Contando ese verbo salian
+# 47 instrucciones pendientes; el documento tiene 276 parrafos resaltados y 117
+# no encajaban en ningun patron, de modo que buena parte del trabajo de
+# redaccion era invisible para el modulo y para su informe de cierre. Un
+# estudio que no puede decir que le falta no es defendible.
+#
+# NO ENTRA 'Agregar graficos de la subcarpeta ...', que pide figuras y no
+# texto: son ocho instrucciones que reclaman carpetas enteras de graficos
+# individuales, y contarlas aqui las daria por redactadas cuando lo que falta
+# es colocarlas.
+PATRON_ANALISIS = re.compile(
+    r"^\s*(?:Analizar"
+    r"|Agregar\s+an[aá]lisis"
+    r"|Escribir"
+    r"|Describir"
+    r"|Explicar"
+    r"|Incluir\s+un\s+p[aá]rrafo"
+    r"|Revisar\s+este\s+p[aá]rrafo)\b", re.I)
 
 # Las leyendas con que la plantilla nombra sus figuras y sus tablas. Dicen
 # "Ilustracion -." mientras Word no actualice los campos SEQ, de modo que lo
