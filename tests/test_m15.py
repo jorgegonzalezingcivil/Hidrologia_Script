@@ -38,12 +38,29 @@ class PruebaClasificacion(unittest.TestCase):
         self.assertEqual(tipo, "figura")
         self.assertEqual(argumento, "M10_mapa_cn.png")
 
-    def test_extrae_el_archivo_aunque_la_instruccion_diga_la_carpeta(self) -> None:
-        # La plantilla a veces añade 'de la carpeta individuales/isoyetas_fase'.
+    def test_la_carpeta_que_la_instruccion_declara_viaja_con_el_archivo(self) -> None:
+        """
+        Antes se descartaba, y eso puso tres figuras equivocadas en el informe.
+
+        'compuesto.png', 'nina.png' y 'nino.png' existen a la vez en
+        'individuales/isoyetas_fase', que son los campos de precipitación, y en
+        'individuales/contraste_fases', que son los mapas de anomalía. La
+        búsqueda por nombre devolvía la primera que encontraba y el informe
+        mostraba un mapa de cambio porcentual bajo una leyenda que anuncia
+        precipitación total. La cuarta, 'neutral.png', salía bien por
+        casualidad: solo existe en una de las dos carpetas.
+
+        La instrucción SÍ dice de qué carpeta es. Lo que faltaba era leerlo.
+        """
         tipo, argumento = m15.clasificar(
             "Colocar Figura: compuesto.png de la carpeta individuales/isoyetas_fase")
         self.assertEqual(tipo, "figura")
-        self.assertEqual(argumento, "compuesto.png")
+        self.assertEqual(argumento,
+                         "compuesto.png|individuales/isoyetas_fase")
+
+    def test_sin_carpeta_declarada_el_argumento_es_solo_el_archivo(self) -> None:
+        self.assertEqual(m15.clasificar("Colocar Figura: M10_mapa_cn.png")[1],
+                         "M10_mapa_cn.png")
 
     def test_reconoce_una_tabla_y_su_numero(self) -> None:
         tipo, argumento = m15.clasificar(
@@ -107,6 +124,37 @@ class PruebaBusquedaDeFiguras(unittest.TestCase):
     def test_una_raiz_ausente_no_es_error(self) -> None:
         self.assertIsNone(
             m15.buscar_figura("x.png", [self.tmp / "no_esta"]))
+
+    def test_la_carpeta_declarada_decide_entre_dos_del_mismo_nombre(self) -> None:
+        """
+        El nombre NO es unico, y darlo por unico costo tres figuras
+        equivocadas en el entregable.
+        """
+        (self.tmp / "individuales" / "otra").mkdir(parents=True)
+        (self.tmp / "individuales" / "enso" / "repetida.png").write_bytes(b"a")
+        (self.tmp / "individuales" / "otra" / "repetida.png").write_bytes(b"b")
+
+        encontrada = m15.buscar_figura("repetida.png", [self.tmp],
+                                       "individuales/otra")
+        self.assertEqual(encontrada.read_bytes(), b"b")
+        self.assertEqual(encontrada.parent.name, "otra")
+
+    def test_la_carpeta_vale_con_el_prefijo_y_sin_el(self) -> None:
+        # La instruccion escribe 'individuales/enso' y la raiz de busqueda
+        # puede ser ya el propio 'individuales'.
+        raiz = self.tmp / "individuales"
+        self.assertIsNotNone(
+            m15.buscar_figura("guasca.png", [raiz], "individuales/enso"))
+        self.assertIsNotNone(
+            m15.buscar_figura("guasca.png", [raiz], "enso"))
+
+    def test_las_candidatas_no_se_cuentan_dos_veces(self) -> None:
+        # Las raices estan anidadas: 'individuales' cuelga del directorio de
+        # graficos. Sin deduplicar, ocho hietogramas se reportaban como
+        # ambiguos sin serlo, y un aviso que casi siempre sobra se ignora.
+        candidatas = m15.figuras_ambiguas(
+            "guasca.png", [self.tmp, self.tmp / "individuales"])
+        self.assertEqual(len(candidatas), 1)
 
 
 class PruebaDeclaracionDeTablas(unittest.TestCase):
@@ -628,6 +676,45 @@ class PruebaSeccionDeVerificacion(unittest.TestCase):
         textos = " ".join(p.text for p in self.parrafos)
         self.assertIn("no se realizó una calibración del modelo", textos)
         self.assertIn("sin modificar ningún parámetro", textos)
+
+
+class PruebaParrafosDeTablas(unittest.TestCase):
+    """
+    Las comprobaciones tienen que mirar DENTRO de las tablas.
+
+    ESA CEGUERA COSTO UN BLOQUE DUPLICADO EN EL ENTREGABLE. La plantilla trae
+    las cuatro ilustraciones de isoyetas por fase en dos tablas de dos
+    columnas, y el recorrido que se uso para buscarlas solo veia los parrafos
+    de primer nivel: se dieron por inexistentes y se coloco otro bloque igual.
+    La comprobacion de prosa heredada tenia el mismo punto ciego.
+    """
+
+    def _documento(self):
+        import docx
+
+        documento = docx.Document()
+        documento.add_paragraph("en el cuerpo")
+        tabla = documento.add_table(rows=1, cols=2)
+        tabla.rows[0].cells[0].paragraphs[0].text = "dentro de una celda"
+        tabla.rows[0].cells[1].add_paragraph("otra celda")
+        return documento
+
+    def test_recoge_los_de_las_celdas(self) -> None:
+        textos = [p.text for p in
+                  m15.parrafos_del_documento(self._documento())
+                  if p.text.strip()]
+        self.assertIn("en el cuerpo", textos)
+        self.assertIn("dentro de una celda", textos)
+        self.assertIn("otra celda", textos)
+
+    def test_la_prosa_heredada_se_busca_tambien_en_las_tablas(self) -> None:
+        documento = self._documento()
+        documento.tables[0].rows[0].cells[0].paragraphs[0].text = (
+            "La Quebrada No. 2 nace en el cerro.")
+        hallados = m15.revisar_identidad(
+            m15.parrafos_del_documento(documento),
+            [{"termino": "Quebrada No. 2", "que_es": "la de referencia"}], [])
+        self.assertEqual(len(hallados), 1)
 
 
 class PruebaIdentidadAjena(unittest.TestCase):

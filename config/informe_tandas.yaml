@@ -163,8 +163,13 @@ tandas:
   #
   # SE NOMBRAN POR ARCHIVO Y CON DICCIONARIO. El nombre del archivo es
   # 'nina.png' y la leyenda dice 'Ano Nina', que no se deduce quitando guiones.
+  # SIN MARCADOR A PROPOSITO. La plantilla YA trae las cuatro ilustraciones,
+  # en dos tablas de dos columnas, y por eso no aparecian en un recorrido de
+  # los parrafos del cuerpo: las tablas quedaban fuera. Se dieron por
+  # inexistentes y se coloco un bloque duplicado. La tanda se conserva
+  # declarada para un estudio cuya plantilla no las traiga, pero aqui no se
+  # coloca: quien las pide son esas tablas.
   - subcarpeta: "isoyetas_fase"
-    marcador: "Precipitación Total Mensual Multianual por Fase ENSO"
     leyenda: "Precipitación Total Mensual Multianual Año {nombre}"
     fuente: "Fuente: IDEAM, INCOHISA, 2024."
     nombra: declarado

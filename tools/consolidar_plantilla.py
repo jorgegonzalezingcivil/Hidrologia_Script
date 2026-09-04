@@ -973,7 +973,7 @@ def consolidar(ruta: Path, escribir: bool) -> list[str]:
     hechos.extend(reparar_ecuaciones_clonadas(documento, escribir))
 
     # --- 4d. El marcador de las isoyetas por fase ----------------------------
-    hechos.extend(insertar_marcador_de_isoyetas(documento, escribir))
+    hechos.extend(quitar_marcador_de_isoyetas(documento, escribir))
 
     # --- 4c. Leyendas y figuras que no se corresponden -----------------------
     hechos.extend(corregir_parejas(documento, escribir))
@@ -1235,52 +1235,50 @@ def _fijar_leyenda_de_figura(parrafo, leyenda: str) -> None:
         _fijar_parrafo(parrafo, f"{parrafo.text.split('.')[0]}. {leyenda}")
 
 
-def insertar_marcador_de_isoyetas(documento, escribir: bool) -> list[str]:
+def quitar_marcador_de_isoyetas(documento, escribir: bool) -> list[str]:
     """
-    Deja en la plantilla la leyenda que pide las isoyetas por fase ENSO.
+    Retira el marcador de isoyetas por fase que se habia insertado de mas.
 
-    EL INFORME LAS CITA Y NO EXISTIAN. El texto dice "De la Ilustracion 4-5 a
-    la Ilustracion 4-8" y esas cuatro ilustraciones solo estaban en el indice
-    de figuras, con las paginas del informe de referencia. La cadena produce
-    los cuatro campos y ninguno llegaba al documento: una referencia cruzada a
-    figuras inexistentes, que Word muestra como error al actualizar campos.
+    ESTABAN Y NO SE VIERON. La plantilla trae las cuatro ilustraciones en dos
+    tablas de dos columnas, y el recorrido que se uso para buscarlas solo
+    miraba los parrafos del cuerpo: los de dentro de una tabla quedan fuera de
+    esa iteracion. Se concluyo que faltaban, se inserto un bloque para
+    colocarlas y el informe acabo con las cuatro repetidas.
 
-    Se inserta una leyenda con el marcador que el M15 reconoce, y este coloca
-    las cuatro con su nombre de fase.
+    El bloque insertado se quita. Las tablas se quedan, que es lo que la
+    plantilla siempre habia pedido.
     """
     from docx.text.paragraph import Paragraph
 
     marcador = "Precipitación Total Mensual Multianual por Fase ENSO"
-    parrafos = [Paragraph(h, documento)
-                for h in documento.element.body.iterchildren()
-                if h.tag.endswith("}p")]
-    if any(marcador in p.text for p in parrafos):
-        return ["YA INSERTADO el marcador de las isoyetas por fase"]
-
-    ancla = next((p for p in parrafos
-                  if p.style.name == "Caption"
-                  and "Contraste Espacial Fases ENSO" in p.text), None)
-    if ancla is None:
-        return ["NO SE ENCONTRO donde insertar el marcador de las isoyetas"]
-    modelo_fuente = next((p for p in parrafos
-                          if p.style.name == "Fuente"), None)
-    modelo_figura = next((p for p in parrafos
-                          if m15.clasificar(p.text)[0] == "figura"), None)
-    if modelo_fuente is None or modelo_figura is None:
-        return ["NO SE ENCONTRO de que copiar el formato del marcador"]
-    if not escribir:
-        return [f"insertaria el marcador '{marcador}'"]
-
-    leyenda = _clonar_leyenda(ancla, marcador)
-    hueco = _clonar(modelo_figura, "")
-    fuente = _clonar(modelo_fuente, "Fuente: IDEAM, INCOHISA, 2024.")
-    # VA ANTES del contraste entre fases: primero cada fase y despues su
-    # comparacion, que es el orden en que el texto las cita.
-    elemento = ancla._element
-    for pieza in (leyenda, hueco, fuente):
-        elemento.addprevious(pieza)
-    return [f"insertado el marcador '{marcador}', que el M15 llena con las "
-            "cuatro isoyetas por fase"]
+    cuerpo = list(documento.element.body.iterchildren())
+    sobrantes = []
+    for indice, hijo in enumerate(cuerpo):
+        if not hijo.tag.endswith("}p"):
+            continue
+        parrafo = Paragraph(hijo, documento)
+        if marcador not in parrafo.text:
+            continue
+        sobrantes.append(hijo)
+        # El trio es leyenda, hueco de figura y linea de fuente.
+        for siguiente in cuerpo[indice + 1: indice + 3]:
+            if not siguiente.tag.endswith("}p"):
+                break
+            acompanante = Paragraph(siguiente, documento)
+            if acompanante.style.name in ("No Spacing", "Fuente"):
+                sobrantes.append(siguiente)
+            else:
+                break
+    if not sobrantes:
+        return ["YA RETIRADO el marcador de las isoyetas por fase"]
+    if escribir:
+        for sobrante in sobrantes:
+            padre = sobrante.getparent()
+            if padre is not None:
+                padre.remove(sobrante)
+    return [f"retirado el marcador de isoyetas por fase y su hueco "
+            f"({len(sobrantes)} parrafo(s)): la plantilla ya trae las cuatro "
+            "ilustraciones en dos tablas"]
 
 
 def _modelo_con_campos(objetos, etiqueta: str):

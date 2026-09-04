@@ -136,6 +136,7 @@ class ResultadoM15:
     figuras_puestas: list[str] = field(default_factory=list)
     figuras_ausentes: list[dict[str, Any]] = field(default_factory=list)
     figuras_corregidas: list[dict[str, Any]] = field(default_factory=list)
+    figuras_ambiguas: list[dict[str, Any]] = field(default_factory=list)
     correcciones_ambiguas: list[str] = field(default_factory=list)
     correcciones_sin_uso: list[str] = field(default_factory=list)
     tablas_llenadas: list[dict[str, Any]] = field(default_factory=list)
@@ -542,6 +543,35 @@ def leer_identidad(ruta: Path) -> dict[str, Any]:
             "fuera": [str(f) for f in fuera.get("fragmentos") or []]}
 
 
+def parrafos_del_documento(documento):
+    """
+    Todos los parrafos: los del cuerpo Y LOS DE DENTRO DE LAS TABLAS.
+
+    ESA ERA LA CEGUERA. 'documento.paragraphs' e iterar los hijos del cuerpo
+    devuelven solo los parrafos de primer nivel; los que viven en una celda
+    quedan fuera. La plantilla trae ahi las cuatro ilustraciones de isoyetas
+    por fase, en dos tablas de dos columnas, y por eso se dieron por
+    inexistentes y se coloco un bloque duplicado. La comprobacion de prosa
+    heredada tampoco miraba en las celdas.
+    """
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    salida = []
+
+    def recorrer(contenedor):
+        for hijo in contenedor.iterchildren():
+            if hijo.tag.endswith("}p"):
+                salida.append(Paragraph(hijo, documento))
+            elif hijo.tag.endswith("}tbl"):
+                for fila in Table(hijo, documento).rows:
+                    for celda in fila.cells:
+                        recorrer(celda._element)
+
+    recorrer(documento.element.body)
+    return salida
+
+
 def revisar_identidad(parrafos, ajenos, propios) -> list[dict[str, str]]:
     """
     Busca en la prosa del informe los terminos del estudio de referencia.
@@ -607,7 +637,7 @@ def marcar_fuera_de_alcance(documento, fragmentos) -> list[str]:
     from docx.enum.text import WD_COLOR_INDEX
 
     marcados = []
-    for parrafo in documento.paragraphs:
+    for parrafo in parrafos_del_documento(documento):
         texto = parrafo.text.strip()
         if not texto or not any(texto.startswith(f) for f in fragmentos):
             continue
@@ -629,7 +659,12 @@ def clasificar(texto: str) -> tuple[str, str]:
     coincide = PATRON_FIGURA.match(texto)
     if coincide:
         archivo = PATRON_ARCHIVO.search(coincide.group(1))
-        return "figura", (archivo.group(1) if archivo else coincide.group(1))
+        nombre = archivo.group(1) if archivo else coincide.group(1)
+        # LA CARPETA VIAJA CON EL NOMBRE, separada por '|'. Sin ella, un
+        # nombre repetido en dos carpetas se resuelve al azar.
+        carpeta = PATRON_CARPETA.search(coincide.group(1))
+        return "figura", (f"{nombre}|{carpeta.group(1)}" if carpeta
+                          else nombre)
     coincide = PATRON_TABLA.match(texto)
     if coincide:
         return "tabla", coincide.group(1)
@@ -645,26 +680,70 @@ def clasificar(texto: str) -> tuple[str, str]:
     return "", ""
 
 
-def buscar_figura(nombre: str, raices: Sequence[Path]) -> Path | None:
-    """
-    Localiza una figura por su nombre, en el directorio de gráficos y sus temas.
+# La carpeta que la instruccion declara: 'de la carpeta individuales/X'.
+PATRON_CARPETA = re.compile(
+    r"de\s+la\s+carpeta\s+([\w\-./\\]+)", re.I)
 
-    SE BUSCA POR NOMBRE Y NO POR RUTA. La instrucción de la plantilla dice el
-    archivo y a veces la carpeta ('de la carpeta individuales/isoyetas_fase'),
-    pero el consultor no tiene por qué llevar la cuenta de en qué subcarpeta lo
-    dejó cada módulo: el nombre es único y basta.
+
+def buscar_figura(nombre: str, raices: Sequence[Path],
+                  carpeta: str = "") -> Path | None:
     """
+    Localiza una figura, honrando la carpeta que la instruccion declare.
+
+    EL NOMBRE NO ES UNICO, y darlo por unico costo tres figuras equivocadas en
+    el entregable. 'compuesto.png', 'nina.png' y 'nino.png' existen a la vez en
+    'individuales/isoyetas_fase', que son los campos de precipitacion, y en
+    'individuales/contraste_fases', que son los mapas de anomalia frente a la
+    fase neutral. La busqueda recursiva devolvia el primero que encontraba y el
+    informe mostraba un mapa de cambio porcentual bajo una leyenda que anuncia
+    precipitacion total.
+
+    NO SE DELATABA. La cuarta, 'neutral.png', salia bien por casualidad: solo
+    existe en una de las dos carpetas, porque la fase neutral es la referencia
+    del contraste y no tiene mapa propio.
+
+    Por eso la instruccion dice 'de la carpeta individuales/isoyetas_fase': lo
+    que faltaba era leerlo.
+    """
+    carpeta = str(carpeta or "").strip().replace("\\", "/").strip("/")
     for raiz in raices:
         raiz = Path(raiz)
         if not raiz.is_dir():
             continue
+        if carpeta:
+            # La carpeta declarada puede venir con el prefijo 'individuales/',
+            # que ya es una de las raices: se prueban las dos formas.
+            for variante in (carpeta, carpeta.split("/", 1)[-1]):
+                candidato = raiz / variante / nombre
+                if candidato.is_file():
+                    return candidato
         directo = raiz / nombre
         if directo.is_file():
             return directo
+        encontrados = [e for e in raiz.rglob(nombre) if e.is_file()]
+        if encontrados:
+            return encontrados[0]
+    return None
+
+
+def figuras_ambiguas(nombre: str, raices: Sequence[Path]) -> list[Path]:
+    """
+    Todas las figuras con ese nombre, para poder avisar si hay mas de una.
+
+    SE DEDUPLICA POR RUTA RESUELTA. Las raices estan anidadas, porque
+    'individuales' cuelga del directorio de graficos, de modo que un archivo
+    aparece una vez por cada raiz y ocho hietogramas se reportaban como
+    ambiguos sin serlo. Un aviso que casi siempre sobra se aprende a ignorar.
+    """
+    encontradas: dict[str, Path] = {}
+    for raiz in raices:
+        raiz = Path(raiz)
+        if not raiz.is_dir():
+            continue
         for encontrado in raiz.rglob(nombre):
             if encontrado.is_file():
-                return encontrado
-    return None
+                encontradas.setdefault(str(encontrado.resolve()), encontrado)
+    return list(encontradas.values())
 
 
 def leer_tabla_csv(ruta: Path, delimitador: str) -> list[dict[str, str]]:
@@ -1325,7 +1404,7 @@ def ejecutar(
         propios = [configuracion.obtener(clave, "")
                    for clave in identidad["propios"]]
         resultado.identidad_ajena = revisar_identidad(
-            documento.paragraphs, identidad["ajenos"], propios)
+            parrafos_del_documento(documento), identidad["ajenos"], propios)
         if resultado.identidad_ajena:
             logger.warning("%d parrafo(s) nombran el estudio de referencia",
                            len(resultado.identidad_ajena))
@@ -1378,12 +1457,25 @@ def _resolver_figura(parrafo, nombre, raices, ancho, resultado, base,
             "archivo": str(entrada["archivo"]),
             "motivo": str(entrada.get("motivo", "")).strip()})
         nombre = str(entrada["archivo"])
-    ruta = buscar_figura(nombre, raices)
+    nombre, _, carpeta = nombre.partition("|")
+    ruta = buscar_figura(nombre, raices, carpeta)
     if ruta is None:
         # LA INSTRUCCION SE DEJA INTACTA. Borrarla dejaria un hueco mudo en el
         # informe y nadie sabria que falta una figura.
         resultado.figuras_ausentes.append({"archivo": nombre})
         return
+    if not carpeta:
+        # SIN CARPETA DECLARADA Y CON EL NOMBRE REPETIDO, la eleccion es un
+        # azar: se resuelve con la primera que aparece y no hay forma de saber
+        # que era la otra. Se reporta para que la instruccion declare cual.
+        candidatas = figuras_ambiguas(nombre, raices)
+        if len(candidatas) > 1:
+            resultado.figuras_ambiguas.append({
+                "archivo": nombre,
+                "puesta": rutas.relativa(ruta, base),
+                "otras": [rutas.relativa(c, base) for c in candidatas
+                          if c.resolve() != ruta.resolve()],
+            })
     poner_figura(parrafo, ruta, ancho)
     resultado.figuras_puestas.append(rutas.relativa(ruta, base))
 
@@ -1514,6 +1606,18 @@ def _resumir(resultado: ResultadoM15) -> list[Hallazgo]:
             "colocaron porque no se encontró en la plantilla ninguna leyenda "
             "de gráfico numerada con campos: sin ella las figuras nuevas "
             "quedarían sin número y no podrían referenciarse.",
+        ))
+
+    if resultado.figuras_ambiguas:
+        detalle = "; ".join(
+            f"{d['archivo']} (se puso {d['puesta']}, existe también en "
+            f"{', '.join(d['otras'])})" for d in resultado.figuras_ambiguas)
+        hallazgos.append(Hallazgo(
+            ADVERTENCIA, "informe.figura_ambigua",
+            f"{len(resultado.figuras_ambiguas)} instrucción(es) piden un "
+            "archivo cuyo nombre existe en más de una carpeta y no declaran "
+            "cuál. Se puso la primera, que es una elección por azar: añadir "
+            f"'de la carpeta <subcarpeta>' a la instrucción. {detalle}",
         ))
 
     if resultado.fuera_de_alcance:
