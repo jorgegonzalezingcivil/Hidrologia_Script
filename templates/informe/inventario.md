@@ -244,11 +244,10 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 
 ## Familias de hallazgos
 
-370 hallazgos en 27 módulos, agrupados en 56 familias. El prefijo del marcador puede ser la familia entera o una clave concreta.
+210 hallazgos en 27 módulos, agrupados en 54 familias. El prefijo del marcador puede ser la familia entera o una clave concreta.
 
 | familia | hallazgos |
 |---|---|
-| `{{hallazgos: descarga}}` | 159 |
 | `{{hallazgos: isoyetas}}` | 22 |
 | `{{hallazgos: estaciones}}` | 10 |
 | `{{hallazgos: calificador}}` | 10 |
@@ -292,7 +291,6 @@ Los marcadores se escriben en un párrafo propio, salvo `{{valor:}}`, que va den
 | `{{hallazgos: etp}}` | 2 |
 | `{{hallazgos: punto_descarga}}` | 1 |
 | `{{hallazgos: catalogo}}` | 1 |
-| `{{hallazgos: graficos}}` | 1 |
 | `{{hallazgos: m04}}` | 1 |
 | `{{hallazgos: agregacion}}` | 1 |
 | `{{hallazgos: anomalos}}` | 1 |
