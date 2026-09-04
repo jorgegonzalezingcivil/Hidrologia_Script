@@ -265,6 +265,14 @@ criterio visual. Se ajusta abriendo `templates/planchas.qgz` en QGIS, moviendo
 las dos cajas y guardando. **Lo que se guarde ahí queda fijo para todos los
 estudios siguientes**, así que se hace una vez.
 
+Para retocar los mapas de UN estudio sin tocar la plantilla, el paquete de
+entrega lleva el **anexo 10, «Proyecto SIG editable»**: los dos proyectos de
+QGIS con sus capas, conservando el árbol `data/03_SIG/...` porque los
+proyectos las referencian por ruta relativa y aplanarlas los dejaría sin
+ninguna. La composición de planchas resuelve sus 51 capas dentro del paquete;
+el proyecto de trabajo resuelve 9 de 10, y la que falta, la zonificación
+hidrográfica nacional, va en `capas_nacionales/` y se relaciona a mano.
+
 **La redacción del informe.** El M15 resuelve lo mecánico: en el estudio de
 referencia, 254 figuras y 30 tablas. Las instrucciones de redacción se
 resuelven con el texto declarado en `config/analisis.yaml` **del estudio**, que
@@ -281,8 +289,9 @@ Lo que no se automatiza y hay que revisar en cada estudio:
   rosa, y no se borran porque sirven de modelo de redacción.
 - Abrir el documento en Word y aceptar la actualización de campos.
 
-**La calibración del modelo (M14b).** No está programada porque en este estudio
-no había con qué: las estaciones LG y LM del área registran nivel, no caudal.
+**La calibración del modelo (M14b).** Está declarada como `no_viable`, que **no
+es lo mismo que pendiente**: no le falta a la herramienta, no se puede hacer
+con los datos de este estudio: las estaciones LG y LM del área registran nivel, no caudal.
 Si el estudio nuevo tiene series de caudal utilizables, hay que programarla. Lo
 que sí corre es el **M14c**, que contrasta el modelo contra los caudales
 observados sin ajustar ningún parámetro: es una verificación, no una

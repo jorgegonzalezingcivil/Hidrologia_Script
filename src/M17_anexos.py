@@ -93,6 +93,15 @@ class Pieza:
     fuente: str
     obligatorio: bool
     nota: str = ""
+    # Donde van sus archivos DENTRO de la carpeta del anexo. Vacio los deja
+    # en la raiz, que es lo corriente. Hace falta cuando el anexo entrega un
+    # proyecto de QGIS: sus capas se referencian por ruta relativa y solo
+    # abren si se conserva el arbol que el proyecto espera.
+    destino_interno: str = ""
+    # Nombre de carpeta impuesto, que sustituye al '<numero>. <titulo>'. Lo usa
+    # un anexo cuyos subanexos tienen que caer JUNTOS: un proyecto de QGIS y
+    # sus capas repartidos en carpetas hermanas abren sin una sola capa.
+    carpeta: str = ""
     archivos: list[dict[str, Any]] = field(default_factory=list)
     bytes: int = 0
 
@@ -150,14 +159,24 @@ def aplanar(estructura: dict[str, Any]) -> list[Pieza]:
     for anexo in estructura.get("anexos") or []:
         hijos = anexo.get("subanexos") or []
         candidatos = hijos if hijos else [anexo]
+        # CARPETA UNICA: los subanexos caen juntos, en la del padre. Hace falta
+        # cuando lo que se entrega es un proyecto y sus insumos, que se
+        # referencian entre si por ruta relativa.
+        comun = ""
+        if hijos and bool(anexo.get("carpeta_unica")):
+            comun = _nombre_de_carpeta(str(anexo.get("numero", "")).strip(),
+                                       str(anexo.get("titulo", "")).strip())
         for ficha in candidatos:
             piezas.append(Pieza(
+                carpeta=comun,
                 numero=str(ficha.get("numero", "")).strip(),
                 titulo=str(ficha.get("titulo", "")).strip(),
                 origen=str(ficha.get("origen", "")).strip(),
                 fuente=str(ficha.get("fuente", "")).strip(),
                 obligatorio=bool(ficha.get("obligatorio", False)),
                 nota=str(ficha.get("nota", "") or "").strip(),
+                destino_interno=str(
+                    ficha.get("destino_interno", "") or "").strip(),
             ))
     return piezas
 
@@ -176,6 +195,12 @@ def buscar_archivos(origen: Path, base: Path,
     entrega lo que ese directorio tenga el día de la corrida, no una lista
     fijada: si un módulo añade un producto, entra solo.
     """
+    if not str(origen).strip():
+        # UN ORIGEN VACIO NO ES 'TODO'. Se resolvia contra la raiz del estudio
+        # y el recorrido copiaba el estudio ENTERO dentro del propio paquete de
+        # anexos, que ademas cuelga de el: 9,4 GB y un fallo de ruta demasiado
+        # larga. Un anexo sin origen es una declaracion incompleta.
+        return []
     origen = Path(origen)
     if any(c in origen.name for c in "*?["):
         candidatos = sorted(origen.parent.glob(origen.name))
@@ -204,18 +229,31 @@ def huella(ruta: Path, bloque: int = 1 << 20) -> str:
     return resumen.hexdigest()
 
 
+def _nombre_de_carpeta(numero: str, titulo: str) -> str:
+    """
+    Nombre de carpeta admisible en Windows.
+
+    Se limpian los caracteres que no admite. Sin esto, 'Análisis de Crecientes
+    (HEC-HMS)' pasa, pero cualquier título con dos puntos o barra rompe la
+    escritura y el paquete queda a medias.
+    """
+    limpio = f"{numero}. {titulo}"
+    for malo in '<>:"/\\|?*':
+        limpio = limpio.replace(malo, "-")
+    return limpio.strip().rstrip(".")
+
+
 def carpeta_de(pieza: Pieza) -> str:
     """
     Nombre de la carpeta de un anexo, tal como el informe lo cita.
 
-    Se limpian los caracteres que Windows no admite en un nombre de carpeta.
-    Sin esto, 'Análisis de Crecientes (HEC-HMS)' pasa, pero cualquier titulo
-    con dos puntos o barra rompe la escritura y el paquete queda a medias.
+    Un anexo puede imponer la carpeta de todos sus subanexos: lo necesita el
+    que entrega un proyecto de QGIS con sus capas, porque repartidos en
+    carpetas hermanas el proyecto abre sin una sola capa.
     """
-    limpio = f"{pieza.numero}. {pieza.titulo}"
-    for malo in '<>:"/\\|?*':
-        limpio = limpio.replace(malo, "-")
-    return limpio.strip().rstrip(".")
+    if pieza.carpeta:
+        return pieza.carpeta
+    return _nombre_de_carpeta(pieza.numero, pieza.titulo)
 
 
 def numeros_citados(documento) -> set[str]:
@@ -413,7 +451,18 @@ def ejecutar(
                         relativa = fuente.relative_to(raiz_origen)
                     except ValueError:
                         relativa = Path(fuente.name)
-                    salida = carpeta / relativa
+                    if str(relativa) in (".", ""):
+                        # UN ORIGEN DE UN SOLO ARCHIVO se relativiza contra si
+                        # mismo y da '.', que al unirlo se pierde. Sin
+                        # 'destino_interno' no se notaba, porque la carpeta del
+                        # anexo ya existia y copiar 'a un directorio' funciona;
+                        # con el, el archivo se escribia CON EL NOMBRE DE LA
+                        # CARPETA y sin extension. 'planchas.qgz' quedo como un
+                        # archivo llamado 'mapas'.
+                        relativa = Path(fuente.name)
+                    salida = (carpeta / pieza.destino_interno / relativa
+                              if pieza.destino_interno
+                              else carpeta / relativa)
                     salida.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(fuente, salida)
             acta = escribir_acta(

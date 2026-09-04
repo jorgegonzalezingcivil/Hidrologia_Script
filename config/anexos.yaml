@@ -182,3 +182,75 @@ anexos:
     nota: >-
       El informe lo cita para las granulometrias del analisis de socavacion.
       Lo aporta el consultor: la cadena no lo produce.
+
+  - numero: "10"
+    titulo: "Proyecto SIG editable"
+    fuente: "cadena"
+    obligatorio: false
+    # Los cuatro subanexos caen en la MISMA carpeta: el proyecto y sus capas se
+    # referencian por ruta relativa y en carpetas hermanas no se encuentran.
+    carpeta_unica: true
+    nota: >-
+      Los dos proyectos de QGIS con las capas que referencian, para retocar los
+      mapas sin rehacerlos. El M16 los deja correctos en contenido, encuadre y
+      escala, pero la colocacion de la caja de convenciones y de la rosa
+      nautica depende de la forma de la cuenca y es criterio visual.
+
+      SE CONSERVA EL ARBOL 'data/03_SIG/...' Y 'data/05_resultados/mapas/...'
+      A PROPOSITO. Los dos proyectos guardan sus capas por RUTA RELATIVA
+      ('../../03_SIG/vector/...'), de modo que aplanar las carpetas entregaria
+      dos proyectos que abren sin una sola capa. Comprobado sobre este estudio:
+      53 fuentes en el de planchas, todas relativas.
+
+      El DEM son 435 MB y va tambien en el anexo 2.3. Se repite aqui porque sin
+      el, el sombreado de relieve de las planchas no carga; quien quiera el
+      paquete mas liviano puede borrarlo de esta carpeta y relacionarlo a mano
+      desde el 2.3.
+
+      Las dos capas base de imagen satelital son servicios XYZ, no archivos:
+      QGIS las vuelve a pedir al abrir y necesitan conexion.
+
+      COMPROBADO: la composicion de planchas resuelve sus 51 capas dentro del
+      paquete. El proyecto de trabajo resuelve 9 de 10; la que falta es la
+      zonificacion hidrografica nacional, que vive en la herramienta y cuya
+      ruta relativa sale del arbol del estudio. Va en la carpeta
+      'capas_nacionales' y hay que relacionarla a mano al abrir el proyecto.
+    # SE DECLARAN LAS CARPETAS UNA A UNA y no 'data/03_SIG' entero: ahi cuelga
+    # tambien 'temp', que son 549 MB de intermedios del geoprocesamiento y no
+    # informacion del estudio.
+    subanexos:
+      - numero: "10.1"
+        titulo: "Proyecto de trabajo"
+        origen: "data/03_SIG/proyecto"
+        destino_interno: "data/03_SIG/proyecto"
+        fuente: "cadena"
+        obligatorio: false
+      - numero: "10.2"
+        titulo: "Capas vectoriales"
+        origen: "data/03_SIG/vector"
+        destino_interno: "data/03_SIG/vector"
+        fuente: "cadena"
+        obligatorio: false
+      - numero: "10.3"
+        titulo: "Rásteres"
+        origen: "data/03_SIG/raster"
+        destino_interno: "data/03_SIG/raster"
+        fuente: "cadena"
+        obligatorio: false
+      - numero: "10.4"
+        titulo: "Composición de planchas"
+        origen: "data/05_resultados/mapas/planchas.qgz"
+        destino_interno: "data/05_resultados/mapas"
+        fuente: "cadena"
+        obligatorio: false
+      # LA UNICA CAPA QUE NO RESUELVE SOLA. El proyecto de trabajo referencia
+      # la zonificacion hidrografica nacional, que vive en la HERRAMIENTA y no
+      # en el estudio: su ruta relativa sale del arbol y no hay forma de
+      # conservarla dentro del paquete. Se entrega aparte para que se pueda
+      # relacionar a mano, y la nota del anexo lo dice.
+      - numero: "10.5"
+        titulo: "Capas nacionales de referencia"
+        origen: "data/referencia/sig"
+        destino_interno: "capas_nacionales"
+        fuente: "doctrina"
+        obligatorio: false

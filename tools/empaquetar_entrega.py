@@ -178,6 +178,10 @@ def escribir_leeme(destino: Path, configuracion, base: Path,
         "- `ANEXOS/` con el acta de entrega, que lista la huella de cada "
         "anexo. Esa huella es lo que permite comprobar meses después que el "
         "anexo es el que el estudio produjo.",
+        "- `ANEXOS/10. Proyecto SIG editable/` con los dos proyectos de QGIS y "
+        "sus capas, para retocar los mapas sin rehacerlos. Se conserva el "
+        "árbol de carpetas a propósito: los proyectos guardan sus capas por "
+        "ruta relativa y aplanarlas los dejaría sin ninguna.",
         "",
         "## Antes de leer el informe",
         "",

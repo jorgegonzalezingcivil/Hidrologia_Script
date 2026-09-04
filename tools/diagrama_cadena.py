@@ -39,6 +39,13 @@ COLORES = {
     "qgis": ("#dcefe0", "#2f6b41"),
     "manual": ("#fbe3c9", "#a05a12"),
     "pendiente": ("#eeeeee", "#8a8a8a"),
+    # NO VIABLE NO ES PENDIENTE. La declaracion distingue el modulo que a la
+    # herramienta le falta del paso que no se puede hacer con los datos de
+    # este estudio, y el diagrama no puede borrar esa distincion: llamar
+    # 'pendiente de programar' a una limitacion del dato sugiere una
+    # herramienta incompleta donde lo que hay es un estudio sin series de
+    # caudal utilizables.
+    "no_viable": ("#f3e6e6", "#8a4b4b"),
 }
 
 
@@ -90,7 +97,10 @@ def leer_etapas(ruta: Path):
 
 def clase_de(paso: dict) -> str:
     """Con que color se pinta un paso."""
-    if str(paso.get("estado", "")) != "disponible":
+    estado = str(paso.get("estado", ""))
+    if estado == "no_viable":
+        return "no_viable"
+    if estado != "disponible":
         return "pendiente"
     if paso.get("manual"):
         return "manual"
@@ -195,14 +205,16 @@ def dibujar(etapas, salida: Path, titulo: str) -> Path:
     eje.set_title(titulo, fontsize=13, pad=16)
 
     leyenda = [("Entorno venv", "venv"), ("Entorno QGIS", "qgis"),
-               ("Paso manual", "manual"), ("Pendiente de programar", "pendiente")]
+               ("Paso manual", "manual"),
+               ("No viable con el dato", "no_viable"),
+               ("Pendiente de programar", "pendiente")]
     for indice, (etiqueta, clase) in enumerate(leyenda):
         relleno, borde = COLORES[clase]
         eje.add_patch(FancyBboxPatch(
-            (indice * 3.9 - 3.2, y - 1.18), 0.42, 0.28,
+            (indice * 3.55 - 3.2, y - 1.18), 0.42, 0.28,
             boxstyle="round,pad=0.02,rounding_size=0.05",
             linewidth=1.0, edgecolor=borde, facecolor=relleno))
-        eje.text(indice * 3.9 - 2.65, y - 1.04, etiqueta, fontsize=7.5,
+        eje.text(indice * 3.55 - 2.68, y - 1.04, etiqueta, fontsize=7.0,
                  va="center", color="#333333")
 
     eje.text(-3.2, y - 1.62,

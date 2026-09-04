@@ -285,6 +285,19 @@ def correr(pasos: list[Paso], raiz_estudio: Path, modo: str,
             continue
 
         if not paso.disponible:
+            # NO VIABLE NO ES PENDIENTE, y la declaracion se toma el trabajo de
+            # distinguirlo. 'pendiente' dice que a la herramienta le falta ese
+            # modulo; 'no_viable' dice que el paso no se puede hacer CON LOS
+            # DATOS DE ESTE ESTUDIO, y por que. Llamar a lo segundo lo primero
+            # sugiere una herramienta incompleta donde lo que hay es una
+            # limitacion del dato, y eso el informe si tiene que defenderlo.
+            if paso.estado == "no_viable":
+                historia.append(Ejecucion(
+                    paso.modulo, paso.nombre, "no viable",
+                    detalle="no se puede con los datos de este estudio; el "
+                            "motivo esta en config/cadena.yaml"))
+                _anunciar("·", etiqueta, "NO VIABLE con los datos disponibles")
+                continue
             historia.append(Ejecucion(
                 paso.modulo, paso.nombre, "pendiente",
                 detalle="el módulo todavía no está programado"))

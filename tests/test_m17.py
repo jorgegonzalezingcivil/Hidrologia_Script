@@ -118,5 +118,74 @@ class PruebaNombreDeCarpeta(unittest.TestCase):
             self.assertNotIn(malo, m17.carpeta_de(pieza))
 
 
+class PruebaOrigenVacio(unittest.TestCase):
+    """
+    Un anexo sin 'origen' es una declaración incompleta, no 'todo'.
+
+    LO QUE PASO. Se declaro un anexo con subanexos usando una clave que el
+    modulo no lee, de modo que el padre se trato como pieza con origen vacio.
+    Ese origen se resolvia contra la raiz del estudio y el recorrido copio el
+    estudio ENTERO dentro del propio paquete de anexos, que ademas cuelga de
+    el: 9,4 GB y un fallo de ruta demasiado larga.
+    """
+
+    def test_no_devuelve_nada(self) -> None:
+        self.assertEqual(m17.buscar_archivos("", Path("."), []), [])
+        self.assertEqual(m17.buscar_archivos("   ", Path("."), []), [])
+
+
+class PruebaCarpetaDelAnexo(unittest.TestCase):
+    """
+    Un anexo puede imponer la carpeta de todos sus subanexos.
+
+    LO NECESITA EL QUE ENTREGA UN PROYECTO DE QGIS. Sus capas se referencian
+    por ruta relativa, y repartidas en carpetas hermanas el proyecto abre sin
+    una sola capa: comprobado sobre este estudio, 51 fuentes en el de planchas
+    y todas relativas.
+    """
+
+    def _pieza(self, **cambios):
+        argumentos = dict(numero="10.1", titulo="Proyecto de trabajo",
+                          origen="x", fuente="cadena", obligatorio=False)
+        argumentos.update(cambios)
+        return m17.Pieza(**argumentos)
+
+    def test_sin_imponerla_usa_su_numero_y_titulo(self) -> None:
+        self.assertEqual(m17.carpeta_de(self._pieza()),
+                         "10.1. Proyecto de trabajo")
+
+    def test_impuesta_manda_sobre_el_numero(self) -> None:
+        self.assertEqual(
+            m17.carpeta_de(self._pieza(carpeta="10. Proyecto SIG editable")),
+            "10. Proyecto SIG editable")
+
+    def test_carpeta_unica_la_reparte_a_los_subanexos(self) -> None:
+        piezas = m17.aplanar({"anexos": [{
+            "numero": "10", "titulo": "Proyecto SIG editable",
+            "carpeta_unica": True,
+            "subanexos": [
+                {"numero": "10.1", "titulo": "Proyecto", "origen": "a"},
+                {"numero": "10.2", "titulo": "Capas", "origen": "b"},
+            ]}]})
+        self.assertEqual({m17.carpeta_de(p) for p in piezas},
+                         {"10. Proyecto SIG editable"})
+
+    def test_sin_carpeta_unica_cada_subanexo_va_al_suyo(self) -> None:
+        piezas = m17.aplanar({"anexos": [{
+            "numero": "1", "titulo": "Información",
+            "subanexos": [
+                {"numero": "1.1", "titulo": "Crudos", "origen": "a"},
+                {"numero": "1.2", "titulo": "ENA", "origen": "b"},
+            ]}]})
+        self.assertEqual(len({m17.carpeta_de(p) for p in piezas}), 2)
+
+    def test_el_destino_interno_se_lee(self) -> None:
+        # Es lo que conserva el arbol que el proyecto de QGIS espera.
+        piezas = m17.aplanar({"anexos": [{
+            "numero": "10.1", "titulo": "Proyecto", "origen": "a",
+            "destino_interno": "data/03_SIG/proyecto"}]})
+        self.assertEqual(piezas[0].destino_interno, "data/03_SIG/proyecto")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
