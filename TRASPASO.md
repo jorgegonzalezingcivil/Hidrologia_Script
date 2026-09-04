@@ -74,24 +74,39 @@ consultor y las plantillas de informe son trabajo propio.
 
 **ANTES DE TRASPASAR, COMPROBAR QUE LO LOCAL ESTÉ ENVIADO.** Es el error que
 deja al nuevo usuario trabajando sobre una versión vieja sin saberlo, porque el
-`git clone` funciona igual y no avisa de nada:
+`git clone` funciona igual y no avisa de nada.
+
+**Primero `git fetch`, y después mirar.** No al revés:
 
 ```bash
+git fetch origin
 git status -sb
 ```
 
-La primera línea dice `## main...origin/main` y, si hay trabajo sin enviar,
-añade `[ahead N]`. Con `N` distinto de cero, enviarlo antes de dar por hecho el
-traspaso:
+`git status` **no consulta al servidor**: compara contra `origin/main`, que es
+una copia local de dónde estaba el remoto la última vez que se habló con él.
+Sin refrescarla puede mentir en las dos direcciones. Pasó aquí, y en la
+dirección que menos se espera: la referencia local se había quedado 21 commits
+atrás y el estado anunciaba `[ahead 21]` sobre un trabajo que **ya estaba
+publicado**. El `git push` respondió `Everything up-to-date` y el susto fue
+gratis; al revés, con la referencia adelantada respecto de lo enviado, el
+estado habría dicho que todo estaba al día y el traspaso se habría dado por
+bueno con trabajo sin subir.
 
-```bash
-git push
-```
-
-Para ver qué es lo que falta por enviar:
+Tras el `fetch`, la primera línea dice `## main...origin/main` y, si hay
+trabajo sin enviar, añade `[ahead N]`. Con `N` distinto de cero:
 
 ```bash
 git log origin/main..main --oneline
+git push
+```
+
+Y la comprobación que no depende de ninguna referencia local, porque pregunta
+al servidor: las dos órdenes deben devolver el mismo identificador.
+
+```bash
+git ls-remote origin main
+git rev-parse main
 ```
 
 Si el servidor rechazara el envío por tamaño, el culpable serían las capas de
@@ -119,6 +134,18 @@ cd C:\Hidrologia_Script
 py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
+
+Y comprobar que lo clonado es lo último, preguntándole al servidor en lugar de
+fiarse de la copia local de la referencia:
+
+```bash
+git fetch origin
+git ls-remote origin main
+git rev-parse main
+```
+
+Los dos identificadores deben coincidir. Si no, el clon quedó de una versión
+anterior y hay que traer lo que falta antes de ejecutar nada.
 
 ### 3.3 Declarar lo propio de esa máquina
 
