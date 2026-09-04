@@ -272,6 +272,23 @@ def main(argv=None) -> int:
     print(f"Paquete: {zip_destino}")
     print(f"  archivos  {archivos}")
     print(f"  tamano    {megas:.1f} MB")
+
+    # DOS PAQUETES EN LA MISMA CARPETA SON UN RIESGO, no una comodidad. El
+    # nombre lleva la fecha, de modo que rearmarlo otro dia deja el anterior al
+    # lado; y el anterior puede estar incompleto, que es exactamente como se
+    # envia el archivo equivocado. No se borra: es un entregable y borrarlo es
+    # decision de quien entrega. Se dice.
+    anteriores = sorted(p for p in destino.glob("*.zip") if p != zip_destino)
+    if anteriores:
+        print()
+        print(f"  ATENCION: hay {len(anteriores)} paquete(s) mas en la misma "
+              "carpeta.")
+        print("  El que se acaba de armar es el de arriba. Los otros son de "
+              "corridas")
+        print("  anteriores y pueden estar incompletos:")
+        for anterior in anteriores:
+            print(f"    - {anterior.name} "
+                  f"({anterior.stat().st_size / (1024 * 1024):.1f} MB)")
     return SALIDA_CORRECTA
 
 
