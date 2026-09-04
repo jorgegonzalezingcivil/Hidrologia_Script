@@ -10,6 +10,7 @@ from __future__ import annotations
 import shutil
 import sys
 import tempfile
+import json
 import unittest
 from pathlib import Path
 
@@ -217,6 +218,72 @@ class PruebaInterpretes(unittest.TestCase):
     def test_una_ruta_absoluta_se_respeta(self) -> None:
         encontrados = cadena.interpretes(_CFG, _RAIZ_REPO)
         self.assertTrue(encontrados["qgis"].is_absolute())
+
+
+class PruebaEmpaquetadoDeEntrega(unittest.TestCase):
+    """
+    El comprimido de entrega se verifica antes de armarse.
+
+    UN .ZIP LO HACE EL EXPLORADOR DE ARCHIVOS. Lo que este paso aporta es
+    comprobar que el entregable esta completo antes de cerrarlo: un informe se
+    escribe igual con una tabla sin llenar o con prosa de otro estudio, y el
+    archivo esta ahi y pesa lo mismo.
+    """
+
+    def setUp(self) -> None:
+        import importlib.util
+
+        ruta = _RAIZ_REPO / "tools" / "empaquetar_entrega.py"
+        if not ruta.is_file():
+            self.skipTest("no esta la herramienta de empaquetado")
+        especificacion = importlib.util.spec_from_file_location(
+            "empaquetar_entrega", ruta)
+        self.modulo = importlib.util.module_from_spec(especificacion)
+        especificacion.loader.exec_module(self.modulo)
+        self.temporal = Path(tempfile.mkdtemp())
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self.temporal, ignore_errors=True)
+
+    def test_sin_informe_no_se_arma(self) -> None:
+        faltan = self.modulo.verificar(
+            self.temporal, self.temporal / "no_existe.docx",
+            self.temporal / "anexos")
+        self.assertTrue(any("informe" in m for m in faltan))
+
+    def test_sin_acta_de_entrega_no_se_arma(self) -> None:
+        """
+        El acta lista la huella de cada anexo.
+
+        Sin ella no hay forma de comprobar meses despues que el anexo
+        entregado es el que el estudio produjo, que es justo lo que una
+        revision reclama.
+        """
+        informe = self.temporal / "informe.docx"
+        informe.write_text("x", encoding="utf-8")
+        anexos = self.temporal / "anexos"
+        anexos.mkdir()
+        faltan = self.modulo.verificar(self.temporal, informe, anexos)
+        self.assertTrue(any("ACTA_DE_ENTREGA" in m for m in faltan))
+
+    def test_un_bloqueante_del_informe_detiene_la_entrega(self) -> None:
+        # El archivo existe y pesa lo mismo con una tabla sin llenar: lo que
+        # dice si esta completo es el reporte del modulo.
+        informe = self.temporal / "informe.docx"
+        informe.write_text("x", encoding="utf-8")
+        anexos = self.temporal / "anexos"
+        anexos.mkdir()
+        (anexos / "ACTA_DE_ENTREGA.md").write_text("x", encoding="utf-8")
+        procesado = self.temporal / "data" / "02_procesado"
+        procesado.mkdir(parents=True)
+        for nombre in ("M15_informe", "M17_anexos"):
+            (procesado / f"{nombre}.json").write_text(
+                json.dumps({"hallazgos": [
+                    {"severidad": "BLOQUEANTE", "clave": "informe.prueba"}]}),
+                encoding="utf-8")
+        faltan = self.modulo.verificar(self.temporal, informe, anexos)
+        self.assertTrue(any("bloqueante" in m for m in faltan))
 
 
 class PruebaDescargaOptativa(unittest.TestCase):
