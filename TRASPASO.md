@@ -133,7 +133,14 @@ git clone https://github.com/jorgegonzalezingcivil/Hidrologia_Script.git C:\Hidr
 cd C:\Hidrologia_Script
 py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe setup_estructura.py
 ```
+
+**El `setup_estructura.py` no es opcional.** Git no versiona directorios
+vacíos, de modo que un clon recién hecho no trae las carpetas de productos que
+la configuración declara. Sin ese paso, la propia suite de verificación falla
+con `data/02_procesado/enso` ausente. Comprobado sobre un clon limpio del
+remoto: 40 carpetas ya presentes y 1 creada, y con ella la suite pasa entera.
 
 Y comprobar que lo clonado es lo último, preguntándole al servidor en lugar de
 fiarse de la copia local de la referencia:
@@ -205,8 +212,14 @@ En este orden. Si algo falla, no seguir: cada paso supone el anterior.
 .venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
 ```
 
-Deben pasar las **1.457** pruebas. Es la comprobación más completa y no toca
+Deben pasar las **1.463** pruebas. Es la comprobación más completa y no toca
 ningún dato.
+
+**En una máquina recién instalada se saltan unas 48**, y eso es lo correcto:
+son las que necesitan QGIS, GRASS, el DEM recortado o una capa de cuenca, es
+decir, datos que todavía no están ahí. Sobre una máquina con el estudio
+cargado bajan a 23. Un número de saltadas mucho mayor apunta a que el
+intérprete de QGIS no responde o a que las capas nacionales no se copiaron.
 
 ```bash
 .venv\Scripts\python.exe src\M00_configuracion.py

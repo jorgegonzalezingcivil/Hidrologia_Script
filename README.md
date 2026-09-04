@@ -48,7 +48,12 @@ cd C:\Hidrologia_Script
 py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m pip install --upgrade pip
 .venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe setup_estructura.py
 ```
+
+La última orden crea las carpetas de productos que la configuración declara.
+Hace falta porque **git no versiona directorios vacíos**: un clon recién hecho
+no las trae, y sin ellas la suite de verificación falla.
 
 El `venv` no se copia de otra máquina: los lanzadores de `Scripts\` llevan la
 ruta absoluta del intérprete embebida y dejan de funcionar al cambiar de sitio.
@@ -131,7 +136,7 @@ Y la suite de pruebas completa:
 .venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
 ```
 
-Deben pasar las **1.457** pruebas. Es la comprobación más completa y no toca
+Deben pasar las **1.463** pruebas. Es la comprobación más completa y no toca
 ningún dato del estudio. Qué significa cada fallo típico:
 
 | Síntoma | Causa |
