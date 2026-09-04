@@ -95,6 +95,10 @@ class Paso:
     script: str = ""
     entorno: str = "venv"
     argumentos: list[str] = field(default_factory=list)
+    # Argumentos que SOLO se pasan cuando la cadena se lanza con --descargar.
+    # La ingesta del IDEAM se hace una vez y las corridas posteriores trabajan
+    # con lo que ya esta en crudos.
+    argumentos_de_descarga: list[str] = field(default_factory=list)
     estado: str = "disponible"
     modos: list[str] = field(default_factory=list)
     opcional: bool = False
@@ -174,6 +178,8 @@ def leer_cadena(raiz_estudio: Path) -> list[Paso]:
             script=str(crudo.get("script", "")),
             entorno=str(crudo.get("entorno", "venv")),
             argumentos=[str(a) for a in (crudo.get("argumentos") or ())],
+            argumentos_de_descarga=[
+                str(a) for a in (crudo.get("argumentos_de_descarga") or ())],
             estado=str(crudo.get("estado", "disponible")),
             modos=[str(m) for m in (crudo.get("modos") or ())],
             opcional=bool(crudo.get("opcional")),
@@ -245,10 +251,13 @@ def interpretes(configuracion, raiz_estudio: Path) -> dict[str, Path]:
 # Ejecución
 # =============================================================================
 def ejecutar_paso(paso: Paso, interprete: Path, raiz_estudio: Path,
-                  silencioso: bool) -> tuple[int, float]:
+                  silencioso: bool, descargar: bool = False,
+                  ) -> tuple[int, float]:
     """Lanza un módulo y devuelve (código de salida, segundos)."""
     orden = [str(interprete), str(_RAIZ_CODIGO / paso.script),
              "--raiz", str(raiz_estudio), *paso.argumentos]
+    if descargar:
+        orden.extend(paso.argumentos_de_descarga)
     if silencioso:
         orden.append("--silencioso")
 
@@ -259,7 +268,8 @@ def ejecutar_paso(paso: Paso, interprete: Path, raiz_estudio: Path,
 
 def correr(pasos: list[Paso], raiz_estudio: Path, modo: str,
            rutas_interprete: dict[str, Path], simular: bool,
-           silencioso: bool, continuar: bool) -> tuple[int, list[Ejecucion]]:
+           silencioso: bool, continuar: bool,
+           descargar: bool = False) -> tuple[int, list[Ejecucion]]:
     """Recorre la cadena y devuelve (código de salida, ejecuciones)."""
     historia: list[Ejecucion] = []
     codigo_final = SALIDA_CORRECTA
@@ -307,8 +317,14 @@ def correr(pasos: list[Paso], raiz_estudio: Path, modo: str,
             return SALIDA_ERROR, historia
 
         if simular:
+            # LA SIMULACION TIENE QUE MOSTRAR LO QUE SE VA A EJECUTAR. Si
+            # compone el comando por su cuenta y omite los argumentos de
+            # descarga, dice una cosa y la corrida hace otra, que es lo que
+            # una simulacion existe para evitar.
             orden = " ".join([interprete.name, paso.script, "--raiz",
-                              str(raiz_estudio), *paso.argumentos])
+                              str(raiz_estudio), *paso.argumentos,
+                              *(paso.argumentos_de_descarga if descargar
+                                else [])])
             historia.append(Ejecucion(paso.modulo, paso.nombre, "simulado",
                                       detalle=orden))
             _anunciar(" ", etiqueta, f"[{paso.entorno}] {orden}")
@@ -316,7 +332,7 @@ def correr(pasos: list[Paso], raiz_estudio: Path, modo: str,
 
         _anunciar(">", etiqueta, f"entorno {paso.entorno}")
         codigo, segundos = ejecutar_paso(paso, interprete, raiz_estudio,
-                                         silencioso)
+                                         silencioso, descargar)
         significado = _SIGNIFICADO.get(codigo, f"código {codigo}")
         historia.append(Ejecucion(paso.modulo, paso.nombre,
                                   "correcto" if codigo == 0 else "detenido",
@@ -379,6 +395,11 @@ def _analizar_argumentos(argv=None):
                             help="Módulos sueltos, separados por coma.")
     analizador.add_argument("--simular", action="store_true",
                             help="Muestra qué se ejecutaría, sin ejecutarlo.")
+    analizador.add_argument(
+        "--descargar", action="store_true",
+        help="Pide al IDEAM las series que falten. Sin esto la cadena trabaja "
+             "con lo que ya hay en crudos, que es lo ordinario: la descarga se "
+             "hace una vez y no es idempotente.")
     analizador.add_argument("--silencioso", action="store_true",
                             help="Los módulos no escriben en consola; su log "
                                  "se escribe igual.")
@@ -424,7 +445,7 @@ def main(argv=None) -> int:
 
     codigo, historia = correr(pasos, raiz_estudio, modo, rutas_interprete,
                               argumentos.simular, argumentos.silencioso,
-                              argumentos.continuar)
+                              argumentos.continuar, argumentos.descargar)
     transcurrido = time.perf_counter() - inicio
     resumir(historia, raiz_estudio, transcurrido)
 

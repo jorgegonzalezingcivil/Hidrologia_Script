@@ -129,7 +129,18 @@ pasos:
     nombre: "Ingesta IDEAM"
     script: "src/M04_ingesta_ideam.py"
     entorno: venv
-    argumentos: ["--descargar"]
+    # LA DESCARGA SE HACE UNA VEZ Y NO EN CADA CORRIDA. Es la decision del
+    # consultor y ademas es lo unico defendible: la descarga NO ES IDEMPOTENTE
+    # (un registro hoy Preliminar puede ser Definitivo manana) y volver a
+    # traerla en cada pasada cambiaria la serie bajo un informe ya redactado.
+    #
+    # Ademas costaba tiempo sin traer nada: con el estudio ya descargado, una
+    # pasada tardaba cuarenta y tres minutos preguntando por series que no
+    # existen y saltando las que ya estaban.
+    #
+    # 'argumentos_de_descarga' se anaden solo cuando la cadena se lanza con
+    # '--descargar'. Sin eso, el modulo lee lo que hay en crudos.
+    argumentos_de_descarga: ["--descargar"]
     estado: disponible
 
   - modulo: M04b

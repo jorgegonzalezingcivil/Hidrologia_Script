@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime as _dt
 import itertools
 import io
 import json
@@ -451,8 +452,50 @@ def _parece_base64_zip(valor) -> bool:
         return False
     return valor.lstrip().startswith("UEsD")
 
+ARCHIVO_SIN_DATOS = "sin_datos.csv"
+
+
+def leer_sin_datos(destino: Path) -> dict[str, str]:
+    """
+    Combinaciones que el servicio ya respondio 'sin datos', con su fecha.
+
+    POR QUE SE RECUERDAN. El servicio no falla cuando una estacion no tiene una
+    serie: devuelve un mensaje de texto. Sin registrarlo, cada corrida de la
+    cadena vuelve a preguntar por lo mismo, con su envio de trabajo, su espera
+    y su pausa entre peticiones. Medido en este estudio: 159 combinaciones sin
+    datos, y una pasada del M04 que no traia un solo archivo nuevo tardaba
+    cuarenta y tres minutos.
+
+    LA DESCARGA ES DE UNA SOLA VEZ y las corridas posteriores trabajan con lo
+    que ya esta; este registro es lo que hace que eso sea cierto tambien para
+    las series que no existen. Se guarda la fecha de la respuesta para que se
+    sepa de cuando es, y '--redescargar' lo ignora.
+    """
+    ruta = Path(destino) / ARCHIVO_SIN_DATOS
+    if not ruta.is_file():
+        return {}
+    registro_previo: dict[str, str] = {}
+    with ruta.open(encoding="utf-8-sig", newline="") as manejador:
+        for fila in csv.DictReader(manejador, delimiter=";"):
+            clave = str(fila.get("clave", "")).strip()
+            if clave:
+                registro_previo[clave] = str(fila.get("fecha", "")).strip()
+    return registro_previo
+
+
+def escribir_sin_datos(destino: Path, registro_previo: dict[str, str]) -> None:
+    """Guarda el registro de combinaciones sin datos, ordenado."""
+    ruta = Path(destino) / ARCHIVO_SIN_DATOS
+    with ruta.open("w", encoding="utf-8-sig", newline="") as manejador:
+        escritor = csv.writer(manejador, delimiter=";")
+        escritor.writerow(["clave", "fecha"])
+        for clave in sorted(registro_previo):
+            escritor.writerow([clave, registro_previo[clave]])
+
+
 def descargar_inventario(configuracion, base, logger, resultado,
-                         limite_estaciones=None, etiquetas=None) -> int:
+                         limite_estaciones=None, etiquetas=None,
+                         redescargar: bool = False) -> int:
     """
     Descarga las series de las estaciones seleccionadas por el M03.
 
@@ -496,6 +539,14 @@ def descargar_inventario(configuracion, base, logger, resultado,
                 len(estaciones), len(tramos))
 
     escritos = 0
+    # Cuantas peticiones se dan por hechas porque el archivo ya estaba. Se
+    # cuenta y se reporta: sin ese numero, '0 archivo(s) nuevos' se lee como
+    # que el servicio no tenia nada nuevo, cuando puede que no se le haya
+    # preguntado ni una sola vez.
+    omitidos = [0]
+    sin_datos = {} if redescargar else leer_sin_datos(destino)
+    sin_datos_previos = len(sin_datos)
+    hoy = _dt.date.today().isoformat()
     for indice, estacion in enumerate(estaciones, start=1):
         codigo = str(estacion["codigo"]).strip()
         deseadas = series_de_estacion(estacion["categoria"], categorias, catalogo)
@@ -525,8 +576,29 @@ def descargar_inventario(configuracion, base, logger, resultado,
                 marca = grupo[0].etiqueta if len(grupo) == 1 else f"g{i // lote}"
                 archivo = destino / (
                     f"dhime_{codigo}_{marca}_{desde[:4]}_{hasta[:4]}.zip")
-                if archivo.is_file():
+                clave = f"{codigo}|{'+'.join(g.etiqueta for g in grupo)}|{desde[:4]}-{hasta[:4]}"
+                if clave in sin_datos:
+                    # YA SE PREGUNTO Y NO HABIA. Volver a preguntarlo cuesta un
+                    # trabajo, su espera y su pausa, y la respuesta no va a
+                    # cambiar por correr la cadena otra vez.
+                    omitidos[0] += 1
                     continue
+                if archivo.is_file() and not redescargar:
+                    # NO SE LE PREGUNTA AL SERVICIO. El archivo existe y se da
+                    # por bueno, que es lo que permite completar una descarga
+                    # interrumpida sin repetir lo ya traido.
+                    #
+                    # PERO EL MODULO DECIA 'descargar' Y NO DESCARGABA NADA.
+                    # Con el estudio entero ya descargado, una corrida de la
+                    # cadena informaba de '0 archivo(s) nuevos' tras cuarenta
+                    # minutos de recorrer y saltar, y eso se lee como que el
+                    # IDEAM no tiene nada nuevo. No se le habia preguntado: los
+                    # .zip de este estudio eran de tres semanas antes. Con
+                    # '--redescargar' se vuelve a pedir todo.
+                    omitidos[0] += 1
+                    continue
+                if archivo.is_file():
+                    archivo.unlink()
                 try:
                     trabajo = dhime.enviar_trabajo(grupo, desde, hasta)
                     dhime.esperar_trabajo(trabajo)
@@ -548,6 +620,7 @@ def descargar_inventario(configuracion, base, logger, resultado,
                             f"{[g.etiqueta for g in grupo]}. "
                             f"El servicio respondio: {str(valor)[:80]!r}",
                         ))
+                        sin_datos[clave] = hoy
                         time.sleep(espera)
                         continue
                     crudo = base64.b64decode(valor)
@@ -568,7 +641,9 @@ def descargar_inventario(configuracion, base, logger, resultado,
             logger.info("  %d/%d estaciones | %d archivo(s) nuevos",
                         indice, len(estaciones), escritos)
 
-    return escritos
+    if len(sin_datos) != sin_datos_previos:
+        escribir_sin_datos(destino, sin_datos)
+    return escritos, omitidos[0]
 
 
 # =============================================================================
@@ -583,6 +658,7 @@ def ejecutar(
     etiquetas: tuple | None = None,
     ruta_json: Path | None = None,
     consola: bool = True,
+    redescargar: bool = False,
 ) -> tuple[int, list[Hallazgo]]:
     """Lee, normaliza, deduplica y escribe la serie consolidada."""
     inicio = time.perf_counter()
@@ -640,10 +716,23 @@ def ejecutar(
 
     if configuracion.obtener("ideam.descarga.activar", False) or descargar:
         with registro.bloque(logger, "Descarga desde el servicio DHIME"):
-            nuevos = descargar_inventario(configuracion, base, logger,
-                                          resultado, limite_estaciones,
-                                          etiquetas)
-            logger.info("Archivos nuevos descargados: %d", nuevos)
+            nuevos, omitidos = descargar_inventario(
+                configuracion, base, logger, resultado, limite_estaciones,
+                etiquetas, redescargar)
+            logger.info("Archivos nuevos descargados: %d | peticiones "
+                        "omitidas por archivo ya presente: %d",
+                        nuevos, omitidos)
+            if omitidos and not redescargar:
+                resultado.hallazgos.append(Hallazgo(
+                    ADVERTENCIA, "ideam.descarga_omitida",
+                    f"{omitidos} petición(es) NO se hicieron porque el archivo "
+                    "ya estaba en el directorio de crudos. Eso permite "
+                    "completar una descarga interrumpida sin repetir lo "
+                    "traído, pero significa que al servicio NO se le preguntó: "
+                    f"'{nuevos} archivo(s) nuevos' no dice que el IDEAM no "
+                    "tenga nada nuevo. Para traer de nuevo la serie completa, "
+                    "ejecutar con '--redescargar'.",
+                ))
 
     archivos = sorted(directorio.glob("*.zip"))
     if not archivos:
@@ -952,6 +1041,9 @@ def _analizar_argumentos(argv: Sequence[str] | None = None) -> argparse.Namespac
     analizador.add_argument("--solo-inventario", action="store_true",
                             dest="solo_inventario",
                             help="Caracteriza sin escribir la serie consolidada.")
+    analizador.add_argument(
+        "--redescargar", action="store_true",
+        help="Vuelve a pedir al servicio las series que ya estan descargadas.")
     analizador.add_argument("--descargar", action="store_true",
                             help="Descarga las series del inventario del M03.")
     analizador.add_argument("--limite-estaciones", type=int, default=None,
@@ -972,7 +1064,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         codigo, _ = ejecutar(
             raiz=argumentos.raiz, ruta_config=argumentos.config,
             solo_inventario=argumentos.solo_inventario,
-            descargar=argumentos.descargar,
+            descargar=argumentos.descargar or argumentos.redescargar,
+            redescargar=argumentos.redescargar,
             limite_estaciones=argumentos.limite_estaciones,
             etiquetas=(tuple(e.strip() for e in
                              argumentos.etiquetas.split(','))

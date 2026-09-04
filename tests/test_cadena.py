@@ -219,6 +219,44 @@ class PruebaInterpretes(unittest.TestCase):
         self.assertTrue(encontrados["qgis"].is_absolute())
 
 
+class PruebaDescargaOptativa(unittest.TestCase):
+    """
+    La ingesta del IDEAM se hace UNA VEZ, no en cada corrida.
+
+    POR QUE. La descarga NO ES IDEMPOTENTE: un registro hoy Preliminar puede
+    ser Definitivo manana, de modo que repetirla en cada pasada cambiaria la
+    serie bajo un informe ya redactado. Y ademas costaba tiempo sin traer nada:
+    con el estudio ya descargado, una pasada tardaba cuarenta y tres minutos
+    preguntando por series que no existen y saltando las que ya estaban.
+    """
+
+    def _pasos(self):
+        import yaml
+
+        declaracion = _RAIZ_REPO / "config" / "cadena.yaml"
+        if not declaracion.is_file():
+            self.skipTest("no esta la declaracion de la cadena")
+        with declaracion.open(encoding="utf-8") as manejador:
+            return (yaml.safe_load(manejador) or {}).get("pasos") or []
+
+    def test_ningun_paso_descarga_de_forma_ordinaria(self) -> None:
+        # '--descargar' no puede estar en 'argumentos', que se pasan siempre.
+        for paso in self._pasos():
+            with self.subTest(modulo=paso.get("modulo")):
+                self.assertNotIn(
+                    "--descargar",
+                    [str(a) for a in (paso.get("argumentos") or ())])
+
+    def test_la_ingesta_declara_su_argumento_de_descarga(self) -> None:
+        # Y tiene que seguir pudiendo descargar cuando se pide.
+        ingesta = next((p for p in self._pasos()
+                        if str(p.get("modulo")) == "M04"), None)
+        self.assertIsNotNone(ingesta, "no esta declarado el paso M04")
+        self.assertIn("--descargar",
+                      [str(a) for a in
+                       (ingesta.get("argumentos_de_descarga") or ())])
+
+
 class PruebaBanderaSilenciosa(unittest.TestCase):
     """
     Todo modulo de la cadena tiene que admitir '--silencioso'.
