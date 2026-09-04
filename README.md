@@ -38,7 +38,7 @@ Además del repositorio hacen falta dos cosas que **no** están en él:
 ### 2.1 Obtener el repositorio
 
 ```
-git clone <url-del-remoto> C:\Hidrologia_Script
+git clone https://github.com/jorgegonzalezingcivil/Hidrologia_Script.git C:\Hidrologia_Script
 cd C:\Hidrologia_Script
 ```
 

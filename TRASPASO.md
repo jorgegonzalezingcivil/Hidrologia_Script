@@ -61,28 +61,42 @@ justificaron.
 
 ---
 
-## 2. Publicar el repositorio
+## 2. El repositorio remoto
 
-Hoy el repositorio **solo existe en esta máquina** y no tiene remoto. Sin
-publicarlo, el nuevo usuario recibiría una copia de archivos sin historial, y
-con ella se pierde el registro de por qué se tomó cada decisión, que es lo que
-la sección 7 de `CLAUDE.md` exige poder mostrar ante interventoría.
+**Ya está publicado**, en un repositorio privado de GitHub:
 
-Crear un repositorio **privado** y vacío en GitHub, Azure DevOps o el servidor
-de la empresa. Privado, no público: la doctrina técnica transcrita de las
-tablas del consultor y las plantillas de informe son trabajo propio.
-
-Después, desde esta máquina:
-
-```bash
-git remote add origin <URL del repositorio vacío>
-git push -u origin main
+```
+https://github.com/jorgegonzalezingcivil/Hidrologia_Script.git
 ```
 
-Si el servidor rechaza el envío por tamaño, el culpable son las capas de
-`data/referencia/sig/`, que suman unos 30 MB. Casi todos los servidores
-admiten 120 MB sin problema; GitHub avisa por encima de 50 MB **por archivo**,
-y aquí el mayor es de 15 MB.
+Privado, no público: la doctrina técnica transcrita de las tablas del
+consultor y las plantillas de informe son trabajo propio.
+
+**ANTES DE TRASPASAR, COMPROBAR QUE LO LOCAL ESTÉ ENVIADO.** Es el error que
+deja al nuevo usuario trabajando sobre una versión vieja sin saberlo, porque el
+`git clone` funciona igual y no avisa de nada:
+
+```bash
+git status -sb
+```
+
+La primera línea dice `## main...origin/main` y, si hay trabajo sin enviar,
+añade `[ahead N]`. Con `N` distinto de cero, enviarlo antes de dar por hecho el
+traspaso:
+
+```bash
+git push
+```
+
+Para ver qué es lo que falta por enviar:
+
+```bash
+git log origin/main..main --oneline
+```
+
+Si el servidor rechazara el envío por tamaño, el culpable serían las capas de
+`data/referencia/sig/`, que suman unos 30 MB. GitHub avisa por encima de 50 MB
+**por archivo**, y aquí el mayor es `CNE_IDEAM_Final.dbf`, de 15 MB.
 
 ---
 
@@ -100,7 +114,7 @@ y aquí el mayor es de 15 MB.
 ### 3.2 Traer el repositorio
 
 ```bash
-git clone <URL del repositorio> C:\Hidrologia_Script
+git clone https://github.com/jorgegonzalezingcivil/Hidrologia_Script.git C:\Hidrologia_Script
 cd C:\Hidrologia_Script
 py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
