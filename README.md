@@ -128,10 +128,11 @@ Tres comprobaciones, en este orden. Si alguna falla, no seguir adelante.
 Y la suite de pruebas completa:
 
 ```
-Get-ChildItem tests\test_*.py | ForEach-Object { .venv\Scripts\python.exe $_.FullName }
+.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
 ```
 
-Las 17 suites deben terminar en `OK`. Qué significa cada fallo típico:
+Deben pasar las **1.457** pruebas. Es la comprobación más completa y no toca
+ningún dato del estudio. Qué significa cada fallo típico:
 
 | Síntoma | Causa |
 |---|---|
@@ -224,6 +225,27 @@ Para un tramo, o para módulos sueltos:
 .venv\Scripts\python.exe ejecutar_cadena.py --raiz ... --solo M10
 ```
 
+**La cadena NO descarga del IDEAM por omisión.** Trabaja con lo que ya está en
+`data/01_crudos`. La descarga se pide una sola vez y de forma explícita:
+
+```
+.venv\Scripts\python.exe ejecutar_cadena.py --raiz ... --descargar
+```
+
+No es cuestión de tiempo sino de defendibilidad: la consulta al IDEAM **no es
+idempotente**, un registro hoy `Preliminar` puede ser `Definitivo` mañana, y
+repetirla en cada pasada cambiaría la serie bajo un informe ya redactado.
+
+El M04 registra además en `sin_datos.csv`, junto a los `.zip`, las
+combinaciones de estación y serie que el servicio respondió sin datos, con la
+fecha de esa respuesta, para no volver a preguntarlas. En el estudio de
+referencia son 158, y preguntarlas en cada pasada costaba media hora sin traer
+un solo archivo. Para pedirlo todo de nuevo, ignorando ese registro:
+
+```
+.venv\Scripts\python.exe src\M04_ingesta_ideam.py --raiz ... --redescargar
+```
+
 La cadena se detiene en tres sitios, y en los tres dice por qué:
 
 | Se detiene en | Motivo |
@@ -261,7 +283,7 @@ parámetros usados y la fecha. Los códigos de salida son comunes:
 |---|---|
 | 0 | Producido sin hallazgos bloqueantes |
 | 1 | Hay hallazgos bloqueantes; el producto no es utilizable |
-| 2 | Solo el M00: hay advertencias y se pidió modo estricto |
+| 2 | Un argumento que el módulo no reconoce. Lo devuelve `argparse`, antes de que el módulo escriba una sola línea de log |
 | 3 | No se pudo leer la configuración o los insumos |
 
 Un módulo se detiene y reporta; nunca produce un resultado incorrecto en
@@ -275,10 +297,91 @@ La delimitación asistida en HEC-HMS. El M09 prepara los insumos con
 
 ---
 
+## 5b. La redacción del informe
+
+El M15 no inventa estructura: llena lo que la plantilla pide. La plantilla
+marca en verde tres clases de instrucción y el módulo las reconoce por su
+texto, no por el color, porque el sombreado se pierde al copiar y pegar.
+
+| Instrucción | Qué hace el módulo |
+|---|---|
+| `Colocar Figura: <archivo>.png` | inserta la figura. Si la instrucción añade `de la carpeta <subcarpeta>`, **esa carpeta manda**: hay nombres repetidos en dos carpetas y elegir por nombre puso tres figuras equivocadas en un entregable |
+| `Completar la Tabla N` | llena la tabla desde el CSV declarado en `config/informe_tablas.yaml` |
+| `Agregar gráficos de la subcarpeta X` | coloca la **carpeta entera**, con leyenda, fuente y un párrafo por figura, según `config/informe_tandas.yaml` |
+| `Analizar…`, `Escribir…`, `Redactar…` | sustituye la instrucción por el texto declarado en el `config/analisis.yaml` **del estudio** |
+
+Los análisis viven en el estudio y no en la plantilla. Un análisis habla de los
+números de su proyecto, y escrito en la plantilla, que es compartida, los
+llevaría al estudio siguiente. Cuando a un análisis le falta un dato que la
+cadena no puede aportar, se declara `resaltar: true` y el párrafo entra
+**resaltado en rosa**: un párrafo escrito sobre un dato que falta se lee igual
+que uno completo, y eso en un entregable es peor que un hueco.
+
+El módulo comprueba además dos cosas que no se ven al revisar:
+
+- **Prosa heredada del informe de referencia.** La plantilla se derivó de un
+  informe ya entregado y conserva su redacción, con su río, su municipio y sus
+  cifras. Eso no es una instrucción sin resolver ni una tabla vacía: es prosa
+  correcta sobre otro proyecto. Se comprueba contra
+  `config/informe_identidad.yaml` y es **bloqueante**.
+- **Párrafos de un análisis que la cadena no hace.** La plantilla cubre un
+  entregable más amplio (modelación hidráulica y socavación) y esas
+  conclusiones siguen ahí con las cifras del informe de referencia. Se marcan
+  en rosa y no se borran, porque sirven de modelo de redacción.
+
+Los campos de Word (leyendas numeradas por `SEQ`, los tres índices) quedan
+marcados para recalcularse al abrir. Word pregunta si actualizar: hay que
+responder **sí**. Solo Word lo hace; ningún visor lo resuelve.
+
+---
+
+## 5c. Cerrar la entrega
+
+Dos herramientas, fuera de la cadena, que se lanzan cuando el informe está
+listo:
+
+```
+.venv\Scripts\python.exe tools\verificar_informe.py
+.venv\Scripts\python.exe tools\empaquetar_entrega.py --raiz C:\Estudios\<nombre>
+```
+
+`verificar_informe.py` contrasta las cifras que el texto del informe cita
+contra los productos de la cadena, comparando el valor **como el lector lo ve**
+(coma decimal, punto de miles) y no el número crudo. Si la cadena se vuelve a
+correr y un valor cambia, el texto seguiría diciendo el viejo y nada lo
+advertiría: el informe se genera igual, con las tablas y las figuras nuevas y
+la prosa vieja.
+
+`empaquetar_entrega.py` verifica antes de comprimir: que estén el informe y el
+acta de entrega con la huella de cada anexo, y que ni el M15 ni el M17 hayan
+dejado un hallazgo bloqueante. Escribe un `LEEME.md` con el commit de la
+herramienta que produjo el entregable, la tabla de caudales y lo que queda
+pendiente, tomado de los propios hallazgos de los módulos. Un `.zip` lo hace el
+explorador de archivos; lo que aporta este paso es comprobar que el entregable
+está completo antes de cerrarlo.
+
+El diagrama de flujo de toda la rutina está en
+[docs/diagrama_cadena.pdf](docs/diagrama_cadena.pdf), y se regenera con:
+
+```
+.venv\Scripts\python.exe tools\diagrama_cadena.py
+```
+
+Se dibuja leyendo `config/cadena.yaml`, de modo que no puede desfasarse cuando
+se añade o se cambia un módulo.
+
+---
+
 ## 6. Estructura
 
 ```
-config/         config.yaml compartido y la plantilla de configuración local
+config/         config.yaml compartido, la cadena y las declaraciones del informe
+config/cadena.yaml       el orden, el entorno y los argumentos de cada paso
+config/informe_tablas.yaml    qué CSV alimenta cada tabla del informe
+config/informe_tandas.yaml    las carpetas de gráficos individuales y su leyenda
+config/informe_identidad.yaml los términos del informe de referencia que no deben quedar
+config/migraciones.yaml       qué cambió en cada versión del esquema, y qué hacer
+tools/          herramientas que corren fuera de la cadena, ver 5c
 src/            un archivo por módulo, más comun/ y las librerías compartidas
 src/comun/      configuración, rutas, logging, adaptadores de formato
 data/referencia/ doctrina técnica: tablas y coeficientes, nunca en el código

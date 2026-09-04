@@ -164,7 +164,7 @@ En este orden. Si algo falla, no seguir: cada paso supone el anterior.
 .venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
 ```
 
-Deben pasar las **1.256** pruebas. Es la comprobación más completa y no toca
+Deben pasar las **1.457** pruebas. Es la comprobación más completa y no toca
 ningún dato.
 
 ```bash
@@ -265,13 +265,97 @@ criterio visual. Se ajusta abriendo `templates/planchas.qgz` en QGIS, moviendo
 las dos cajas y guardando. **Lo que se guarde ahí queda fijo para todos los
 estudios siguientes**, así que se hace una vez.
 
-**Los 47 análisis del informe.** El M15 resuelve lo mecánico (92 figuras y 27
-tablas) y deja en verde las instrucciones que empiezan por "Analizar". Exigen
-mirar el resultado y decir qué significa, y eso no se programa.
+**La redacción del informe.** El M15 resuelve lo mecánico: en el estudio de
+referencia, 254 figuras y 30 tablas. Las instrucciones de redacción se
+resuelven con el texto declarado en `config/analisis.yaml` **del estudio**, que
+es donde vive porque habla de los números de ese proyecto. Un estudio nuevo
+empieza sin ese archivo y las 73 instrucciones quedan en verde hasta que se
+redacten.
+
+Lo que no se automatiza y hay que revisar en cada estudio:
+
+- Los párrafos que la cadena redacta pero a los que les falta un dato externo.
+  Entran **resaltados en rosa** y el módulo los enumera en su reporte.
+- Los párrafos de la modelación hidráulica y del análisis de socavación, que la
+  plantilla trae del informe de referencia y esta cadena no produce. También en
+  rosa, y no se borran porque sirven de modelo de redacción.
+- Abrir el documento en Word y aceptar la actualización de campos.
 
 **La calibración del modelo (M14b).** No está programada porque en este estudio
 no había con qué: las estaciones LG y LM del área registran nivel, no caudal.
-Si el estudio nuevo tiene series de caudal utilizables, hay que programarla.
+Si el estudio nuevo tiene series de caudal utilizables, hay que programarla. Lo
+que sí corre es el **M14c**, que contrasta el modelo contra los caudales
+observados sin ajustar ningún parámetro: es una verificación, no una
+calibración, y el informe debe declarar cuál de las dos ocurrió.
+
+---
+
+## 6b. El diagrama de la rutina
+
+Antes de tocar nada, conviene mirar
+[docs/diagrama_cadena.pdf](docs/diagrama_cadena.pdf): las diez etapas, los 35
+pasos, con qué intérprete corre cada uno, dónde está el único paso manual y qué
+herramientas corren fuera de la cadena. Se regenera con:
+
+```bash
+.venv\Scripts\python.exe tools\diagrama_cadena.py
+```
+
+Se dibuja leyendo `config/cadena.yaml`, de modo que no puede desfasarse cuando
+se añade o se cambia un módulo. Un diagrama que se dibuja aparte se desfasa a
+la primera, y un diagrama desfasado es peor que ninguno: se cree.
+
+---
+
+## 6c. La descarga del IDEAM se hace una vez
+
+Es la regla que más veces se malinterpreta al llegar a una máquina nueva.
+
+**La cadena no descarga por omisión.** Trabaja con lo que hay en
+`data/01_crudos`. Para el primer llenado de un estudio nuevo:
+
+```bash
+.venv\Scripts\python.exe ejecutar_cadena.py --raiz C:\Estudios\<nombre> --descargar
+```
+
+Después de esa vez, ninguna corrida vuelve a pedir nada. La razón es la de
+siempre: la consulta **no es idempotente**, y repetirla cambiaría la serie bajo
+un informe ya redactado.
+
+Dos cosas que conviene saber para no leer mal el log:
+
+- El M04 **salta** las estaciones cuyo `.zip` ya existe, sin consultar al
+  servicio. Por eso reporta cuántas peticiones omitió: `0 archivos nuevos` no
+  significa que el IDEAM no tenga nada nuevo, significa que no se le preguntó.
+- Las combinaciones de estación y serie que el servicio responde sin datos
+  quedan anotadas en `sin_datos.csv`, junto a los `.zip`, con la fecha. Sin ese
+  registro, cada corrida volvía a preguntar por ellas: son 158 en el estudio de
+  referencia y costaban media hora por pasada.
+
+Para traerlo todo otra vez, ignorando ese registro, `M04 --redescargar`.
+
+---
+
+## 6d. Cerrar la entrega
+
+```bash
+.venv\Scripts\python.exe tools\verificar_informe.py
+.venv\Scripts\python.exe tools\empaquetar_entrega.py --raiz C:\Estudios\<nombre>
+```
+
+El primero contrasta las cifras que el texto del informe cita contra los
+productos de la cadena. Hace falta porque los análisis citan números concretos:
+si la cadena se vuelve a correr y alguno cambia, el texto seguiría diciendo el
+viejo y nada lo advertiría.
+
+El segundo comprueba que el entregable esté completo (informe, acta de entrega
+con la huella de cada anexo, ningún hallazgo bloqueante del M15 ni del M17) y
+arma el comprimido con un `LEEME.md` que lleva el commit de la herramienta que
+lo produjo.
+
+**La tabla de cifras que verifica el primero es del estudio de referencia.**
+Al abrir un estudio nuevo hay que revisarla: `tools/verificar_informe.py`
+declara la ruta del estudio y las cifras esperadas al principio del archivo.
 
 ---
 
